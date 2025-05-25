@@ -9,26 +9,31 @@
   // Wait for browser window to be ready
   if (location.href !== "chrome://browser/content/browser.xhtml") return;
 
-  // --- Configuration ---
-  const MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
-  const MISTRAL_MODEL = "pixtral-large-latest";
-  let ENABLE_AI_RENAMING = true;
+  // --- Configuration via Firefox Preferences ---
+  // Available preferences (set in about:config):
+  // extensions.downloads.mistral_api_key - Your Mistral API key (required for AI renaming)
+  // extensions.downloads.enable_debug - Enable debug logging (default: false)
+  // extensions.downloads.debug_ai_only - Only log AI-related messages (default: true)
+  // extensions.downloads.enable_ai_renaming - Enable AI-powered file renaming (default: true)
+  // extensions.downloads.disable_autohide - Disable automatic hiding of completed downloads (default: false)
+  // extensions.downloads.autohide_delay_ms - Delay before auto-hiding completed downloads (default: 20000)
+  // extensions.downloads.interaction_grace_period_ms - Grace period after user interaction (default: 5000)
+  // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
+  // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
+  // extensions.downloads.mistral_api_url - Mistral API endpoint (default: "https://api.mistral.ai/v1/chat/completions")
+  // extensions.downloads.mistral_model - Mistral model to use (default: "pixtral-large-latest")
+
+  // Legacy constants for compatibility
   const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
   const DISABLE_AUTOHIDE_PREF = "extensions.downloads.disable_autohide";
-  const AI_RENAMING_MAX_FILENAME_LENGTH = 70;
-  const CARD_AUTOHIDE_DELAY_MS = 20000;
-  const MAX_CARDS_DOM_LIMIT = 10;
-  const CARD_INTERACTION_GRACE_PERIOD_MS = 5000;
-  const PREVIEW_SIZE = "42px";
   const IMAGE_LOAD_ERROR_ICON = "🚫";
   const TEMP_LOADER_ICON = "⏳";
   const RENAMED_SUCCESS_ICON = "✓";
-  const DEBUG_LOGGING = true;
-  const MAX_FILE_SIZE_FOR_AI = 50 * 1024 * 1024; // 50MB limit
   const IMAGE_EXTENSIONS = new Set([
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif",
     ".ico", ".tif", ".tiff", ".jfif"
   ]);
+
 
   // Platform-agnostic path separator detection
   const PATH_SEPARATOR = navigator.platform.includes("Win") ? "\\" : "/";
@@ -46,14 +51,27 @@
   let orderedPodKeys = []; // Newest will be at the end
   let lastRotationDirection = null; // Track rotation direction: 'forward', 'backward', or null
 
-  // Add debug logging function
-  function debugLog(message, data = null) {
-    if (!DEBUG_LOGGING) return;
-    const timestamp = new Date().toISOString();
-    if (data) {
-      console.log(`[${timestamp}] Download Preview: ${message}`, data);
-    } else {
-      console.log(`[${timestamp}] Download Preview: ${message}`);
+
+  // Add debug logging function with Firefox preferences support
+  function debugLog(message, data = null, category = 'general') {
+    try {
+      const debugEnabled = getPref("extensions.downloads.enable_debug", false);
+      const debugAiOnly = getPref("extensions.downloads.debug_ai_only", true);
+      
+      if (!debugEnabled) return;
+      if (debugAiOnly && category !== 'aiRename' && category !== 'general') return;
+      
+      const timestamp = new Date().toISOString();
+      const prefix = `[${timestamp}] Download Preview [${category.toUpperCase()}]:`;
+      
+      if (data) {
+        console.log(`${prefix} ${message}`, data);
+      } else {
+        console.log(`${prefix} ${message}`);
+      }
+    } catch (e) {
+      // Fallback if preferences fail
+      console.log(`[Download Preview] ${message}`, data || '');
     }
   }
 
@@ -88,11 +106,12 @@
 
   // Robust initialization
   function init() {
+    console.log("=== DOWNLOAD PREVIEW SCRIPT STARTING ===");
+    
     debugLog("Starting initialization");
     if (!window.Downloads?.getList) {
       console.error("Download Preview Mistral AI: Downloads API not available");
       aiRenamingPossible = false;
-      ENABLE_AI_RENAMING = false;
       return;
     }
     try {
@@ -101,6 +120,7 @@
           if (list) {
             debugLog("Downloads API verified");
             await verifyMistralConnection();
+            console.log("=== MISTRAL VERIFICATION COMPLETE, aiRenamingPossible:", aiRenamingPossible, "===");
             if (aiRenamingPossible) {
               debugLog("AI renaming enabled - all systems verified");
             } else {
@@ -114,14 +134,14 @@
         .catch((e) => {
           console.error("Downloads API verification failed:", e);
           aiRenamingPossible = false;
-          ENABLE_AI_RENAMING = false;
         });
     } catch (e) {
       console.error("Download Preview Mistral AI: Init failed", e);
       aiRenamingPossible = false;
-      ENABLE_AI_RENAMING = false;
     }
   }
+
+
 
   // Wait for window load
   if (document.readyState === "complete") {
@@ -138,56 +158,27 @@
       if (!downloadCardsContainer) {
         downloadCardsContainer = document.createElement("div");
         downloadCardsContainer.id = "userchrome-download-cards-container";
-        downloadCardsContainer.setAttribute("style", `
-          position: fixed !important;
-          left: 0px !important; /* Align container to window left */
-          bottom: 20px !important;
-          z-index: 2147483647 !important;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start; 
-          gap: 0px; 
-          pointer-events: auto;
-        `);
+        // Basic styles are now in CSS file, only dynamic overrides here if needed
         document.body.appendChild(downloadCardsContainer);
 
         // Create the single master tooltip element (fixed position at the top of the container)
         masterTooltipDOMElement = document.createElement("div");
         masterTooltipDOMElement.className = "details-tooltip master-tooltip";
-        masterTooltipDOMElement.style.position = "relative"; 
-        masterTooltipDOMElement.style.order = "0"; 
-        masterTooltipDOMElement.style.marginLeft = "12px"; // Add this line
-        masterTooltipDOMElement.style.width = "350px"; 
-        masterTooltipDOMElement.style.minWidth = "176.3333282470703px";
-        masterTooltipDOMElement.style.boxSizing = "border-box";
-        masterTooltipDOMElement.style.background = "rgba(25,25,25,0.97)";
-        masterTooltipDOMElement.style.borderRadius = "10px";
-        masterTooltipDOMElement.style.boxShadow = "0 5px 15px rgba(0,0,0,0.35)";
-        masterTooltipDOMElement.style.padding = "12px 15px 12px 10px"; // Adjusted padding: T, R, B, L
-        masterTooltipDOMElement.style.color = "white";
-        masterTooltipDOMElement.style.zIndex = "1001"; 
-        masterTooltipDOMElement.style.display = "flex"; // Changed from "none"
-        masterTooltipDOMElement.style.flexDirection = "column";
-        masterTooltipDOMElement.style.gap = "5px";
-        masterTooltipDOMElement.style.pointerEvents = "none";
-        masterTooltipDOMElement.style.opacity = "0"; // Start hidden
-        masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)"; // Start transformed
-        masterTooltipDOMElement.style.transformOrigin = "bottom left"; // Origin for animation
-        masterTooltipDOMElement.style.transition = "opacity 0.3s ease-out 0.15s, transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1.1) 0.15s, width 0.2s ease-out";
-        masterTooltipDOMElement.style.marginBottom = "12px"; // Space between tooltip and pod row
+        // Most styles are now in CSS file, only dynamic styles remain inline
 
         masterTooltipDOMElement.innerHTML = `
-          <div class="card-status" style="font-size:12px; color:#a0a0a0; line-height:1.2;">Tooltip Status</div>
-          <div class="card-title" style="font-size:15px; font-weight:600; line-height:1.3; color:#f0f0f0; /* white-space:nowrap; overflow:hidden; text-overflow:ellipsis; */ word-break: break-word; padding-right: 50px; box-sizing: border-box; margin-top: 2px; margin-bottom: 2px;">Tooltip Title</div>
-          <div class="card-original-filename" style="font-size:12px; color:#888; text-decoration: line-through; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:none; margin-bottom: 2px;">Original Filename</div>
-          <div class="card-progress" style="font-size:11px; color:#888;">Tooltip Progress</div>
-          <div class="tooltip-buttons-container" style="position:absolute; top:6px; right:8px; display:flex; align-items:center;">
-            <span class="card-undo-button" title="Undo Rename" tabindex="0" role="button" style="background:none; border:none; color:#aaa; cursor:pointer; padding: 0px 4px 0px 0px; line-height:1; display:none; pointer-events:auto; width: 16px; height: 16px; vertical-align: middle;">
+          <div class="card-status">Tooltip Status</div>
+          <div class="card-title">Tooltip Title</div>
+          <div class="card-original-filename">Original Filename</div>
+          <div class="card-progress">Tooltip Progress</div>
+          <div class="card-filesize">File Size</div>
+          <div class="tooltip-buttons-container">
+            <span class="card-undo-button" title="Undo Rename" tabindex="0" role="button">
               <!-- SVG will be injected here by script -->
             </span>
-            <span class="card-close-button" title="Close" tabindex="0" role="button" style="background:none; border:none; color:#aaa; font-size:15px; font-weight: bold; cursor:pointer; padding:0px 0px 0px 4px; line-height:1; pointer-events:auto; vertical-align: middle;">✕</span>
+            <span class="card-close-button" title="Close" tabindex="0" role="button">✕</span>
           </div>
-          <div class="tooltip-tail" style="position: absolute; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 8px solid rgba(25,25,25,0.97); bottom: -7px; left: 20px; /* Fixed tail, adjust if needed for general case */"></div>
+          <div class="tooltip-tail"></div>
         `;
         downloadCardsContainer.appendChild(masterTooltipDOMElement);
 
@@ -196,12 +187,12 @@
         if (undoButtonSpan) {
             const svgNS = "http://www.w3.org/2000/svg";
             const svgIcon = document.createElementNS(svgNS, "svg");
-            svgIcon.setAttribute("viewBox", "0 0 24 24");
+            svgIcon.setAttribute("viewBox", "0 0 52 52");
             svgIcon.style.width = "100%";
             svgIcon.style.height = "100%";
 
             const pathIcon = document.createElementNS(svgNS, "path");
-            pathIcon.setAttribute("d", "M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C20.36 11.36 16.77 8 12.5 8z");
+            pathIcon.setAttribute("d", "M30.3,12.6c10.4,0,18.9,8.4,18.9,18.9s-8.5,18.9-18.9,18.9h-8.2c-0.8,0-1.3-0.6-1.3-1.4v-3.2c0-0.8,0.6-1.5,1.4-1.5h8.1c7.1,0,12.8-5.7,12.8-12.8s-5.7-12.8-12.8-12.8H16.4c0,0-0.8,0-1.1,0.1c-0.8,0.4-0.6,1,0.1,1.7l4.9,4.9c0.6,0.6,0.5,1.5-0.1,2.1L18,29.7c-0.6,0.6-1.3,0.6-1.9,0.1l-13-13c-0.5-0.5-0.5-1.3,0-1.8L16,2.1c0.6-0.6,1.6-0.6,2.1,0l2.1,2.1c0.6,0.6,0.6,1.6,0,2.1l-4.9,4.9c-0.6,0.6-0.6,1.3,0.4,1.3c0.3,0,0.7,0,0.7,0L30.3,12.6z");
             pathIcon.setAttribute("fill", "#aaa");
 
             svgIcon.appendChild(pathIcon);
@@ -215,15 +206,7 @@
         // Create the container for HORIZONTAL pods row
         podsRowContainerElement = document.createElement("div"); 
         podsRowContainerElement.id = "userchrome-pods-row-container"; 
-        podsRowContainerElement.setAttribute("style", `
-          display: flex;
-          flex-direction: row; 
-          align-items: flex-end; 
-          position: relative; 
-          margin-left: 12px; /* Change from 20px to 10px */
-          height: 0px; /* Start with 0 height, will be set by layout manager */
-        `);
-        podsRowContainerElement.style.order = "1";
+        // Basic styles are now in CSS file, only dynamic height will be set by layout manager
         downloadCardsContainer.appendChild(podsRowContainerElement);
 
         // Add mouse wheel scroll listener to the pods container for changing focus
@@ -245,23 +228,65 @@
               if (masterTooltipDOMElement) {
                 masterTooltipDOMElement.style.opacity = "0";
                 masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+                masterTooltipDOMElement.style.pointerEvents = "none"; // Disable interactions when hidden
                 debugLog(`[MasterClose] Tooltip hide animation initiated for ${keyToRemove}`);
               }
 
               // Delay pod removal to allow tooltip to animate out
-              setTimeout(() => {
+              setTimeout(async () => {
                 debugLog(`[MasterClose] Delayed action: proceeding to handle/remove card for ${keyToRemove}`);
-                if (cardData && cardData.download && !cardData.download.succeeded && !cardData.download.error && !cardData.download.canceled) {
+                if (cardData && cardData.download) {
                   try {
-                    cardData.download.cancel();
-                    debugLog(`[MasterClose] Attempted to cancel download ${keyToRemove}`);
-                  } catch (cancelError) {
-                    debugLog(`[MasterClose] Error cancelling download ${keyToRemove}`, cancelError);
-                    removeCard(keyToRemove, true); 
+                    const download = cardData.download;
+                    
+                    // Check if download is in progress
+                    if (!download.succeeded && !download.error && !download.canceled) {
+                      // First click: Cancel the download but keep in UI
+                      debugLog(`[MasterClose] First click: Cancelling in-progress download ${keyToRemove}`);
+                      download.cancel();
+                      
+                      // Mark as user-canceled for UI state
+                      cardData.userCanceled = true;
+                      
+                      // Update UI to show canceled state with resume option
+                      updateUIForFocusedDownload(keyToRemove, true);
+                      
+                      // Don't remove from UI yet - let user see canceled state
+                      return;
+                    }
+                    
+                    // Check if this is a user-canceled download that can be resumed
+                    if (download.canceled && cardData.userCanceled && !cardData.permanentlyDeleted) {
+                      // Second click on canceled download: Permanently delete
+                      debugLog(`[MasterClose] Second click: Permanently deleting canceled download ${keyToRemove}`);
+                      await eraseDownloadFromHistory(download);
+                      cardData.permanentlyDeleted = true;
+                      debugLog(`[MasterClose] Successfully erased download from history: ${keyToRemove}`);
+                      removeCard(keyToRemove, true);
+                      return;
+                    }
+                    
+                    // For completed downloads: just remove from UI, keep in browser history
+                    if (download.succeeded) {
+                      debugLog(`[MasterClose] Removing completed download from UI only (keeping in browser history): ${keyToRemove}`);
+                      removeCard(keyToRemove, true);
+                      return;
+                    }
+                    
+                    // For errored downloads or already permanently deleted: delete from history
+                    if (download.error || cardData.permanentlyDeleted) {
+                      debugLog(`[MasterClose] Deleting errored download from history: ${keyToRemove}`);
+                      await eraseDownloadFromHistory(download);
+                      debugLog(`[MasterClose] Successfully erased download from history: ${keyToRemove}`);
+                      removeCard(keyToRemove, true);
+                      return;
+                    }
+                    
+                  } catch (error) {
+                    debugLog(`[MasterClose] Error handling download ${keyToRemove}:`, error);
+                    // On error, still remove from UI
+                    removeCard(keyToRemove, true);
                   }
-                } else if (cardData) {
-                  debugLog(`[MasterClose] Download for ${keyToRemove} is not in progress or cardData.download is missing. Removing card.`);
-                  removeCard(keyToRemove, true); 
                 } else {
                   debugLog(`[MasterClose] No cardData found for ${keyToRemove} during delayed action. Cannot remove.`);
                 }
@@ -277,16 +302,63 @@
           });
         }
 
-        // Add undo handler for the master tooltip's undo button
+        // Add undo/resume handler for the master tooltip's undo button
         const masterUndoBtn = masterTooltipDOMElement.querySelector(".card-undo-button");
         if (masterUndoBtn) {
             const masterUndoHandler = async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                debugLog(`[MasterUndo] Master undo button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
+                debugLog(`[MasterUndo] Master undo/resume button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
+                
                 if (focusedDownloadKey) {
-                    await undoRename(focusedDownloadKey);
-                    // UI update is handled within undoRename via updateUIForFocusedDownload
+                    const cardData = activeDownloadCards.get(focusedDownloadKey);
+                    const download = cardData?.download;
+                    
+                    // Check if this is a user-canceled download (resume mode)
+                    if (download?.canceled && cardData?.userCanceled && !cardData?.permanentlyDeleted) {
+                        debugLog(`[MasterUndo] Resuming canceled download: ${focusedDownloadKey}`);
+                        try {
+                            // Resume the download
+                            download.start();
+                            
+                            // Clear the user-canceled flag
+                            cardData.userCanceled = false;
+                            
+                            // Update UI to show downloading state
+                            updateUIForFocusedDownload(focusedDownloadKey, true);
+                            
+                        } catch (resumeError) {
+                            debugLog(`[MasterUndo] Error resuming download ${focusedDownloadKey}:`, resumeError);
+                            
+                            // If resume fails, try to restart the download
+                            try {
+                                const sourceUrl = download.source?.url;
+                                if (sourceUrl) {
+                                    debugLog(`[MasterUndo] Resume failed, attempting to restart download from: ${sourceUrl}`);
+                                    
+                                    // Remove the failed download first
+                                    await eraseDownloadFromHistory(download);
+                                    removeCard(focusedDownloadKey, true);
+                                    
+                                    // Start a new download
+                                    const newDownload = await window.Downloads.createDownload({
+                                        source: sourceUrl,
+                                        target: download.target.path
+                                    });
+                                    newDownload.start();
+                                    
+                                } else {
+                                    debugLog(`[MasterUndo] Cannot restart - no source URL available`);
+                                }
+                            } catch (restartError) {
+                                debugLog(`[MasterUndo] Error restarting download:`, restartError);
+                            }
+                        }
+                    } else {
+                        // Regular undo rename functionality
+                        await undoRename(focusedDownloadKey);
+                        // UI update is handled within undoRename via updateUIForFocusedDownload
+                    }
                 }
             };
             masterUndoBtn.addEventListener("click", masterUndoHandler);
@@ -365,29 +437,10 @@
       podElement.id = `download-pod-${key.replace(/[^a-zA-Z0-9_]/g, '-')}`;
       podElement.dataset.downloadKey = key;
 
-      // Style podElement
-      podElement.style.position = 'absolute'; // Use absolute positioning from the start for jukebox layout
-      podElement.style.width = '56px'; 
-      podElement.style.height = '56px';
-      podElement.style.borderRadius = '12px';
-      podElement.style.backgroundColor = 'rgba(40,40,40,0.9)';
-      podElement.style.boxShadow = '0 3px 10px rgba(0,0,0,0.3)';
-      podElement.style.display = 'flex';
-      podElement.style.alignItems = 'center';
-      podElement.style.justifyContent = 'center';
-      podElement.style.padding = '8px'; 
-      podElement.style.boxSizing = 'border-box';
-      podElement.style.flexShrink = '0'; // Prevent pods from shrinking in the flex row
-
-      // Initial styles for entrance animation (bounce for pod)
-      podElement.style.opacity = '0';
-      podElement.style.transform = 'scale(0.3) translateY(30px)';
-      podElement.style.transition = 
-          'opacity 0.4s ease-out, transform 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55), ' + 
-          'z-index 0.3s ease-out';
+      // Basic styles are now in CSS file, only dynamic positioning/animation styles remain inline
 
       podElement.innerHTML = `
-        <div class="card-preview-container" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:6px;">
+        <div class="card-preview-container">
           <!-- Preview content (image, text snippet, or icon) will go here -->
           </div>
         `;
@@ -417,7 +470,6 @@
       const previewContainer = podElement.querySelector(".card-preview-container");
       if (previewContainer) {
         setGenericIcon(previewContainer, download.contentType || "application/octet-stream");
-        previewContainer.style.cursor = "pointer";
         previewContainer.title = "Click to open file";
         
         previewContainer.addEventListener("click", (e) => {
@@ -473,7 +525,7 @@
             debugLog(`[PodFUNC] New pod ${key}, setting up Zen animation observer.`);
             cardData.isWaitingForZenAnimation = true;
             initZenAnimationObserver(key, podElement); // Pass podElement for eventual append
-        } else {
+    } else {
             debugLog(`[PodFUNC] Pod ${key} DOM element already exists, skipping Zen observer setup. Will be laid out.`);
             cardData.domAppended = true; // It's already in the DOM
             // Ensure it starts invisible if it was an orphan, layout manager will reveal
@@ -519,12 +571,24 @@
     // Mark as complete internally
     if (download.succeeded && !cardData.complete) {
       cardData.complete = true;
+      cardData.userCanceled = false; // Clear user-canceled flag on successful completion
       podElement.classList.add("completed"); // For potential styling
       // AI renaming logic will be triggered by updateUIForFocusedDownload if this is the focused item
-      // scheduleCardRemoval is also deferred, potentially managed by a global max or user action
+      // Schedule autohide after 20 seconds for completed downloads
+      scheduleCardRemoval(key);
     }
-    if (download.error) podElement.classList.add("error");
-    if (download.canceled) podElement.classList.add("canceled");
+    if (download.error) {
+      podElement.classList.add("error");
+      // Schedule autohide for error downloads
+      scheduleCardRemoval(key);
+    }
+    if (download.canceled) {
+      podElement.classList.add("canceled");
+      // Schedule autohide for canceled downloads (unless user-canceled for resume)
+      if (!cardData.userCanceled) {
+        scheduleCardRemoval(key);
+      }
+    }
 
     return podElement;
   }
@@ -548,6 +612,7 @@
       debugLog(`[UIUPDATE_NO_CARD_DATA] No card data or podElement for key ${focusedDownloadKey}. Hiding master tooltip. CardData:`, cardDataToFocus);
       masterTooltipDOMElement.style.opacity = "0";
       masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+      masterTooltipDOMElement.style.pointerEvents = "none";
     } else {
       // cardDataToFocus and podElement are valid, proceed with UI updates for tooltip and AI.
       masterTooltipDOMElement.style.display = "flex"; 
@@ -556,6 +621,7 @@
           debugLog(`[UIUPDATE_TOOLTIP_RESET] Focus changed or significant update. Resetting tooltip for animation for ${focusedDownloadKey}. Old focus: ${oldFocusedKey}`);
           masterTooltipDOMElement.style.opacity = "0"; 
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+          masterTooltipDOMElement.style.pointerEvents = "none";
       }
 
       const download = cardDataToFocus.download; 
@@ -567,6 +633,7 @@
         if (masterTooltipDOMElement.style.opacity !== '0') {
              masterTooltipDOMElement.style.opacity = "0";
              masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+             masterTooltipDOMElement.style.pointerEvents = "none";
         }
       } else {
         // Both cardDataToFocus, podElement, AND download object are valid. Proceed with detailed updates.
@@ -588,7 +655,17 @@
         if (statusEl && originalFilenameEl && progressEl && undoBtnEl) { // Include undoBtnEl in the check
             if (download.aiName && download.succeeded) {
                 // AI Renamed State
+                let finalSize = download.currentBytes;
+                if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
+                const fileSizeText = formatBytes(finalSize || 0);
+                
+                // Always show file size in bottom right corner for renamed files
+                const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
                 statusEl.textContent = "Download renamed to:";
+                if (fileSizeEl) {
+                    fileSizeEl.textContent = fileSizeText;
+                    fileSizeEl.style.display = "block";
+                }
                 statusEl.style.color = "#a0a0a0"; 
 
                 originalFilenameEl.textContent = cardDataToFocus.originalFilename; 
@@ -597,11 +674,51 @@
 
                 progressEl.style.display = "none"; 
                 undoBtnEl.style.display = "inline-flex"; // Show undo button
+            } else if (download.canceled && cardDataToFocus.userCanceled && !cardDataToFocus.permanentlyDeleted) {
+                // User-canceled state with resume option
+                statusEl.textContent = "Download canceled";
+                statusEl.style.color = "#ff9f43";
+                
+                originalFilenameEl.style.display = "none";
+                progressEl.style.display = "block";
+                
+                // Hide the bottom-right file size element in canceled state
+                const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
+                if (fileSizeEl) fileSizeEl.style.display = "none";
+                
+                // Use undo button as resume button
+                undoBtnEl.style.display = "inline-flex";
+                undoBtnEl.title = "Resume download";
+                
+                // Update the SVG to a play/resume icon
+                const svgIcon = undoBtnEl.querySelector("svg");
+                if (svgIcon) {
+                    const pathIcon = svgIcon.querySelector("path");
+                    if (pathIcon) {
+                        // Play/Resume icon path
+                        pathIcon.setAttribute("d", "M8 5v14l11-7z");
+                    }
+                }
             } else {
                 // Default states (downloading, completed normally, error, canceled)
                 originalFilenameEl.style.display = "none"; 
                 progressEl.style.display = "block";    
                 undoBtnEl.style.display = "none"; // Hide undo button
+                
+                // Hide the bottom-right file size element in non-renamed states
+                const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
+                if (fileSizeEl) fileSizeEl.style.display = "none";
+                
+                // Reset undo button to original undo icon and title
+                undoBtnEl.title = "Undo Rename";
+                const svgIcon = undoBtnEl.querySelector("svg");
+                if (svgIcon) {
+                    const pathIcon = svgIcon.querySelector("path");
+                    if (pathIcon) {
+                        // Original undo icon path
+                        pathIcon.setAttribute("d", "M30.3,12.6c10.4,0,18.9,8.4,18.9,18.9s-8.5,18.9-18.9,18.9h-8.2c-0.8,0-1.3-0.6-1.3-1.4v-3.2c0-0.8,0.6-1.5,1.4-1.5h8.1c7.1,0,12.8-5.7,12.8-12.8s-5.7-12.8-12.8-12.8H16.4c0,0-0.8,0-1.1,0.1c-0.8,0.4-0.6,1,0.1,1.7l4.9,4.9c0.6,0.6,0.5,1.5-0.1,2.1L18,29.7c-0.6,0.6-1.3,0.6-1.9,0.1l-13-13c-0.5-0.5-0.5-1.3,0-1.8L16,2.1c0.6-0.6,1.6-0.6,2.1,0l2.1,2.1c0.6,0.6,0.6,1.6,0,2.1l-4.9,4.9c-0.6,0.6-0.6,1.3,0.4,1.3c0.3,0,0.7,0,0.7,0L30.3,12.6z");
+                    }
+                }
 
       if (download.error) {
                     statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
@@ -632,6 +749,14 @@
                     let finalSize = download.currentBytes;
                     if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
                     progressEl.textContent = `${formatBytes(finalSize || 0)}`;
+                } else if (download.canceled && cardDataToFocus.userCanceled && !cardDataToFocus.permanentlyDeleted) {
+                    // Show progress for user-canceled downloads with resume option
+                    if (typeof download.currentBytes === 'number' && download.totalBytes > 0) {
+                        const percent = Math.round((download.currentBytes / download.totalBytes) * 100);
+                        progressEl.textContent = `${formatBytes(download.currentBytes)} / ${formatBytes(download.totalBytes)} (${percent}%) - Click ▶ to resume`;
+                    } else {
+                        progressEl.textContent = "Click ▶ to resume download";
+                    }
                 } else if (typeof download.currentBytes === 'number' && download.totalBytes > 0) {
                     progressEl.textContent = `${formatBytes(download.currentBytes)} / ${formatBytes(download.totalBytes)}`;
                 } else if (!download.succeeded && !download.error && !download.canceled) {
@@ -649,7 +774,8 @@
           }
 
         // 5. Handle AI Renaming for the focused item if it just completed
-        if (ENABLE_AI_RENAMING && aiRenamingPossible && download.succeeded && cardDataToFocus.complete &&
+        const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
+        if (aiRenamingEnabled && aiRenamingPossible && download.succeeded && cardDataToFocus.complete &&
             download.target?.path && !renamedFiles.has(download.target.path) && !podElement.classList.contains('renaming-initiated')) {
           
           podElement.classList.add('renaming-initiated'); 
@@ -701,10 +827,17 @@
         if (cd.podElement) {
             if (cd.key === focusedDownloadKey) {
                 cd.podElement.classList.add('focused-pod');
-                cd.podElement.style.boxShadow = '0 0 15px rgba(84, 160, 255, 0.7), 0 3px 10px rgba(0,0,0,0.3)';
+                
+                // Use dominant color if available, otherwise default blue
+                const dominantColor = cd.podElement.dataset.dominantColor;
+                if (dominantColor) {
+                    updatePodGlowColor(cd.podElement, dominantColor);
+                } else {
+                    cd.podElement.style.boxShadow = '0 0 15px rgba(84, 160, 255, 0.7), 0 3px 10px rgba(0,0,0,0.3)';
+                }
             } else {
                 cd.podElement.classList.remove('focused-pod');
-                 cd.podElement.style.boxShadow = '0 3px 10px rgba(0,0,0,0.3)';
+                cd.podElement.style.boxShadow = '0 3px 10px rgba(0,0,0,0.3)';
             }
         }
     });
@@ -726,6 +859,7 @@
             debugLog("[LayoutManager] No pods, ensuring master tooltip is hidden.");
             masterTooltipDOMElement.style.opacity = "0";
             masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+            masterTooltipDOMElement.style.pointerEvents = "none";
             setTimeout(() => { 
                 if (masterTooltipDOMElement.style.opacity === "0") masterTooltipDOMElement.style.display = "none";
             }, 300);
@@ -832,7 +966,7 @@
             });
             currentX += (podNominalWidth - podOverlapAmount);
             pileCount++;
-        } else {
+      } else {
             break; // No more space
         }
     }
@@ -876,7 +1010,7 @@
                     } else if (lastRotationDirection === 'backward') {
                         // Backward rotation: new focused pod slides in from the right (same as forward - reverse animation)
                         entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
-                    } else {
+      } else {
                         entranceTransform = targetTransform;
                     }
                     
@@ -915,6 +1049,7 @@
                  setTimeout(() => { 
                     masterTooltipDOMElement.style.opacity = "1";
                     masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
+                    masterTooltipDOMElement.style.pointerEvents = "auto"; // Enable interactions when visible
                 }, 100); 
             }
         } else {
@@ -1049,6 +1184,8 @@
     }
   }
 
+
+
   // Improved card removal function
   function removeCard(downloadKey, force = false) {
     try {
@@ -1065,13 +1202,22 @@
       }
 
       if (!force && cardData.lastInteractionTime && 
-          Date.now() - cardData.lastInteractionTime < CARD_INTERACTION_GRACE_PERIOD_MS) {
-        debugLog(`removeCard: Skipping removal due to recent interaction: ${downloadKey}`);
+          Date.now() - cardData.lastInteractionTime < getPref("extensions.downloads.interaction_grace_period_ms", 5000)) {
+        debugLog(`removeCard: Skipping removal due to recent interaction: ${downloadKey}`, null, 'autohide');
         return false;
       }
 
       cardData.isBeingRemoved = true; // Mark for exclusion from layout management
       debugLog(`[RemoveCard] Marked card ${downloadKey} as isBeingRemoved.`);
+
+      // Clear any pending autohide timeout
+      if (cardData.autohideTimeoutId) {
+        clearTimeout(cardData.autohideTimeoutId);
+        cardData.autohideTimeoutId = null;
+        debugLog(`[RemoveCard] Cleared pending autohide timeout for ${downloadKey}`);
+      }
+
+
 
       // --- New Exit Animation for Pod: Slide Left & Fade --- 
       podElement.style.transition = "opacity 0.3s ease-out, transform 0.3s ease-in-out";
@@ -1114,6 +1260,8 @@
           }
         }
         
+
+        
         // Update UI based on new focus (or lack thereof)
         // This will also hide the master tooltip if no pods are left or re-evaluate layout
         updateUIForFocusedDownload(focusedDownloadKey, false); 
@@ -1132,11 +1280,62 @@
       const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
       if (disableAutohide) return;
 
-      setTimeout(() => {
-        removeCard(downloadKey, false);
-      }, CARD_AUTOHIDE_DELAY_MS);
+      const cardData = activeDownloadCards.get(downloadKey);
+      if (!cardData) {
+        debugLog(`scheduleCardRemoval: No card data found for key: ${downloadKey}`);
+        return;
+      }
+
+      // Clear any existing timeout
+      if (cardData.autohideTimeoutId) {
+        clearTimeout(cardData.autohideTimeoutId);
+        debugLog(`scheduleCardRemoval: Cleared existing timeout for key: ${downloadKey}`);
+      }
+
+      // Schedule new timeout and store the ID
+      cardData.autohideTimeoutId = setTimeout(() => {
+        debugLog(`scheduleCardRemoval: Timeout fired for key: ${downloadKey}`);
+        performAutohideSequence(downloadKey);
+      }, getPref("extensions.downloads.autohide_delay_ms", 20000));
+      
+      debugLog(`scheduleCardRemoval: Scheduled removal for key: ${downloadKey} in ${getPref("extensions.downloads.autohide_delay_ms", 20000)}ms`, null, 'autohide');
     } catch (e) {
       console.error("Error scheduling card removal:", e);
+    }
+  }
+
+  // Perform the two-stage autohide sequence: tooltip first, then pod
+  function performAutohideSequence(downloadKey) {
+    try {
+      const cardData = activeDownloadCards.get(downloadKey);
+      if (!cardData) {
+        debugLog(`performAutohideSequence: No card data found for key: ${downloadKey}`);
+        return;
+      }
+
+      debugLog(`[AutohideSequence] Starting autohide sequence for ${downloadKey}`);
+
+      // Stage 1: Hide tooltip if this item is focused
+      if (focusedDownloadKey === downloadKey && masterTooltipDOMElement) {
+        debugLog(`[AutohideSequence] Stage 1: Hiding tooltip for focused item ${downloadKey}`);
+        masterTooltipDOMElement.style.opacity = "0";
+        masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+        masterTooltipDOMElement.style.pointerEvents = "none";
+        
+        // Stage 2: Remove the pod after tooltip animation completes
+        setTimeout(() => {
+          debugLog(`[AutohideSequence] Stage 2: Removing pod for ${downloadKey}`);
+          removeCard(downloadKey, false);
+        }, 300); // Match tooltip animation duration
+      } else {
+        // If not focused, just remove the pod directly
+        debugLog(`[AutohideSequence] Item ${downloadKey} not focused, removing pod directly`);
+        removeCard(downloadKey, false);
+      }
+    } catch (e) {
+      console.error("Error in autohide sequence:", e);
+      // Fallback to direct removal
+      removeCard(downloadKey, false);
     }
   }
 
@@ -1161,6 +1360,8 @@
     }
   }
 
+
+
   // Set generic icon for file type
   function setGenericIcon(previewElement, contentType) {
     if (!previewElement) return;
@@ -1182,7 +1383,148 @@
     }
   }
 
-  // Set preview for completed image file
+  // Extract dominant color from an image element
+  function extractDominantColor(imgElement) {
+    try {
+      // Create a canvas to analyze the image
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Set canvas size (smaller for performance)
+      canvas.width = 50;
+      canvas.height = 50;
+      
+      // Draw the image onto the canvas
+      ctx.drawImage(imgElement, 0, 0, 50, 50);
+      
+      // Get image data
+      const imageData = ctx.getImageData(0, 0, 50, 50);
+      const data = imageData.data;
+      
+      // Color frequency map
+      const colorMap = {};
+      
+      // Sample every 4th pixel for performance
+      for (let i = 0; i < data.length; i += 16) { // RGBA = 4 bytes, so i += 16 samples every 4th pixel
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+        
+        // Skip transparent or very dark/light pixels
+        if (a < 128 || (r + g + b) < 50 || (r + g + b) > 650) continue;
+        
+        // Group similar colors (reduce precision)
+        const rGroup = Math.floor(r / 32) * 32;
+        const gGroup = Math.floor(g / 32) * 32;
+        const bGroup = Math.floor(b / 32) * 32;
+        
+        const colorKey = `${rGroup},${gGroup},${bGroup}`;
+        colorMap[colorKey] = (colorMap[colorKey] || 0) + 1;
+      }
+      
+      // Find the most frequent color
+      let dominantColor = null;
+      let maxCount = 0;
+      
+      for (const [color, count] of Object.entries(colorMap)) {
+        if (count > maxCount) {
+          maxCount = count;
+          dominantColor = color;
+        }
+      }
+      
+      if (dominantColor) {
+        const [r, g, b] = dominantColor.split(',').map(Number);
+        
+        // Enhance saturation and brightness for glow effect
+        const enhancedColor = enhanceColorForGlow(r, g, b);
+        
+        debugLog("[ColorExtraction] Extracted dominant color", { 
+          original: `rgb(${r}, ${g}, ${b})`, 
+          enhanced: enhancedColor,
+          frequency: maxCount 
+        });
+        
+        return enhancedColor;
+      }
+      
+      return null;
+    } catch (e) {
+      debugLog("[ColorExtraction] Error extracting color:", e);
+      return null;
+    }
+  }
+
+  // Enhance color for better glow visibility
+  function enhanceColorForGlow(r, g, b) {
+    // Convert to HSL for easier manipulation
+    const [h, s, l] = rgbToHsl(r, g, b);
+    
+    // Increase saturation and adjust lightness for better glow
+    const newS = Math.min(1, s + 0.3); // Increase saturation
+    const newL = Math.max(0.4, Math.min(0.7, l + 0.2)); // Ensure good visibility
+    
+    // Convert back to RGB
+    const [newR, newG, newB] = hslToRgb(h, newS, newL);
+    
+    return `rgb(${Math.round(newR)}, ${Math.round(newG)}, ${Math.round(newB)})`;
+  }
+
+  // RGB to HSL conversion
+  function rgbToHsl(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h, s, l = (max + min) / 2;
+    
+    if (max === min) {
+      h = s = 0; // achromatic
+    } else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+    
+    return [h, s, l];
+  }
+
+  // HSL to RGB conversion
+  function hslToRgb(h, s, l) {
+    let r, g, b;
+    
+    if (s === 0) {
+      r = g = b = l; // achromatic
+    } else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+      
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+    
+    return [r * 255, g * 255, b * 255];
+  }
+
+  // Set preview for completed file - simplified to only show images or icons
   async function setCompletedFilePreview(previewElement, download) {
     if (!previewElement) return;
 
@@ -1192,69 +1534,51 @@
       filename: download?.filename 
     });
 
-    const textMimeTypes = new Set([
-      "text/plain",
-      "text/markdown",
-      "application/javascript",
-      "text/javascript",
-      "text/css",
-      "text/html",
-      "application/json",
-      "application/xml",
-      "text/xml"
-      // Add more as needed
-    ]);
-
     try {
-      if (download.target?.path && textMimeTypes.has(download.contentType?.toLowerCase())) {
-        const snippet = await readTextFileSnippet(download.target.path);
-        if (snippet) {
-          previewElement.innerHTML = ""; // Clear previous content
-          const pre = document.createElement("pre");
-          pre.textContent = snippet;
-          pre.style.fontSize = "9px";
-          pre.style.lineHeight = "1.2";
-          pre.style.fontFamily = "monospace";
-          pre.style.color = "#ccc";
-          pre.style.margin = "0";
-          pre.style.padding = "4px";
-          pre.style.overflow = "hidden";
-          pre.style.maxWidth = PREVIEW_SIZE; 
-          pre.style.maxHeight = PREVIEW_SIZE;
-          pre.style.borderRadius = "4px";
-          pre.style.backgroundColor = "rgba(255,255,255,0.05)";
-          pre.style.whiteSpace = "pre-wrap"; // Allow wrapping
-          pre.style.wordBreak = "break-all"; // Break long words if necessary
-          previewElement.appendChild(pre);
-          debugLog("[setCompletedFilePreview] Text snippet preview set", { path: download.target.path });
-          return; // Snippet set, exit
-        }
-      } else if (download?.contentType?.startsWith("image/") && download.target?.path) {
-        // Existing image preview logic (good first check)
+      // Check for images first (by content type)
+      if (download?.contentType?.startsWith("image/") && download.target?.path) {
         debugLog("[setCompletedFilePreview] Attempting image preview via contentType", { path: download.target.path, contentType: download.contentType });
         const img = document.createElement("img");
         const imgSrc = `file:///${download.target.path.replace(/\\/g, '/')}`;
         img.src = imgSrc;
-        img.style.maxWidth = PREVIEW_SIZE;
-        img.style.maxHeight = PREVIEW_SIZE;
-        img.style.objectFit = "contain";
-        img.style.borderRadius = "4px";
+        img.style.width = "100%";
+        img.style.height = "100%";
+        img.style.objectFit = "cover";
+        img.style.borderRadius = "12px";
         img.style.transition = "all 0.3s ease";
         img.style.opacity = "0";
         
         img.onload = () => { 
           img.style.opacity = "1"; 
           debugLog("[setCompletedFilePreview] Image loaded successfully (by contentType)", { src: imgSrc });
+          
+          // Extract dominant color and store it on the pod element
+          setTimeout(() => {
+            const dominantColor = extractDominantColor(img);
+            if (dominantColor) {
+              const podElement = previewElement.closest('.download-pod');
+              if (podElement) {
+                podElement.dataset.dominantColor = dominantColor;
+                debugLog("[ColorExtraction] Stored dominant color on pod", { color: dominantColor });
+                
+                // If this pod is currently focused, update its glow immediately
+                const downloadKey = podElement.dataset.downloadKey;
+                if (downloadKey === focusedDownloadKey) {
+                  updatePodGlowColor(podElement, dominantColor);
+                }
+              }
+            }
+          }, 100); // Small delay to ensure image is fully rendered
         };
         img.onerror = () => {
           debugLog("[setCompletedFilePreview] Image failed to load (by contentType)", { src: imgSrc });
-          // Fallback to generic icon if even contentType-based image load fails
-          setGenericIcon(previewElement, "image/generic"); // Indicate it was thought to be an image
+          setGenericIcon(previewElement, download.contentType);
         };
         
         previewElement.innerHTML = "";
         previewElement.appendChild(img);
-      } else if (download.target?.path) { // Fallback: Check extension if contentType is missing or not an image type
+      } else if (download.target?.path) { 
+        // Check for images by file extension if contentType is missing
         const filePath = download.target.path.toLowerCase();
         let isImageTypeByExtension = false;
         for (const ext of IMAGE_EXTENSIONS) {
@@ -1268,36 +1592,75 @@
           const img = document.createElement("img");
           const imgSrc = `file:///${download.target.path.replace(/\\/g, '/')}`;
           img.src = imgSrc;
-          img.style.maxWidth = PREVIEW_SIZE;
-          img.style.maxHeight = PREVIEW_SIZE;
-          img.style.objectFit = "contain";
-          img.style.borderRadius = "4px";
+          img.style.width = "100%";
+          img.style.height = "100%";
+          img.style.objectFit = "cover";
+          img.style.borderRadius = "12px";
           img.style.transition = "all 0.3s ease";
           img.style.opacity = "0";
           
           img.onload = () => { 
             img.style.opacity = "1"; 
             debugLog("[setCompletedFilePreview] Image loaded successfully (by extension)", { src: imgSrc });
+            
+            // Extract dominant color and store it on the pod element
+            setTimeout(() => {
+              const dominantColor = extractDominantColor(img);
+              if (dominantColor) {
+                const podElement = previewElement.closest('.download-pod');
+                if (podElement) {
+                  podElement.dataset.dominantColor = dominantColor;
+                  debugLog("[ColorExtraction] Stored dominant color on pod", { color: dominantColor });
+                  
+                  // If this pod is currently focused, update its glow immediately
+                  const downloadKey = podElement.dataset.downloadKey;
+                  if (downloadKey === focusedDownloadKey) {
+                    updatePodGlowColor(podElement, dominantColor);
+                  }
+                }
+              }
+            }, 100); // Small delay to ensure image is fully rendered
           };
           img.onerror = () => {
             debugLog("[setCompletedFilePreview] Image failed to load (by extension)", { src: imgSrc });
-            // Fallback to generic icon if even extension-based image load fails
-            setGenericIcon(previewElement, "image/generic"); // Indicate it was thought to be an image
-        };
-        
-        previewElement.innerHTML = "";
-        previewElement.appendChild(img);
-      } else {
-          debugLog("[setCompletedFilePreview] No specific preview (contentType or extension), setting generic icon", { contentType: download?.contentType, path: download.target.path });
-        setGenericIcon(previewElement, download?.contentType);
+            setGenericIcon(previewElement, download.contentType);
+          };
+          
+          previewElement.innerHTML = "";
+          previewElement.appendChild(img);
+        } else {
+          // Not an image, use generic icon
+          debugLog("[setCompletedFilePreview] Not an image, setting generic icon", { contentType: download?.contentType, path: download.target.path });
+          setGenericIcon(previewElement, download?.contentType);
         }
       } else {
         debugLog("[setCompletedFilePreview] No target path for preview, setting generic icon", { download });
-        setGenericIcon(previewElement, null); // No path, no content type known
+        setGenericIcon(previewElement, null);
       }
     } catch (e) {
       debugLog("Error setting file preview:", e);
       previewElement.innerHTML = `<span style="font-size: 24px;">🚫</span>`;
+    }
+  }
+
+  // Update pod glow color based on dominant color
+  function updatePodGlowColor(podElement, color) {
+    if (!podElement || !color) return;
+    
+    try {
+      // Create a more vibrant glow effect with the dominant color
+      const glowShadow = `0 0 15px ${color}, 0 3px 10px rgba(0,0,0,0.3)`;
+      podElement.style.boxShadow = glowShadow;
+      
+      debugLog("[GlowUpdate] Updated pod glow color", { 
+        podKey: podElement.dataset.downloadKey, 
+        color: color,
+        shadow: glowShadow 
+      });
+    } catch (e) {
+      debugLog("[GlowUpdate] Error updating glow color:", e);
+      // Fallback to default blue glow
+      podElement.style.boxShadow = '0 0 15px rgba(84, 160, 255, 0.7), 0 3px 10px rgba(0,0,0,0.3)';
     }
   }
 
@@ -1360,7 +1723,7 @@
     try {
       const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
       file.initWithPath(downloadPath);
-      if (file.fileSize > MAX_FILE_SIZE_FOR_AI) {
+      if (file.fileSize > getPref("extensions.downloads.max_file_size_for_ai", 52428800)) { // 50MB default
         debugLog(`Skipping AI rename - file too large: ${formatBytes(file.fileSize)}`);
         if (statusElToUpdate) statusElToUpdate.textContent = "File too large for AI analysis";
         return false;
@@ -1412,7 +1775,7 @@ Rules:
 - Use hyphens between words
 - No generic words like "image" or "photo"
 - Keep extension "${fileExtension}"
-- Maximum length: ${AI_RENAMING_MAX_FILENAME_LENGTH} characters
+- Maximum length: ${getPref("extensions.downloads.max_filename_length", 70)} characters
 Respond with ONLY the filename.`;
 
         suggestedName = await callMistralAPI({
@@ -1433,7 +1796,7 @@ Rules:
 - Be more specific than the original name
 - Use hyphens between words
 - Keep extension "${fileExtension}"
-- Maximum length: ${AI_RENAMING_MAX_FILENAME_LENGTH} characters
+- Maximum length: ${getPref("extensions.downloads.max_filename_length", 70)} characters
 Respond with ONLY the filename.`;
 
         suggestedName = await callMistralAPI({
@@ -1460,8 +1823,8 @@ Respond with ONLY the filename.`;
         .replace(/\s+/g, "-")
         .toLowerCase();
 
-      if (cleanName.length > AI_RENAMING_MAX_FILENAME_LENGTH - fileExtension.length) {
-        cleanName = cleanName.substring(0, AI_RENAMING_MAX_FILENAME_LENGTH - fileExtension.length);
+      if (cleanName.length > getPref("extensions.downloads.max_filename_length", 70) - fileExtension.length) {
+        cleanName = cleanName.substring(0, getPref("extensions.downloads.max_filename_length", 70) - fileExtension.length);
       }
       if (fileExtension && !cleanName.toLowerCase().endsWith(fileExtension.toLowerCase())) {
         cleanName = cleanName + fileExtension;
@@ -1496,7 +1859,17 @@ Respond with ONLY the filename.`;
         }
 
         if (statusElToUpdate) {
+          let finalSize = download.currentBytes;
+          if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
+          const fileSizeText = formatBytes(finalSize || 0);
+          
+          // Always show file size in bottom right corner for renamed files
+          const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
           statusElToUpdate.textContent = "Download renamed to:";
+          if (fileSizeEl) {
+              fileSizeEl.textContent = fileSizeText;
+              fileSizeEl.style.display = "block";
+          }
           statusElToUpdate.style.color = "#a0a0a0";
         }
 
@@ -1639,6 +2012,15 @@ Respond with ONLY the filename.`;
         } else {
             debugLog(`[Rename] Warning: Old key ${key} not found in orderedPodKeys during rename.`);
         }
+        
+        // Reschedule autohide with the new key if there was an existing timeout
+        if (cardData.autohideTimeoutId) {
+          clearTimeout(cardData.autohideTimeoutId);
+          cardData.autohideTimeoutId = null;
+          debugLog(`[Rename] Cleared old autohide timeout for ${key}, rescheduling for ${newPath}`);
+          scheduleCardRemoval(newPath);
+        }
+        
         debugLog(`Updated card key mapping from ${key} to ${newPath}`);
       }
 
@@ -1697,7 +2079,7 @@ Respond with ONLY the filename.`;
       }
 
       const payload = {
-        model: MISTRAL_MODEL,
+        model: getPref("extensions.downloads.mistral_model", "pixtral-large-latest"),
         messages: [{ role: "user", content: content }],
         max_tokens: 100,
         temperature: 0.2,
@@ -1705,7 +2087,7 @@ Respond with ONLY the filename.`;
 
       debugLog("Sending API request to Mistral");
 
-      const response = await fetch(MISTRAL_API_URL, {
+      const response = await fetch(getPref("extensions.downloads.mistral_api_url", "https://api.mistral.ai/v1/chat/completions"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1752,7 +2134,7 @@ Respond with ONLY the filename.`;
       file.initWithPath(path);
       
       // Check file size
-      if (file.fileSize > MAX_FILE_SIZE_FOR_AI) {
+      if (file.fileSize > getPref("extensions.downloads.max_file_size_for_ai", 52428800)) { // 50MB default
         debugLog("File too large for base64 conversion");
         return null;
       }
@@ -1788,110 +2170,7 @@ Respond with ONLY the filename.`;
     }
   }
 
-  // --- Helper Function to Read Text File Snippet ---
-  async function readTextFileSnippet(filePath, maxLines = 5, maxLengthPerLine = 80) {
-    let fstream = null;
-    let scriptableStream = null;
-    try {
-      const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-      file.initWithPath(filePath);
 
-      if (!file.exists() || !file.isReadable()) {
-        debugLog("readTextFileSnippet: File does not exist or is not readable", { filePath });
-        return null;
-      }
-
-      if (file.fileSize === 0) {
-        return "[Empty file]";
-      }
-      
-      if (file.fileSize > 1 * 1024 * 1024) { // 1MB limit for snippet reading
-        debugLog("readTextFileSnippet: File too large for snippet", { filePath, fileSize: file.fileSize });
-        return "[File too large for preview]";
-      }
-
-      fstream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(Ci.nsIFileInputStream);
-      fstream.init(file, -1, 0, 0); 
-      
-      scriptableStream = Cc["@mozilla.org/scriptableinputstream;1"].createInstance(Ci.nsIScriptableInputStream);
-      scriptableStream.init(fstream);
-
-      const textDecoder = new TextDecoder("utf-8");
-      let lineBuffer = ""; 
-      let linesRead = 0;
-      let outputLines = [];
-      const bufferSize = 4096; // How much to read at a time
-      let chunk = "";
-
-      while (linesRead < maxLines) {
-        // Read a chunk of data. scriptableStream.read returns a string of bytes here.
-        let byteString = scriptableStream.read(bufferSize);
-        if (byteString.length === 0) { // EOF
-          if (lineBuffer.length > 0) { 
-            let trimmedLine = lineBuffer.trimEnd();
-            if (trimmedLine.length > maxLengthPerLine) {
-              trimmedLine = trimmedLine.substring(0, maxLengthPerLine) + "...";
-            }
-            outputLines.push(trimmedLine);
-            linesRead++;
-          }
-          break; // Exit while loop
-        }
-        
-        // Decode the byte string to a proper UTF-8 string.
-        // Need to be careful with characters split across chunks. Pass {stream: true} to decoder.
-        lineBuffer += textDecoder.decode(Uint8Array.from(byteString, c => c.charCodeAt(0)), { stream: true });
-        
-        let eolIndex;
-        // Process all complete lines found in the buffer
-        while ((eolIndex = lineBuffer.indexOf('\n')) !== -1 && linesRead < maxLines) {
-          let currentLine = lineBuffer.substring(0, eolIndex);
-          let trimmedLine = currentLine.trimEnd();
-          if (trimmedLine.length > maxLengthPerLine) {
-            trimmedLine = trimmedLine.substring(0, maxLengthPerLine) + "...";
-          }
-          outputLines.push(trimmedLine);
-          linesRead++;
-          lineBuffer = lineBuffer.substring(eolIndex + 1);
-        }
-        
-        // If we've read maxLines, but there's still unprocessed data in lineBuffer (without a newline)
-        // and we still have capacity in outputLines (this check is mostly for safety, might be redundant)
-        if (linesRead >= maxLines && lineBuffer.length > 0 && outputLines.length === maxLines) {
-            // If the last processed line made us hit maxLines, and there's a remainder,
-            // we might want to indicate truncation on the *last added line* if it wasn't already done.
-            // For now, this will just mean the lineBuffer remainder is ignored if maxLines is hit.
-        }
-      }
-      
-      // After the loop, if maxLines was not reached and there's still data in lineBuffer (last line without newline)
-      if (linesRead < maxLines && lineBuffer.length > 0) {
-        let trimmedLine = lineBuffer.trimEnd();
-        if (trimmedLine.length > maxLengthPerLine) {
-          trimmedLine = trimmedLine.substring(0, maxLengthPerLine) + "...";
-        }
-        outputLines.push(trimmedLine);
-      }
-
-      if (outputLines.length === 0) {
-        // This might happen if the file is very small and only newlines, or other edge cases.
-        return "[Could not read snippet contents]"; 
-      }
-
-      return outputLines.join("\n");
-
-    } catch (ex) {
-      debugLog("readTextFileSnippet error:", { filePath, error: ex.message, stack: ex.stack });
-      return "[Error reading file preview]"; 
-    } finally {
-      if (scriptableStream && typeof scriptableStream.close === 'function') {
-        try { scriptableStream.close(); } catch (e) { debugLog("Error closing scriptableStream",{e}); }
-      }
-      if (fstream && typeof fstream.close === 'function') {
-          try { fstream.close(); } catch (e) { debugLog("Error closing fstream in finally", {e}); }
-      }
-    }
-  }
 
   // --- Function to Open Downloaded File ---
   function openDownloadedFile(download) {
@@ -1920,6 +2199,70 @@ Respond with ONLY the filename.`;
     }
   }
 
+  // --- Function to Erase Download from Firefox History ---
+  async function eraseDownloadFromHistory(download) {
+    if (!download) {
+      debugLog("eraseDownloadFromHistory: Invalid download object", { download });
+      throw new Error("Invalid download object");
+    }
+
+    try {
+      debugLog("eraseDownloadFromHistory: Attempting to erase download", { 
+        id: download.id, 
+        path: download.target?.path,
+        state: download.state 
+      });
+
+      // Get the Downloads list
+      const list = await window.Downloads.getList(window.Downloads.ALL);
+      
+      // Find the download in the list by multiple criteria
+      const downloads = await list.getAll();
+      const targetDownload = downloads.find(dl => {
+        // Try to match by ID first (most reliable)
+        if (download.id && dl.id === download.id) return true;
+        
+        // Fallback to path matching if IDs don't match or are missing
+        if (download.target?.path && dl.target?.path && 
+            dl.target.path === download.target.path) return true;
+            
+        // Additional fallback for URL matching (in case path changed)
+        if (download.source?.url && dl.source?.url && 
+            dl.source.url === download.source.url && 
+            download.startTime && dl.startTime &&
+            Math.abs(new Date(download.startTime) - new Date(dl.startTime)) < 5000) return true;
+            
+        return false;
+      });
+      
+      if (targetDownload) {
+        // Remove the download from the list (this erases it from history)
+        await list.remove(targetDownload);
+        debugLog("eraseDownloadFromHistory: Successfully removed download from list", { 
+          id: targetDownload.id,
+          originalId: download.id,
+          path: targetDownload.target?.path 
+        });
+      } else {
+        debugLog("eraseDownloadFromHistory: Download not found in list", { 
+          id: download.id,
+          path: download.target?.path,
+          availableDownloads: downloads.length 
+        });
+        // It might have already been removed, which is fine for our purposes
+      }
+      
+    } catch (error) {
+      debugLog("eraseDownloadFromHistory: Error erasing download", { 
+        id: download.id, 
+        path: download.target?.path,
+        error: error.message, 
+        stack: error.stack 
+      });
+      throw error;
+    }
+  }
+
   // Verify Mistral API connection
   async function verifyMistralConnection() {
     try {
@@ -1932,25 +2275,23 @@ Respond with ONLY the filename.`;
       } catch (e) {
         console.error("Failed to get API key from preferences", e);
         aiRenamingPossible = false;
-        ENABLE_AI_RENAMING = false;
         return;
       }
 
       if (!apiKey) {
         debugLog("No Mistral API key found in preferences. AI renaming disabled.");
         aiRenamingPossible = false;
-        ENABLE_AI_RENAMING = false;
         return;
       }
 
-      const testResponse = await fetch(MISTRAL_API_URL, {
+      const testResponse = await fetch(getPref("extensions.downloads.mistral_api_url", "https://api.mistral.ai/v1/chat/completions"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: MISTRAL_MODEL,
+          model: getPref("extensions.downloads.mistral_model", "pixtral-large-latest"),
           messages: [
             { role: "system", content: "You are a helpful assistant." },
             { role: "user", content: "Hello, this is a test connection. Respond with 'ok'." },
@@ -1962,20 +2303,17 @@ Respond with ONLY the filename.`;
       if (testResponse.ok) {
         debugLog("Mistral API connection successful!");
         aiRenamingPossible = true;
-        ENABLE_AI_RENAMING = true;
       } else {
         console.error("Mistral API connection failed:", await testResponse.text());
         aiRenamingPossible = false;
-        ENABLE_AI_RENAMING = false;
       }
     } catch (e) {
       console.error("Error verifying Mistral API connection:", e);
       aiRenamingPossible = false;
-      ENABLE_AI_RENAMING = false;
     }
   }
 
-  console.log("Download Preview Mistral AI Script (FINAL FIXED): Execution finished, initialization scheduled/complete.");
+  console.log("=== DOWNLOAD PREVIEW SCRIPT LOADED SUCCESSFULLY ===");
 
 // --- Sidebar Width Synchronization Logic ---
 function updateCurrentZenSidebarWidth() {
