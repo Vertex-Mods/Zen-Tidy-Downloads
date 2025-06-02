@@ -135,7 +135,7 @@
       left: 0px;
       background: transparent;
       mask: linear-gradient(to top, transparent 0%, black 5%, black 80%, transparent 100%);
-      -webkit-mask: linear-gradient(to top, transparent 0%, black 5%, black 80%, transparent 100%);
+      -webkit-mask: linear-gradient(to top, transparent 0%, black 5%, black 85%, transparent 100%);
       box-sizing: border-box;
       transition: height ${CONFIG.containerAnimationDuration}ms ease, padding-bottom ${CONFIG.containerAnimationDuration}ms ease, padding-left ${CONFIG.containerAnimationDuration}ms ease, background 0.2s ease;
       display: flex;
@@ -196,7 +196,8 @@
 
     // Add click handler to open downloads
     downloadsButton.addEventListener('click', (e) => {
-      e.stopPropagation();
+      e.stopPropagation(); // Stop event from propagating
+      e.preventDefault(); // Prevent default action
       try {
         // Try to open the downloads panel
         if (window.DownloadsPanel) {
@@ -249,7 +250,8 @@
 
     // Add click handler to clear all downloads
     clearAllButton.addEventListener('click', async (e) => {
-      e.stopPropagation();
+      e.stopPropagation(); // Stop event from propagating
+      e.preventDefault(); // Prevent default action
       try {
         // Confirm with user before clearing
         if (confirm("Clear all downloads from Firefox history? This action cannot be undone.")) {
@@ -458,7 +460,9 @@
     pod.appendChild(preview);
 
     // Add click handler for opening in file explorer
-    pod.addEventListener('click', () => {
+    pod.addEventListener('click', (e) => {
+      e.stopPropagation(); // Stop event from propagating
+      e.preventDefault(); // Prevent default action
       debugLog(`Attempting to open file in explorer: ${podData.key}`);
       if (podData.targetPath) {
         try {
@@ -488,7 +492,9 @@
     });
 
     // Add double-click handler for restoration
-    pod.addEventListener('dblclick', () => {
+    pod.addEventListener('dblclick', (e) => {
+      e.stopPropagation(); // Stop event from propagating
+      e.preventDefault(); // Prevent default action
       debugLog(`Attempting to restore pod: ${podData.key}`);
       window.zenTidyDownloads.restorePod(podData.key).then(success => {
         if (success) {
@@ -1330,7 +1336,7 @@
     debugLog("[PileHover] showPileBackground called");
     
     // Show background
-    dynamicSizer.style.background = 'color-mix(in srgb, var(--zen-primary-color) 60%, transparent)';
+    dynamicSizer.style.background = 'color-mix(in srgb, var(--zen-primary-color) 10%, transparent)';
     
     // Show buttons
     const downloadsButton = document.getElementById("zen-pile-downloads-button");
