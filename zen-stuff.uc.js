@@ -414,7 +414,7 @@
     const pod = document.createElement("div");
     pod.className = "dismissed-pod";
     pod.dataset.podKey = podData.key;
-    pod.title = `${podData.filename}\nClick: Open file\nDouble-click: Restore to downloads\nRight-click: Delete permanently`;
+    pod.title = `${podData.filename}\nClick: Open file\nMiddle-click: Show in file explorer\nRight-click: Context menu`;
     
     pod.style.cssText = `
       position: absolute;
@@ -471,23 +471,18 @@
     pod.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      debugLog(`Attempting to open file in explorer: ${podData.key}`);
+      debugLog(`Attempting to open file: ${podData.key}`);
       openPodFile(podData);
     });
 
-    // Add double-click handler for restoration
-    pod.addEventListener('dblclick', () => {
-      e.preventDefault();
-      e.stopPropagation();
-      debugLog(`Attempting to restore pod: ${podData.key}`);
-      window.zenTidyDownloads.restorePod(podData.key).then(success => {
-        if (success) {
-          removePodFromPile(podData.key);
-          debugLog(`Successfully restored pod: ${podData.filename}`);
-        } else {
-          debugLog(`Failed to restore pod: ${podData.filename}`);
-        }
-      });
+    // Add middle-click handler for showing in file explorer
+    pod.addEventListener('mousedown', (e) => {
+      if (e.button === 1) { // Middle mouse button
+        e.preventDefault();
+        e.stopPropagation();
+        debugLog(`Attempting to show file in explorer: ${podData.key}`);
+        showPodFileInExplorer(podData);
+      }
     });
 
     // Add right-click handler - different behavior based on mode
@@ -1711,6 +1706,31 @@
       hideContextMenu();
     });
 
+    // Create rename item
+    const renameItem = document.createElement('div');
+    renameItem.className = 'context-menu-item';
+    renameItem.textContent = 'Rename';
+    renameItem.style.cssText = `
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background-color 0.1s;
+    `;
+    
+    // Add hover effects for rename item
+    renameItem.addEventListener('mouseenter', () => {
+      renameItem.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+    });
+    renameItem.addEventListener('mouseleave', () => {
+      renameItem.style.backgroundColor = 'transparent';
+    });
+    
+    // Add click handler for rename item
+    renameItem.addEventListener('click', () => {
+      debugLog(`[ContextMenu] Rename clicked for: ${podData.key}`);
+      showRenameDialog(podData);
+      hideContextMenu();
+    });
+
     // Create delete item
     const deleteItem = document.createElement('div');
     deleteItem.className = 'context-menu-item';
@@ -1761,6 +1781,7 @@
 
     // Add items to menu
     contextMenu.appendChild(openItem);
+    contextMenu.appendChild(renameItem);
     contextMenu.appendChild(deleteItem);
     document.body.appendChild(contextMenu);
 
@@ -1787,7 +1808,8 @@
   // Check if context menu is currently visible
   function isContextMenuVisible() {
     const existingMenu = document.getElementById('zen-pile-context-menu');
-    return existingMenu !== null;
+    const existingDialog = document.getElementById('zen-pile-rename-dialog');
+    return existingMenu !== null || existingDialog !== null;
   }
 
   // Hide context menu
@@ -1862,6 +1884,341 @@
       }
     } else {
       debugLog(`No file path available for: ${podData.filename}`);
+    }
+  }
+
+  // Show pod file in file explorer
+  function showPodFileInExplorer(podData) {
+    debugLog(`Attempting to show file in file explorer: ${podData.key}`);
+    if (podData.targetPath) {
+      try {
+        const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
+        file.initWithPath(podData.targetPath);
+        
+        if (file.exists()) {
+          // Show file in explorer/finder
+          try {
+            // Try to reveal the file in the file manager
+            file.reveal();
+            debugLog(`Successfully showed file in explorer: ${podData.filename}`);
+          } catch (revealError) {
+            // If reveal() doesn't work, fall back to opening the containing folder
+            debugLog(`Reveal failed, trying to open containing folder: ${revealError}`);
+            const parentDir = file.parent;
+            if (parentDir && parentDir.exists()) {
+              parentDir.launch();
+              debugLog(`Opened containing folder: ${podData.filename}`);
+            } else {
+              debugLog(`Containing folder not found: ${podData.filename}`);
+            }
+          }
+        } else {
+          // File doesn't exist, try to open the containing folder
+          const parentDir = file.parent;
+          if (parentDir && parentDir.exists()) {
+            parentDir.launch();
+            debugLog(`File not found, opened containing folder: ${podData.filename}`);
+          } else {
+            debugLog(`File and folder not found: ${podData.filename}`);
+          }
+        }
+      } catch (error) {
+        debugLog(`Error showing file in explorer: ${podData.filename}`, error);
+      }
+    } else {
+      debugLog(`No file path available for: ${podData.filename}`);
+    }
+  }
+
+  // Show rename dialog
+  function showRenameDialog(podData) {
+    debugLog(`[Rename] Showing rename dialog for: ${podData.filename}`);
+    
+    // Remove any existing rename dialog
+    const existingDialog = document.getElementById('zen-pile-rename-dialog');
+    if (existingDialog) {
+      existingDialog.remove();
+    }
+    
+    // Create dialog overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'zen-pile-rename-dialog';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10001;
+      backdrop-filter: blur(2px);
+    `;
+    
+    // Create dialog box
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      background: var(--zen-primary-color);
+      border: 1px solid var(--panel-border-color);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      padding: 20px;
+      width: 400px;
+      max-width: 90vw;
+      color: inherit;
+    `;
+    
+    // Create title
+    const title = document.createElement('h3');
+    title.textContent = 'Rename File';
+    title.style.cssText = `
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      font-weight: 600;
+    `;
+    
+    // Create current filename display
+    const currentName = document.createElement('div');
+    currentName.textContent = `Current: ${podData.filename}`;
+    currentName.style.cssText = `
+      margin-bottom: 10px;
+      font-size: 13px;
+      color: var(--text-color-deemphasized);
+      word-break: break-all;
+    `;
+    
+    // Create input field
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = podData.filename;
+    input.style.cssText = `
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--panel-border-color);
+      border-radius: 4px;
+      background: var(--toolbar-field-background-color);
+      color: var(--toolbar-field-color);
+      font-size: 14px;
+      margin-bottom: 15px;
+      box-sizing: border-box;
+    `;
+    
+    // Select filename without extension
+    const lastDotIndex = podData.filename.lastIndexOf('.');
+    if (lastDotIndex > 0) {
+      setTimeout(() => {
+        input.setSelectionRange(0, lastDotIndex);
+        input.focus();
+      }, 100);
+    } else {
+      setTimeout(() => {
+        input.select();
+        input.focus();
+      }, 100);
+    }
+    
+    // Create button container
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.cssText = `
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    `;
+    
+    // Create cancel button
+    const cancelButton = document.createElement('button');
+    cancelButton.textContent = 'Cancel';
+    cancelButton.style.cssText = `
+      padding: 8px 16px;
+      border: 1px solid var(--panel-border-color);
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font-size: 13px;
+    `;
+    
+    cancelButton.addEventListener('mouseenter', () => {
+      cancelButton.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+    });
+    cancelButton.addEventListener('mouseleave', () => {
+      cancelButton.style.backgroundColor = 'transparent';
+    });
+    
+    // Create rename button
+    const renameButton = document.createElement('button');
+    renameButton.textContent = 'Rename';
+    renameButton.style.cssText = `
+      padding: 8px 16px;
+      border: 1px solid var(--zen-primary-color);
+      border-radius: 4px;
+      background: var(--zen-primary-color);
+      color: white;
+      cursor: pointer;
+      font-size: 13px;
+    `;
+    
+    renameButton.addEventListener('mouseenter', () => {
+      renameButton.style.opacity = '0.8';
+    });
+    renameButton.addEventListener('mouseleave', () => {
+      renameButton.style.opacity = '1';
+    });
+    
+    // Handle cancel
+    const closeDialog = () => {
+      overlay.remove();
+    };
+    
+    cancelButton.addEventListener('click', closeDialog);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        closeDialog();
+      }
+    });
+    
+    // Handle rename
+    const handleRename = async () => {
+      const newName = input.value.trim();
+      
+      if (!newName) {
+        alert('Please enter a valid filename.');
+        input.focus();
+        return;
+      }
+      
+      if (newName === podData.filename) {
+        closeDialog();
+        return;
+      }
+      
+      try {
+        debugLog(`[Rename] Attempting to rename ${podData.filename} to ${newName}`);
+        await renamePodFile(podData, newName);
+        closeDialog();
+      } catch (error) {
+        debugLog(`[Rename] Error renaming file:`, error);
+        alert(`Error renaming file: ${error.message}`);
+      }
+    };
+    
+    renameButton.addEventListener('click', handleRename);
+    
+    // Handle Enter key
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleRename();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeDialog();
+      }
+    });
+    
+    // Assemble dialog
+    buttonContainer.appendChild(cancelButton);
+    buttonContainer.appendChild(renameButton);
+    
+    dialog.appendChild(title);
+    dialog.appendChild(currentName);
+    dialog.appendChild(input);
+    dialog.appendChild(buttonContainer);
+    
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    
+    debugLog(`[Rename] Rename dialog created for: ${podData.filename}`);
+  }
+
+  // Rename pod file
+  async function renamePodFile(podData, newFilename) {
+    debugLog(`[Rename] Starting rename process: ${podData.filename} -> ${newFilename}`);
+    
+    if (!podData.targetPath) {
+      throw new Error('No file path available for renaming');
+    }
+    
+    try {
+      // Get the file object
+      const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
+      file.initWithPath(podData.targetPath);
+      
+      if (!file.exists()) {
+        throw new Error('File does not exist');
+      }
+      
+      // Get parent directory and construct new path
+      const parentDir = file.parent;
+      const newFile = parentDir.clone();
+      newFile.append(newFilename);
+      
+      // Check if target filename already exists
+      if (newFile.exists()) {
+        throw new Error('A file with this name already exists');
+      }
+      
+      // Rename the file
+      file.moveTo(parentDir, newFilename);
+      
+      // Update pod data
+      const oldFilename = podData.filename;
+      const newPath = newFile.path;
+      
+      podData.filename = newFilename;
+      podData.targetPath = newPath;
+      
+      // Update the pod in our local storage
+      dismissedPods.set(podData.key, podData);
+      
+      // Update the pod element
+      const podElement = podElements.get(podData.key);
+      if (podElement) {
+        podElement.title = `${newFilename}\nClick: Open file\nMousewheel click: Show in file explorer\nRight-click: Context menu`;
+      }
+      
+      // Try to update the main script's dismissed pods if the API exists
+      if (window.zenTidyDownloads && window.zenTidyDownloads.dismissedPods) {
+        try {
+          const mainScriptPod = window.zenTidyDownloads.dismissedPods.get(podData.key);
+          if (mainScriptPod) {
+            mainScriptPod.filename = newFilename;
+            mainScriptPod.targetPath = newPath;
+            window.zenTidyDownloads.dismissedPods.set(podData.key, mainScriptPod);
+            debugLog(`[Rename] Updated main script pod data`);
+          }
+        } catch (error) {
+          debugLog(`[Rename] Could not update main script pod data:`, error);
+        }
+      }
+      
+      // Try to update Firefox downloads list
+      try {
+        const list = await window.Downloads.getList(window.Downloads.ALL);
+        const downloads = await list.getAll();
+        
+        // Find the download that matches our pod
+        const targetDownload = downloads.find(download => 
+          download.target?.path === podData.targetPath.replace(newFilename, oldFilename) ||
+          (download.source?.url === podData.sourceUrl && 
+           download.target?.path?.endsWith(oldFilename))
+        );
+        
+        if (targetDownload && targetDownload.target) {
+          // Update the target path in the download record
+          targetDownload.target.path = newPath;
+          debugLog(`[Rename] Updated Firefox download record`);
+        }
+      } catch (error) {
+        debugLog(`[Rename] Could not update Firefox download record:`, error);
+      }
+      
+      debugLog(`[Rename] Successfully renamed file: ${oldFilename} -> ${newFilename}`);
+      
+    } catch (error) {
+      debugLog(`[Rename] Error during file rename:`, error);
+      throw error;
     }
   }
 
