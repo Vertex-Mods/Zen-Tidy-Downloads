@@ -68,6 +68,175 @@
   // CSS availability flag
   let cssStylesAvailable = false;
 
+  // Event listeners for external scripts
+  const actualDownloadRemovedEventListeners = new Set();
+
+  // --- Dismissed Pods Management System ---
+  const dismissedPodsData = new Map(); // Store dismissed pod data for pile feature
+  const dismissEventListeners = new Set(); // Callbacks for pod dismiss events
+  
+  // Global API for dismissed pods pile feature
+  window.zenTidyDownloads = {
+    // Event system
+    onPodDismissed: (callback) => {
+      if (typeof callback === 'function') {
+        dismissEventListeners.add(callback);
+        debugLog('[API] Registered pod dismiss listener');
+      }
+    },
+    
+    offPodDismissed: (callback) => {
+      dismissEventListeners.delete(callback);
+      debugLog('[API] Unregistered pod dismiss listener');
+    },
+    
+    // Dismissed pods access
+    dismissedPods: {
+      getAll: () => new Map(dismissedPodsData), // Return copy to prevent external modification
+      get: (key) => dismissedPodsData.get(key),
+      count: () => dismissedPodsData.size,
+      clear: () => {
+        dismissedPodsData.clear();
+        debugLog('[API] Cleared all dismissed pods data');
+      }
+    },
+    
+    // Active downloads access (for pile script to check if hover should be disabled)
+    get activeDownloadCards() {
+      return activeDownloadCards;
+    },
+
+    // Event for when a download is actually removed from Firefox's list
+    onActualDownloadRemoved: (callback) => {
+      if (typeof callback === 'function') {
+        actualDownloadRemovedEventListeners.add(callback);
+        debugLog('[API] Registered actual download removed listener');
+      }
+    },
+
+    offActualDownloadRemoved: (callback) => {
+      actualDownloadRemovedEventListeners.delete(callback);
+      debugLog('[API] Unregistered actual download removed listener');
+    },
+    
+    // Pod restoration
+    restorePod: async (podKey) => {
+      debugLog(`[API] Restore pod requested: ${podKey}`);
+      const dismissedData = dismissedPodsData.get(podKey);
+      if (!dismissedData) {
+        debugLog(`[API] Cannot restore pod - no dismissed data found: ${podKey}`);
+        return false;
+      }
+      
+      try {
+        // Remove from dismissed sets
+        dismissedDownloads.delete(podKey);
+        dismissedPodsData.delete(podKey);
+        
+        // If the download still exists in Firefox, recreate the pod
+        const list = await window.Downloads.getList(window.Downloads.ALL);
+        const downloads = await list.getAll();
+        const download = downloads.find(dl => getDownloadKey(dl) === podKey);
+        
+        if (download) {
+          debugLog(`[API] Found download for restoration: ${podKey}`);
+          // Recreate the pod by calling our existing function
+          throttledCreateOrUpdateCard(download, true);
+          
+          // Fire restore event
+          fireCustomEvent('pod-restored-from-pile', { podKey, download });
+          return true;
+        } else {
+          debugLog(`[API] Download no longer exists in Firefox for restoration: ${podKey}`);
+          return false;
+        }
+      } catch (error) {
+        debugLog(`[API] Error restoring pod ${podKey}:`, error);
+        return false;
+      }
+    },
+    
+    // Permanent deletion
+    permanentDelete: (podKey) => {
+      debugLog(`[API] Permanent delete requested: ${podKey}`);
+      const wasPresent = dismissedPodsData.delete(podKey);
+      dismissedDownloads.add(podKey); // Ensure it stays dismissed
+      
+      if (wasPresent) {
+        fireCustomEvent('pod-permanently-deleted', { podKey });
+      }
+      
+      return wasPresent;
+    }
+  };
+  
+  // Helper function to fire custom events
+  function fireCustomEvent(eventName, detail) {
+    try {
+      const event = new CustomEvent(eventName, { 
+        detail, 
+        bubbles: true, 
+        cancelable: true 
+      });
+      document.dispatchEvent(event);
+      debugLog(`[Events] Fired custom event: ${eventName}`, detail);
+    } catch (error) {
+      debugLog(`[Events] Error firing custom event ${eventName}:`, error);
+    }
+  }
+  
+  // Helper function to capture pod data for dismissal
+  function capturePodDataForDismissal(downloadKey) {
+    const cardData = activeDownloadCards.get(downloadKey);
+    if (!cardData || !cardData.download) {
+      debugLog(`[Dismiss] No card data found for capturing: ${downloadKey}`);
+      return null;
+    }
+    
+    const download = cardData.download;
+    const podElement = cardData.podElement;
+    
+    // Capture essential data for pile reconstruction
+    const dismissedData = {
+      key: downloadKey,
+      filename: download.aiName || cardData.originalFilename || getSafeFilename(download),
+      originalFilename: cardData.originalFilename,
+      fileSize: download.currentBytes || download.totalBytes || 0,
+      contentType: download.contentType,
+      targetPath: download.target?.path,
+      sourceUrl: download.source?.url,
+      startTime: download.startTime,
+      endTime: download.endTime,
+      dismissTime: Date.now(),
+      wasRenamed: !!download.aiName,
+      // Capture preview data
+      previewData: null,
+      dominantColor: podElement?.dataset?.dominantColor || null
+    };
+    
+    // Try to capture preview image data
+    if (podElement) {
+      const previewContainer = podElement.querySelector('.card-preview-container');
+      if (previewContainer) {
+        const img = previewContainer.querySelector('img');
+        if (img && img.src) {
+          dismissedData.previewData = {
+            type: 'image',
+            src: img.src
+          };
+        } else {
+          // Capture icon/text preview
+          dismissedData.previewData = {
+            type: 'icon',
+            html: previewContainer.innerHTML
+          };
+        }
+      }
+    }
+    
+    debugLog(`[Dismiss] Captured pod data for pile:`, dismissedData);
+    return dismissedData;
+  }
 
   // Function to check if required CSS styles are loaded
   function checkCSSAvailability() {
@@ -657,6 +826,17 @@
           const key = getDownloadKey(dl);
           await cancelAIProcessForDownload(key); // Cancel any AI process first
           await removeCard(key, false);
+          
+          // Notify listeners that a download was actually removed from Firefox's list
+          actualDownloadRemovedEventListeners.forEach(callback => {
+            try {
+              callback(key);
+            } catch (error) {
+              debugLog('[API Event] Error in actualDownloadRemoved callback:', error);
+            }
+          });
+          fireCustomEvent('actual-download-removed', { podKey: key });
+          debugLog(`[API Event] Fired actual-download-removed for key: ${key}`);
         },
       };
 
@@ -1770,6 +1950,31 @@
           Date.now() - cardData.lastInteractionTime < getPref("extensions.downloads.interaction_grace_period_ms", 5000)) {
         debugLog(`removeCard: Skipping removal due to recent interaction: ${downloadKey}`, null, 'autohide');
         return false;
+      }
+
+      // === CAPTURE POD DATA FOR DISMISSAL PILE ===
+      const dismissedData = capturePodDataForDismissal(downloadKey);
+      if (dismissedData) {
+        // Store the dismissed pod data
+        dismissedPodsData.set(downloadKey, dismissedData);
+        
+        // Fire dismiss event for pile system
+        dismissEventListeners.forEach(callback => {
+          try {
+            callback(dismissedData);
+          } catch (error) {
+            debugLog(`[Dismiss] Error in dismiss event callback:`, error);
+          }
+        });
+        
+        // Fire custom DOM event
+        fireCustomEvent('pod-dismissed', { 
+          podKey: downloadKey, 
+          podData: dismissedData,
+          wasManual: force 
+        });
+        
+        debugLog(`[Dismiss] Pod dismissed and captured for pile: ${downloadKey}`);
       }
 
       cardData.isBeingRemoved = true; // Mark for exclusion from layout management
