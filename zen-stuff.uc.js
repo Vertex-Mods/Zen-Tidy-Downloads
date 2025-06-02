@@ -166,32 +166,27 @@
     downloadsButton.innerHTML = "Full list";
     downloadsButton.title = "Open Firefox Downloads";
     downloadsButton.style.cssText = `
-      position: absolute;
-      top: 5px;
-      left: 5px;
       width: 50px;
       height: 20px;
       border: none;
       border-radius: 4px;
-      background: light-dark(rgba(0, 0, 0, 1), rgba(255, 255, 255, 0.3));
+      background: var(--zen-primary-color);
       color: light-dark(rgb(255,255,255), rgb(0,0,0));
       font-size: 10px;
       cursor: pointer;
-      display: none;
+      display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 10;
       transition: background 0.2s ease, opacity 0.2s ease;
-      margin-top: 30px;
       opacity: 0;
     `;
 
     // Add hover effect
     downloadsButton.addEventListener('mouseenter', () => {
-      downloadsButton.style.background = 'light-dark(rgba(0, 0, 0, 0.8), rgba(255, 255, 255, 0.2))';
+      downloadsButton.style.background = 'color-mix(in srgb, var(--zen-primary-color) 80%, transparent)';
     });
     downloadsButton.addEventListener('mouseleave', () => {
-      downloadsButton.style.background = 'light-dark(rgba(0, 0, 0, 1), rgba(255, 255, 255, 0.3))';
+      downloadsButton.style.background = 'var(--zen-primary-color)';
     });
 
     // Add click handler to open downloads
@@ -220,32 +215,27 @@
     clearAllButton.innerHTML = "Clear all";
     clearAllButton.title = "Clear all Firefox Downloads";
     clearAllButton.style.cssText = `
-      position: absolute;
-      top: 5px;
-      left: 60px;
       width: 50px;
       height: 20px;
       border: none;
       border-radius: 4px;
-      background: light-dark(rgba(220, 53, 69, 1), rgba(220, 53, 69, 0.8));
+      background: light-dark(rgba(220, 53, 69, 1), rgb(223, 90, 104));
       color: white;
       font-size: 10px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 10;
       transition: background 0.2s ease, opacity 0.2s ease;
-      margin-top: 30px;
       opacity: 0;
     `;
 
     // Add hover effect for clear button
     clearAllButton.addEventListener('mouseenter', () => {
-      clearAllButton.style.background = 'light-dark(rgba(220, 53, 69, 0.8), rgba(220, 53, 69, 0.9))';
+      clearAllButton.style.background = 'light-dark(rgb(223, 90, 104), rgba(220, 53, 69, 1))';
     });
     clearAllButton.addEventListener('mouseleave', () => {
-      clearAllButton.style.background = 'light-dark(rgba(220, 53, 69, 1), rgba(220, 53, 69, 0.8))';
+      clearAllButton.style.background = 'light-dark(rgba(220, 53, 69, 1), rgb(223, 90, 104))';
     });
 
     // Add click handler to clear all downloads
@@ -263,9 +253,33 @@
       }
     });
 
-    // Append buttons to dynamicSizer (not pileContainer so they stay at top)
-    dynamicSizer.appendChild(downloadsButton);
-    dynamicSizer.appendChild(clearAllButton);
+    // Create button container for centering
+    const buttonContainer = document.createElement("div");
+    buttonContainer.id = "zen-pile-button-container";
+    buttonContainer.style.cssText = `
+      position: absolute;
+      top: 5px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 5px;
+      z-index: 10;
+      margin-top: 30px;
+      pointer-events: none;
+    `;
+
+    // Enable pointer events for buttons but not container
+    downloadsButton.style.pointerEvents = 'auto';
+    clearAllButton.style.pointerEvents = 'auto';
+
+    // Add buttons to container
+    buttonContainer.appendChild(downloadsButton);
+    buttonContainer.appendChild(clearAllButton);
+
+    // Append button container to dynamicSizer (not individual buttons)
+    dynamicSizer.appendChild(buttonContainer);
 
     // Append pileContainer to dynamicSizer
     dynamicSizer.appendChild(pileContainer);
@@ -675,6 +689,11 @@
       // showPile() will be called on hover, this just ensures initial state if pods loaded
       // updatePilePosition(); // This function will be revised/removed
       
+      // If pile is currently visible, recalculate height dynamically
+      if (dynamicSizer && dynamicSizer.style.height !== '0px') {
+        updatePileHeight();
+      }
+      
       // Show only the top few pods in pile mode
       let visibleCount = 0;
       const sortedPods = Array.from(dismissedPods.keys()).reverse(); // Newest first
@@ -698,6 +717,39 @@
       // we might need to re-evaluate the sizer height if it's dynamic.
       // For now, showPile/hidePile will manage sizer height.
     }
+  }
+
+  // Update pile height dynamically based on current pod count
+  function updatePileHeight() {
+    if (!dynamicSizer || dismissedPods.size === 0) return;
+    
+    const cols = 3;
+    const podSize = CONFIG.minPodSize;
+    const spacing = CONFIG.gridPadding;
+    
+    // Calculate dynamic height based on number of rows needed
+    const totalPods = dismissedPods.size;
+    const maxPodsToShow = 6; // Show last 6 pods in grid
+    const podsToShow = Math.min(totalPods, maxPodsToShow);
+    const rowsNeeded = Math.ceil(podsToShow / cols); // How many rows we actually need
+    const maxRows = 2; // Maximum rows we support
+    const actualRows = Math.min(rowsNeeded, maxRows);
+    
+    // Calculate height: base height + (rows * pod size) + spacing between rows + extra padding
+    const baseHeight = 80; // Base padding
+    const rowHeight = podSize + spacing;
+    const gridHeight = baseHeight + (actualRows * rowHeight);
+    
+    debugLog("Updating pile height dynamically", {
+      totalPods,
+      podsToShow,
+      rowsNeeded,
+      actualRows,
+      oldHeight: dynamicSizer.style.height,
+      newHeight: `${gridHeight}px`
+    });
+    
+    dynamicSizer.style.height = `${gridHeight}px`;
   }
 
   // Update pile position relative to download button
@@ -971,8 +1023,29 @@
     dynamicSizer.style.paddingBottom = '60px';
     dynamicSizer.style.paddingLeft = `${smartLeftPadding}px`;
     
-    // Set container height
-    const gridHeight = (CONFIG.minPodSize * 2) + 100;
+    // Calculate dynamic height based on number of rows needed
+    const totalPods = dismissedPods.size;
+    const maxPodsToShow = 6; // Show last 6 pods in grid
+    const podsToShow = Math.min(totalPods, maxPodsToShow);
+    const rowsNeeded = Math.ceil(podsToShow / cols); // How many rows we actually need
+    const maxRows = 2; // Maximum rows we support
+    const actualRows = Math.min(rowsNeeded, maxRows);
+    
+    // Calculate height: base height + (rows * pod size) + spacing between rows + extra padding
+    const baseHeight = 80; // Base padding
+    const rowHeight = podSize + spacing;
+    const gridHeight = baseHeight + (actualRows * rowHeight);
+    
+    debugLog("Dynamic height calculation", {
+      totalPods,
+      podsToShow,
+      rowsNeeded,
+      actualRows,
+      podSize,
+      spacing,
+      calculatedHeight: gridHeight
+    });
+    
     dynamicSizer.style.height = `${gridHeight}px`; 
     
     // Ensure hover events are properly set up for the current mode
@@ -988,7 +1061,8 @@
       gridCenterX,
       gridLeftEdge,
       smartLeftPadding,
-      note: "First pod will be at grid's left edge"
+      dynamicHeight: gridHeight,
+      note: "First pod will be at grid's left edge, height adjusts to content"
     });
   }
 
@@ -1400,27 +1474,27 @@
     // Show background
     dynamicSizer.style.background = 'color-mix(in srgb, var(--zen-primary-color) 10%, transparent)';
     
-    // Show buttons
+    // Show button container and buttons (but only make them clickable in grid mode)
+    const buttonContainer = document.getElementById("zen-pile-button-container");
     const downloadsButton = document.getElementById("zen-pile-downloads-button");
     const clearAllButton = document.getElementById("zen-pile-clear-all-button");
     
-    debugLog("[PileHover] Found buttons:", { 
+    debugLog("[PileHover] Found elements:", { 
+      buttonContainer: !!buttonContainer,
       downloadsButton: !!downloadsButton, 
       clearAllButton: !!clearAllButton 
     });
     
     if (downloadsButton) {
-      downloadsButton.style.display = 'flex';
       downloadsButton.style.opacity = '1';
       debugLog("[PileHover] Downloads button shown");
     }
     if (clearAllButton) {
-      clearAllButton.style.display = 'flex';
       clearAllButton.style.opacity = '1';
       debugLog("[PileHover] Clear all button shown");
     }
     
-    // Update pointer events since background is now visible
+    // Update pointer events based on current mode (this will handle button clickability)
     updatePointerEvents();
     
     debugLog("[PileHover] Showing pile background and buttons");
@@ -1444,32 +1518,21 @@
     // Hide background
     dynamicSizer.style.background = 'transparent';
     
-    // Hide buttons
+    // Hide button container and buttons
+    const buttonContainer = document.getElementById("zen-pile-button-container");
     const downloadsButton = document.getElementById("zen-pile-downloads-button");
     const clearAllButton = document.getElementById("zen-pile-clear-all-button");
     
     if (downloadsButton) {
       downloadsButton.style.opacity = '0';
-      // Delay hiding display to allow opacity transition
-      setTimeout(() => {
-        if (downloadsButton.style.opacity === '0') {
-          downloadsButton.style.display = 'none';
-        }
-      }, 200);
       debugLog("[PileHover] Downloads button hidden");
     }
     if (clearAllButton) {
       clearAllButton.style.opacity = '0';
-      // Delay hiding display to allow opacity transition
-      setTimeout(() => {
-        if (clearAllButton.style.opacity === '0') {
-          clearAllButton.style.display = 'none';
-        }
-      }, 200);
       debugLog("[PileHover] Clear all button hidden");
     }
     
-    // Update pointer events since background is now hidden
+    // Update pointer events based on current mode (this will handle button clickability)
     updatePointerEvents();
     
     debugLog("[PileHover] Hiding pile background and buttons");
@@ -1633,23 +1696,37 @@
     
     const alwaysShow = getAlwaysShowPile();
     const backgroundVisible = dynamicSizer.style.background !== 'transparent';
+    const buttonContainer = document.getElementById("zen-pile-button-container");
+    const downloadsButton = document.getElementById("zen-pile-downloads-button");
+    const clearAllButton = document.getElementById("zen-pile-clear-all-button");
     
-    if (alwaysShow && !isGridMode && !backgroundVisible) {
-      // Always-show mode, pile mode, no background: disable pointer events on container
-      // but keep them enabled on pile so pods can be hovered
-      dynamicSizer.style.pointerEvents = 'none';
-      pileContainer.style.pointerEvents = 'auto'; // Override for pile pods
-      debugLog("[PointerEvents] Container: none, Pile: auto - always-show pile mode without background");
-    } else {
-      // Enable pointer events in all other cases:
-      // - Grid mode (need to click buttons/background)
-      // - Background visible (need to click buttons)
-      // - Normal hover mode (always needs events)
+    // Buttons should only be clickable in grid mode
+    if (isGridMode) {
+      // Grid mode: enable button interactions
+      if (buttonContainer) buttonContainer.style.pointerEvents = 'auto';
+      if (downloadsButton) downloadsButton.style.pointerEvents = 'auto';
+      if (clearAllButton) clearAllButton.style.pointerEvents = 'auto';
       dynamicSizer.style.pointerEvents = 'auto';
       pileContainer.style.pointerEvents = 'auto';
-      debugLog("[PointerEvents] Container: auto, Pile: auto", {
-        reason: isGridMode ? "grid mode" : backgroundVisible ? "background visible" : "normal hover mode"
-      });
+      debugLog("[PointerEvents] Grid mode: All interactions enabled");
+    } else {
+      // Pile mode: disable button interactions
+      if (buttonContainer) buttonContainer.style.pointerEvents = 'none';
+      if (downloadsButton) downloadsButton.style.pointerEvents = 'none';
+      if (clearAllButton) clearAllButton.style.pointerEvents = 'none';
+      
+      // Handle container pointer events based on always-show mode and background visibility
+      if (alwaysShow && !backgroundVisible) {
+        // Always-show mode, pile mode, no background: disable container events but allow pile interaction
+        dynamicSizer.style.pointerEvents = 'none';
+        pileContainer.style.pointerEvents = 'auto';
+        debugLog("[PointerEvents] Always-show pile mode: Container disabled, pile enabled, buttons disabled");
+      } else {
+        // Normal hover mode or background visible: enable all container events
+        dynamicSizer.style.pointerEvents = 'auto';
+        pileContainer.style.pointerEvents = 'auto';
+        debugLog("[PointerEvents] Pile mode with background or normal hover: Container enabled, buttons disabled");
+      }
     }
   }
 
