@@ -641,7 +641,6 @@
     setTimeout(() => {
       const transform = `translate3d(${position.x}px, ${position.y}px, 0) rotate(0deg)`;
       podElement.style.transform = transform;
-      podElement.style.zIndex = 10; // Normalize z-index in grid
     }, delay);
   }
 
