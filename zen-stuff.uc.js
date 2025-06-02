@@ -196,8 +196,8 @@
 
     // Add click handler to open downloads
     downloadsButton.addEventListener('click', (e) => {
-      e.stopPropagation(); // Stop event from propagating
-      e.preventDefault(); // Prevent default action
+      e.stopPropagation();
+      e.preventDefault();
       try {
         // Try to open the downloads panel
         if (window.DownloadsPanel) {
@@ -250,8 +250,8 @@
 
     // Add click handler to clear all downloads
     clearAllButton.addEventListener('click', async (e) => {
-      e.stopPropagation(); // Stop event from propagating
-      e.preventDefault(); // Prevent default action
+      e.stopPropagation();
+      e.preventDefault();
       try {
         // Confirm with user before clearing
         if (confirm("Clear all downloads from Firefox history? This action cannot be undone.")) {
@@ -334,6 +334,14 @@
     } else {
       debugLog("[PileSync] Could not register listener for actual download removals - API not found on main script.");
     }
+
+    // Context menu click-outside handler
+    document.addEventListener('click', (e) => {
+      if (window.zenPileContextMenu && 
+          !window.zenPileContextMenu.contextMenu.contains(e.target)) {
+        hideContextMenu();
+      }
+    });
 
     debugLog("Event listeners setup complete");
   }
@@ -461,40 +469,16 @@
 
     // Add click handler for opening in file explorer
     pod.addEventListener('click', (e) => {
-      e.stopPropagation(); // Stop event from propagating
-      e.preventDefault(); // Prevent default action
+      e.preventDefault();
+      e.stopPropagation();
       debugLog(`Attempting to open file in explorer: ${podData.key}`);
-      if (podData.targetPath) {
-        try {
-          const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
-          file.initWithPath(podData.targetPath);
-          
-          if (file.exists()) {
-            // Open file with default application
-            file.launch();
-            debugLog(`Successfully opened file: ${podData.filename}`);
-          } else {
-            // File doesn't exist, try to open the containing folder
-            const parentDir = file.parent;
-            if (parentDir && parentDir.exists()) {
-              parentDir.launch();
-              debugLog(`File not found, opened containing folder: ${podData.filename}`);
-            } else {
-              debugLog(`File and folder not found: ${podData.filename}`);
-            }
-          }
-        } catch (error) {
-          debugLog(`Error opening file in explorer: ${podData.filename}`, error);
-        }
-      } else {
-        debugLog(`No file path available for: ${podData.filename}`);
-      }
+      openPodFile(podData);
     });
 
     // Add double-click handler for restoration
-    pod.addEventListener('dblclick', (e) => {
-      e.stopPropagation(); // Stop event from propagating
-      e.preventDefault(); // Prevent default action
+    pod.addEventListener('dblclick', () => {
+      e.preventDefault();
+      e.stopPropagation();
       debugLog(`Attempting to restore pod: ${podData.key}`);
       window.zenTidyDownloads.restorePod(podData.key).then(success => {
         if (success) {
@@ -506,13 +490,22 @@
       });
     });
 
-    // Add right-click handler for permanent deletion
+    // Add right-click handler - different behavior based on mode
     pod.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      if (confirm(`Permanently delete "${podData.filename}" from pile?`)) {
-        window.zenTidyDownloads.permanentDelete(podData.key);
-        removePodFromPile(podData.key);
-        debugLog(`Permanently deleted pod: ${podData.filename}`);
+      
+      if (isGridMode) {
+        // Grid mode: show context menu
+        debugLog(`[ContextMenu] Right-click in grid mode on: ${podData.filename}`);
+        showContextMenu(e.clientX, e.clientY, podData);
+      } else {
+        // Pile mode: simple confirm dialog (existing behavior)
+        debugLog(`[PileMode] Right-click in pile mode on: ${podData.filename}`);
+        if (confirm(`Permanently delete "${podData.filename}" from pile?`)) {
+          window.zenTidyDownloads.permanentDelete(podData.key);
+          removePodFromPile(podData.key);
+          debugLog(`Permanently deleted pod: ${podData.filename}`);
+        }
       }
     });
 
@@ -641,6 +634,7 @@
     setTimeout(() => {
       const transform = `translate3d(${position.x}px, ${position.y}px, 0) rotate(0deg)`;
       podElement.style.transform = transform;
+      // z-index is now set before animation starts in transitionToGrid()
     }, delay);
   }
 
@@ -804,12 +798,18 @@
     
     clearTimeout(hoverTimeout);
     
+    // Don't do anything if context menu is visible
+    if (isContextMenuVisible()) {
+      debugLog("[SizerHover] Context menu visible - ignoring leave event");
+      return;
+    }
+    
     // Always handle grid-to-pile transition when leaving the container
     // regardless of always-show mode
     if (isGridMode) {
       setTimeout(() => {
-        // Double-check we're not hovering over pile or sizer
-        if (!pileContainer.matches(':hover') && !dynamicSizer.matches(':hover')) {
+        // Double-check we're not hovering over pile or sizer and context menu isn't visible
+        if (!pileContainer.matches(':hover') && !dynamicSizer.matches(':hover') && !isContextMenuVisible()) {
           debugLog("[SizerHover] Transitioning back to pile mode from grid");
           transitionToPile();
         }
@@ -829,11 +829,12 @@
       
       debugLog("[SizerHover] Leave timeout - checking hover states", {
         isHoveringDownloadArea,
-        pileContainerHover: pileContainer.matches(':hover')
+        pileContainerHover: pileContainer.matches(':hover'),
+        contextMenuVisible: isContextMenuVisible()
       });
       
-      // Only hide if not hovering download area AND not hovering pile container
-      if (!isHoveringDownloadArea && !pileContainer.matches(':hover')) {
+      // Only hide if not hovering download area AND not hovering pile container AND context menu not visible
+      if (!isHoveringDownloadArea && !pileContainer.matches(':hover') && !isContextMenuVisible()) {
         debugLog("[SizerHover] Calling hidePile()");
         hidePile();
       }
@@ -865,16 +866,23 @@
   function handlePileLeave() {
     debugLog("[PileHover] handlePileLeave called", {
       alwaysShowMode: getAlwaysShowPile(),
-      isGridMode
+      isGridMode,
+      contextMenuVisible: isContextMenuVisible()
     });
     
     clearTimeout(hoverTimeout);
     
+    // Don't do anything if context menu is visible
+    if (isContextMenuVisible()) {
+      debugLog("[PileHover] Context menu visible - ignoring leave event");
+      return;
+    }
+    
     // Always handle grid-to-pile transition when leaving the pile
     if (isGridMode) {
       setTimeout(() => {
-        // Only transition back if we're not hovering over the sizer (background/buttons area)
-        if (!dynamicSizer.matches(':hover')) {
+        // Only transition back if we're not hovering over the sizer and context menu isn't visible
+        if (!dynamicSizer.matches(':hover') && !isContextMenuVisible()) {
           debugLog("[PileHover] Transitioning back to pile mode from grid");
           transitionToPile();
         }
@@ -894,11 +902,12 @@
       
       debugLog("[PileHover] Leave timeout - checking hover states", {
         isHoveringDownloadArea,
-        dynamicSizerHover: dynamicSizer.matches(':hover')
+        dynamicSizerHover: dynamicSizer.matches(':hover'),
+        contextMenuVisible: isContextMenuVisible()
       });
       
-      // Only hide if not hovering download area AND not hovering dynamic sizer
-      if (!isHoveringDownloadArea && !dynamicSizer.matches(':hover')) {
+      // Only hide if not hovering download area AND not hovering dynamic sizer AND context menu not visible
+      if (!isHoveringDownloadArea && !dynamicSizer.matches(':hover') && !isContextMenuVisible()) {
         debugLog("[PileHover] Calling hidePile()");
         hidePile();
       }
@@ -1032,6 +1041,14 @@
     const lastSixPods = allPods.slice(-6); // Get the last 6 pods
     
     debugLog(`Showing ${lastSixPods.length} of ${allPods.length} pods in grid`, lastSixPods);
+
+    // First, normalize z-index for all visible pods to prevent flickering during animation
+    lastSixPods.forEach(podKey => {
+      const podElement = podElements.get(podKey);
+      if (podElement) {
+        podElement.style.zIndex = 10; // Set consistent z-index before animation
+      }
+    });
 
     // Show only the last 6 pods, hide the rest
     dismissedPods.forEach((_, podKey) => {
@@ -1263,6 +1280,57 @@
     // Buttons are now controlled by hover events in showPileBackground/hidePileBackground
     // This function is kept for compatibility but doesn't change visibility
     debugLog(`[DownloadsButton] Button visibility managed by hover - ${dismissedPods.size} dismissed pods`);
+  }
+
+  // Function to remove a specific download from Firefox downloads list
+  async function removeDownloadFromFirefoxList(podData) {
+    try {
+      debugLog(`[DeleteDownload] Attempting to remove download from Firefox list: ${podData.filename}`);
+      
+      // Get the downloads list
+      const list = await window.Downloads.getList(window.Downloads.ALL);
+      const downloads = await list.getAll();
+      
+      // Find the download that matches our pod data
+      let targetDownload = null;
+      
+      for (const download of downloads) {
+        // Try to match by target path (most reliable)
+        if (podData.targetPath && download.target?.path === podData.targetPath) {
+          targetDownload = download;
+          debugLog(`[DeleteDownload] Found download by target path: ${download.target.path}`);
+          break;
+        }
+        
+        // Fallback: try to match by source URL and filename
+        if (podData.sourceUrl && download.source?.url === podData.sourceUrl) {
+          // Additional check for filename if available
+          const downloadFilename = download.target?.path ? 
+            download.target.path.split(/[/\\]/).pop() : null;
+          
+          if (!downloadFilename || downloadFilename === podData.filename || 
+              downloadFilename === podData.originalFilename) {
+            targetDownload = download;
+            debugLog(`[DeleteDownload] Found download by source URL: ${download.source.url}`);
+            break;
+          }
+        }
+      }
+      
+      if (targetDownload) {
+        // Remove the download from Firefox's list
+        await list.remove(targetDownload);
+        debugLog(`[DeleteDownload] Successfully removed download from Firefox list: ${podData.filename}`);
+        return true;
+      } else {
+        debugLog(`[DeleteDownload] Download not found in Firefox list: ${podData.filename}`);
+        return false;
+      }
+      
+    } catch (error) {
+      debugLog(`[DeleteDownload] Error removing download from Firefox list:`, error);
+      throw error;
+    }
   }
 
   // Function to clear all downloads from Firefox
@@ -1587,6 +1655,213 @@
       debugLog("[PointerEvents] Container: auto, Pile: auto", {
         reason: isGridMode ? "grid mode" : backgroundVisible ? "background visible" : "normal hover mode"
       });
+    }
+  }
+
+  // Show context menu at position
+  function showContextMenu(x, y, podData) {
+    // Always create a fresh context menu to avoid event handler issues
+    hideContextMenu(); // Hide any existing menu first
+    
+    // Remove any existing menu from DOM
+    const existingMenu = document.getElementById('zen-pile-context-menu');
+    if (existingMenu) {
+      existingMenu.remove();
+    }
+    
+    // Create fresh context menu
+    const contextMenu = document.createElement('div');
+    contextMenu.id = 'zen-pile-context-menu';
+    contextMenu.style.cssText = `
+      position: fixed;
+      background: var(--zen-primary-color);
+      border: 1px solid var(--panel-border-color);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      padding: 4px 0;
+      min-width: 120px;
+      z-index: 10000;
+      display: none;
+      font-size: 13px;
+      color: inherit;
+    `;
+
+    // Create open item
+    const openItem = document.createElement('div');
+    openItem.className = 'context-menu-item';
+    openItem.textContent = 'Open';
+    openItem.style.cssText = `
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background-color 0.1s;
+    `;
+    
+    // Add hover effects for open item
+    openItem.addEventListener('mouseenter', () => {
+      openItem.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+    });
+    openItem.addEventListener('mouseleave', () => {
+      openItem.style.backgroundColor = 'transparent';
+    });
+    
+    // Add click handler for open item
+    openItem.addEventListener('click', () => {
+      debugLog(`[ContextMenu] Opening file: ${podData.key}`);
+      openPodFile(podData);
+      hideContextMenu();
+    });
+
+    // Create delete item
+    const deleteItem = document.createElement('div');
+    deleteItem.className = 'context-menu-item';
+    deleteItem.textContent = 'Delete';
+    deleteItem.style.cssText = `
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background-color 0.1s;
+      color: var(--red-50);
+    `;
+    
+    // Add hover effects for delete item
+    deleteItem.addEventListener('mouseenter', () => {
+      deleteItem.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+    });
+    deleteItem.addEventListener('mouseleave', () => {
+      deleteItem.style.backgroundColor = 'transparent';
+    });
+    
+    // Add click handler for delete item
+    deleteItem.addEventListener('click', async () => {
+      debugLog(`[ContextMenu] Delete clicked for single pod: ${podData.key}`);
+      
+      if (confirm(`Permanently delete "${podData.filename}" from pile and Firefox downloads?`)) {
+        try {
+          debugLog(`[ContextMenu] User confirmed deletion of: ${podData.filename}`);
+          
+          // First, remove from Firefox downloads list
+          await removeDownloadFromFirefoxList(podData);
+          
+          // Then remove from pile and main script
+          window.zenTidyDownloads.permanentDelete(podData.key);
+          removePodFromPile(podData.key);
+          
+          debugLog(`[ContextMenu] Successfully deleted pod and download: ${podData.filename}`);
+        } catch (error) {
+          debugLog(`[ContextMenu] Error deleting pod/download: ${podData.filename}`, error);
+          // Still try to remove from pile even if Firefox removal fails
+          window.zenTidyDownloads.permanentDelete(podData.key);
+          removePodFromPile(podData.key);
+        }
+      } else {
+        debugLog(`[ContextMenu] User cancelled deletion of: ${podData.filename}`);
+      }
+      
+      hideContextMenu();
+    });
+
+    // Add items to menu
+    contextMenu.appendChild(openItem);
+    contextMenu.appendChild(deleteItem);
+    document.body.appendChild(contextMenu);
+
+    // Position and show menu - open upward from bottom-left
+    // First show menu temporarily to get its dimensions
+    contextMenu.style.visibility = 'hidden';
+    contextMenu.style.display = 'block';
+    const menuRect = contextMenu.getBoundingClientRect();
+    contextMenu.style.visibility = 'visible';
+    
+    // Position with bottom-left at cursor position (menu grows upward)
+    const menuX = x;
+    const menuY = y - menuRect.height;
+    
+    contextMenu.style.left = `${menuX}px`;
+    contextMenu.style.top = `${menuY}px`;
+
+    // Store reference for hiding
+    window.zenPileContextMenu = { contextMenu };
+
+    debugLog(`[ContextMenu] Created fresh menu for single pod: ${podData.filename} at (${menuX}, ${menuY})`);
+  }
+
+  // Check if context menu is currently visible
+  function isContextMenuVisible() {
+    const existingMenu = document.getElementById('zen-pile-context-menu');
+    return existingMenu !== null;
+  }
+
+  // Hide context menu
+  function hideContextMenu() {
+    // Remove the context menu from DOM
+    const existingMenu = document.getElementById('zen-pile-context-menu');
+    if (existingMenu) {
+      existingMenu.remove();
+      debugLog("[ContextMenu] Context menu removed from DOM");
+    }
+    
+    // Clear the reference
+    if (window.zenPileContextMenu) {
+      window.zenPileContextMenu = null;
+    }
+    
+    // After hiding menu, check if we should hide pile/transition modes
+    // Give a small delay to allow cursor position to stabilize
+    setTimeout(() => {
+      const isHoveringPile = pileContainer.matches(':hover');
+      const isHoveringSizer = dynamicSizer.matches(':hover');
+      const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
+      const isHoveringDownloadArea = downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
+      
+      debugLog("[ContextMenu] Post-hide check", {
+        isHoveringPile,
+        isHoveringSizer,
+        isHoveringDownloadArea,
+        isGridMode,
+        alwaysShowMode: getAlwaysShowPile()
+      });
+      
+      // If not hovering any pile-related elements, trigger appropriate behavior
+      if (!isHoveringPile && !isHoveringSizer && !isHoveringDownloadArea) {
+        if (isGridMode) {
+          // Transition back to pile mode
+          transitionToPile();
+        }
+        
+        // If in normal hover mode (not always-show), hide the pile
+        if (!getAlwaysShowPile()) {
+          hidePile();
+        }
+      }
+    }, 100);
+  }
+
+  // Open pod file (extracted from existing click handler)
+  function openPodFile(podData) {
+    debugLog(`Attempting to open file in explorer: ${podData.key}`);
+    if (podData.targetPath) {
+      try {
+        const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
+        file.initWithPath(podData.targetPath);
+        
+        if (file.exists()) {
+          // Open file with default application
+          file.launch();
+          debugLog(`Successfully opened file: ${podData.filename}`);
+        } else {
+          // File doesn't exist, try to open the containing folder
+          const parentDir = file.parent;
+          if (parentDir && parentDir.exists()) {
+            parentDir.launch();
+            debugLog(`File not found, opened containing folder: ${podData.filename}`);
+          } else {
+            debugLog(`File and folder not found: ${podData.filename}`);
+          }
+        }
+      } catch (error) {
+        debugLog(`Error opening file in explorer: ${podData.filename}`, error);
+      }
+    } else {
+      debugLog(`No file path available for: ${podData.filename}`);
     }
   }
 

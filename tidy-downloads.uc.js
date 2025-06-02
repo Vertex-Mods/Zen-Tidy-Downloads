@@ -825,10 +825,19 @@
             const recentDownloads = all.filter(dl => {
               const key = getDownloadKey(dl);
               
-              // Skip if already dismissed
-              if (dismissedDownloads.has(key)) {
-                debugLog(`[Init] Skipping dismissed download: ${key}`);
-                return false;
+              // Skip dismissed downloads only if they're completed AND not currently in our active cards
+              // This prevents old completed downloads from reappearing, but allows active downloads to be processed
+              // even if they were previously dismissed
+              if (dismissedDownloads.has(key) && !activeDownloadCards.has(key)) {
+                // Only skip if the download is in a completed state (succeeded, error, or canceled)
+                const isCompleted = dl.succeeded || dl.error || dl.canceled;
+                if (isCompleted) {
+                  debugLog(`[CreatePod] Skipping dismissed completed download: ${key} (succeeded: ${dl.succeeded}, error: ${!!dl.error}, canceled: ${dl.canceled})`);
+                  return null;
+                } else {
+                  // This is an active download that was previously dismissed - allow it to show
+                  debugLog(`[CreatePod] Allowing dismissed but active download to show: ${key} (still downloading)`);
+                }
               }
               
               // Only show recent downloads or currently active ones
