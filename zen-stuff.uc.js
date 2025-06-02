@@ -370,7 +370,9 @@
       pod.appendChild(preview);
   
       // Add click handler for opening in file explorer
-      pod.addEventListener('click', () => {
+      pod.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
         debugLog(`Attempting to open file in explorer: ${podData.key}`);
         if (podData.targetPath) {
           try {
@@ -400,7 +402,9 @@
       });
   
       // Add double-click handler for restoration
-      pod.addEventListener('dblclick', () => {
+      pod.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
         debugLog(`Attempting to restore pod: ${podData.key}`);
         window.zenTidyDownloads.restorePod(podData.key).then(success => {
           if (success) {
