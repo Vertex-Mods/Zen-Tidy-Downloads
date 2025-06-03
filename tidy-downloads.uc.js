@@ -721,6 +721,20 @@
               e.stopPropagation();
               debugLog(`[MasterClose] Master close button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
               
+              // Provide immediate visual feedback
+              masterCloseBtn.style.opacity = "0.5";
+              masterCloseBtn.style.transform = "scale(0.9)";
+              
+              // Windows-specific fix for event handling
+              // Prevent any pending click events by temporarily disabling pointer events
+              masterCloseBtn.style.pointerEvents = "none";
+              
+              setTimeout(() => {
+                // Restore button appearance after visual feedback
+                masterCloseBtn.style.opacity = "";
+                masterCloseBtn.style.transform = "";
+              }, 200);
+              
               if (focusedDownloadKey) {
                 const keyToRemove = focusedDownloadKey; // Capture the key
                 const cardData = activeDownloadCards.get(keyToRemove);
@@ -735,6 +749,9 @@
 
                 // Delay pod removal to allow tooltip to animate out
                 setTimeout(async () => {
+                  // Re-enable pointer events after action is completed
+                  masterCloseBtn.style.pointerEvents = "";
+                  
                   debugLog(`[MasterClose] Delayed action: proceeding to handle/remove card for ${keyToRemove}`);
                   if (cardData && cardData.download) {
                     try {
@@ -802,7 +819,17 @@
                 }, 300); // Corresponds to tooltip animation duration
               }
             };
+            
+            // Windows-specific fix: Remove any existing event listeners first
+            masterCloseBtn.removeEventListener("click", masterCloseHandler);
+            masterCloseBtn.removeEventListener("mousedown", (e) => e.preventDefault());
+            
+            // Add event listeners with improved handling
             masterCloseBtn.addEventListener("click", masterCloseHandler);
+            
+            // Prevent default on mousedown to avoid focus issues on Windows
+            masterCloseBtn.addEventListener("mousedown", (e) => e.preventDefault());
+            
             masterCloseBtn.addEventListener("keydown", (e) => {
               if ((e.key === "Enter" || e.key === " ") && focusedDownloadKey) {
                 e.preventDefault();
@@ -818,6 +845,20 @@
                   e.preventDefault();
                   e.stopPropagation();
                   debugLog(`[MasterUndo] Master undo/resume button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
+                  
+                  // Provide immediate visual feedback
+                  masterUndoBtn.style.opacity = "0.5";
+                  masterUndoBtn.style.transform = "scale(0.9)";
+                  
+                  // Windows-specific fix for event handling
+                  // Prevent any pending click events by temporarily disabling pointer events
+                  masterUndoBtn.style.pointerEvents = "none";
+                  
+                  setTimeout(() => {
+                    // Restore button appearance after visual feedback
+                    masterUndoBtn.style.opacity = "";
+                    masterUndoBtn.style.transform = "";
+                  }, 200);
                   
                   if (focusedDownloadKey) {
                       const cardData = activeDownloadCards.get(focusedDownloadKey);
@@ -868,9 +909,24 @@
                           await undoRename(focusedDownloadKey);
                           // UI update is handled within undoRename via updateUIForFocusedDownload
                       }
+                      
+                      // Re-enable pointer events after action is completed
+                      setTimeout(() => {
+                          masterUndoBtn.style.pointerEvents = "";
+                      }, 300);
                   }
               };
+              
+              // Windows-specific fix: Remove any existing event listeners first
+              masterUndoBtn.removeEventListener("click", masterUndoHandler);
+              masterUndoBtn.removeEventListener("mousedown", (e) => e.preventDefault());
+              
+              // Add event listeners with improved handling
               masterUndoBtn.addEventListener("click", masterUndoHandler);
+              
+              // Prevent default on mousedown to avoid focus issues on Windows
+              masterUndoBtn.addEventListener("mousedown", (e) => e.preventDefault());
+              
               masterUndoBtn.addEventListener("keydown", async (e) => {
                   if ((e.key === "Enter" || e.key === " ") && focusedDownloadKey) {
                       e.preventDefault();

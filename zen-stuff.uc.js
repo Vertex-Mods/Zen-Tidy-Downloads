@@ -193,6 +193,17 @@
     downloadsButton.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
+      
+      // Windows-specific double-click fix: Visual feedback and prevent multiple clicks
+      downloadsButton.style.opacity = "0.5";
+      downloadsButton.style.transform = "scale(0.9)";
+      downloadsButton.style.pointerEvents = "none";
+      
+      setTimeout(() => {
+        downloadsButton.style.opacity = "";
+        downloadsButton.style.transform = "";
+      }, 200);
+      
       try {
         // Try to open the downloads panel
         if (window.DownloadsPanel) {
@@ -204,7 +215,14 @@
           window.openTrustedLinkIn('about:downloads', 'tab');
         }
         debugLog("Opened Firefox downloads");
+        
+        // Re-enable pointer events after action completed
+        setTimeout(() => {
+          downloadsButton.style.pointerEvents = "";
+        }, 300);
       } catch (error) {
+        // Re-enable pointer events if error
+        downloadsButton.style.pointerEvents = "";
         debugLog("Error opening downloads:", error);
       }
     });
@@ -242,13 +260,31 @@
     clearAllButton.addEventListener('click', async (e) => {
       e.stopPropagation();
       e.preventDefault();
+      
+      // Windows-specific double-click fix: Visual feedback and prevent multiple clicks
+      clearAllButton.style.opacity = "0.5";
+      clearAllButton.style.transform = "scale(0.9)";
+      clearAllButton.style.pointerEvents = "none";
+      
+      setTimeout(() => {
+        clearAllButton.style.opacity = "1";
+        clearAllButton.style.transform = "";
+      }, 200);
+      
       try {
         // Confirm with user before clearing
         if (confirm("Clear all downloads from Firefox history? This action cannot be undone.")) {
           await clearAllDownloads();
           debugLog("Cleared all Firefox downloads");
         }
+        
+        // Re-enable pointer events after action completed
+        setTimeout(() => {
+          clearAllButton.style.pointerEvents = "";
+        }, 300);
       } catch (error) {
+        // Re-enable pointer events if error
+        clearAllButton.style.pointerEvents = "";
         debugLog("Error clearing downloads:", error);
       }
     });
@@ -485,8 +521,30 @@
     pod.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      
+      // Windows-specific double-click fix
+      pod.style.pointerEvents = "none";
+      const originalTransform = pod.style.transform;
+      const originalTransition = pod.style.transition;
+      
+      // Brief visual feedback
+      pod.style.transition = "transform 0.1s ease, opacity 0.1s ease";
+      pod.style.transform = originalTransform + " scale(0.95)";
+      pod.style.opacity = "0.8";
+      
+      setTimeout(() => {
+        pod.style.transform = originalTransform;
+        pod.style.opacity = "1";
+        pod.style.transition = originalTransition;
+      }, 100);
+      
       debugLog(`Attempting to open file: ${podData.key}`);
       openPodFile(podData);
+      
+      // Re-enable pointer events after a delay
+      setTimeout(() => {
+        pod.style.pointerEvents = "auto";
+      }, 300);
     });
 
     // Add middle-click handler for showing in file explorer
@@ -494,8 +552,30 @@
       if (e.button === 1) { // Middle mouse button
         e.preventDefault();
         e.stopPropagation();
+        
+        // Windows-specific double-click fix
+        pod.style.pointerEvents = "none";
+        
+        // Brief visual feedback
+        const originalTransform = pod.style.transform;
+        const originalTransition = pod.style.transition;
+        pod.style.transition = "transform 0.1s ease, opacity 0.1s ease";
+        pod.style.transform = originalTransform + " scale(0.95)";
+        pod.style.opacity = "0.8";
+        
+        setTimeout(() => {
+          pod.style.transform = originalTransform;
+          pod.style.opacity = "1";
+          pod.style.transition = originalTransition;
+        }, 100);
+        
         debugLog(`Attempting to show file in explorer: ${podData.key}`);
         showPodFileInExplorer(podData);
+        
+        // Re-enable pointer events after a delay
+        setTimeout(() => {
+          pod.style.pointerEvents = "auto";
+        }, 300);
       }
     });
 
@@ -1205,8 +1285,13 @@
       generateGridPosition(podKey);
     });
 
-    // Recalculate fixed position if pile is currently shown
+    // Recalculate fixed position and width if pile is currently shown
     if (dynamicSizer && dynamicSizer.style.height !== '0px') {
+      // Update container width first (important for always-show mode)
+      if (typeof updatePileContainerWidth === 'function') {
+        updatePileContainerWidth();
+      }
+      
       const navigatorToolbox = document.getElementById('navigator-toolbox');
       if (navigatorToolbox) {
         const rect = navigatorToolbox.getBoundingClientRect();
@@ -1219,8 +1304,26 @@
           dynamicSizer.style.left = `${rect.left}px`;
         }
         
-        debugLog("Recalculated pile position on resize", {
-          newLeft: dynamicSizer.style.left
+        // Also recalculate the left padding for proper grid centering
+        const containerWidth = parseFloat(currentZenSidebarWidthForPile) || 300;
+        const cols = 3;
+        const podSize = CONFIG.minPodSize;
+        const spacing = CONFIG.gridPadding;
+        
+        // Calculate total grid dimensions
+        const gridWidth = (cols * podSize) + ((cols - 1) * spacing);
+        
+        // Calculate where the grid should be positioned to be centered
+        const gridCenterX = containerWidth / 2;
+        const gridLeftEdge = gridCenterX - (gridWidth / 2);
+        const smartLeftPadding = Math.max(gridLeftEdge / 4, 10) + 10;
+        
+        dynamicSizer.style.paddingLeft = `${smartLeftPadding}px`;
+        
+        debugLog("Recalculated pile position and width on resize", {
+          newLeft: dynamicSizer.style.left,
+          newWidth: currentZenSidebarWidthForPile,
+          newPadding: smartLeftPadding
         });
       }
     }
@@ -1472,7 +1575,7 @@
     debugLog("[PileHover] showPileBackground called");
     
     // Show background
-    dynamicSizer.style.background = 'color-mix(in srgb, var(--zen-primary-color) 10%, transparent)';
+    dynamicSizer.style.background = 'light-dark(rgba(255, 255, 255, 0.6), rgba(0, 0, 0, 0.4))';
     
     // Show button container and buttons (but only make them clickable in grid mode)
     const buttonContainer = document.getElementById("zen-pile-button-container");
@@ -1755,7 +1858,7 @@
       z-index: 10000;
       display: none;
       font-size: 13px;
-      color: inherit;
+      color: light-dark(rgb(255,255,255), rgb(0,0,0));
     `;
 
     // Create open item
@@ -1778,9 +1881,19 @@
     
     // Add click handler for open item
     openItem.addEventListener('click', () => {
+      // Windows-specific double-click fix: Visual feedback and prevent multiple clicks
+      openItem.style.pointerEvents = "none";
+      openItem.style.opacity = "0.5";
+      
       debugLog(`[ContextMenu] Opening file: ${podData.key}`);
       openPodFile(podData);
       hideContextMenu();
+      
+      // Re-enable after a delay (even though the menu will be hidden)
+      setTimeout(() => {
+        openItem.style.pointerEvents = "auto";
+        openItem.style.opacity = "1";
+      }, 300);
     });
 
     // Create rename item
@@ -1803,9 +1916,19 @@
     
     // Add click handler for rename item
     renameItem.addEventListener('click', () => {
+      // Windows-specific double-click fix: Visual feedback and prevent multiple clicks
+      renameItem.style.pointerEvents = "none";
+      renameItem.style.opacity = "0.5";
+      
       debugLog(`[ContextMenu] Rename clicked for: ${podData.key}`);
       showRenameDialog(podData);
       hideContextMenu();
+      
+      // Re-enable after a delay (even though the menu will be hidden)
+      setTimeout(() => {
+        renameItem.style.pointerEvents = "auto";
+        renameItem.style.opacity = "1";
+      }, 300);
     });
 
     // Create delete item
@@ -1829,7 +1952,14 @@
     
     // Add click handler for delete item
     deleteItem.addEventListener('click', async () => {
+      // Windows-specific double-click fix: Visual feedback and prevent multiple clicks
+      deleteItem.style.pointerEvents = "none";
+      deleteItem.style.opacity = "0.5";
+      
       debugLog(`[ContextMenu] Delete clicked for single pod: ${podData.key}`);
+      
+      // Hide context menu immediately to prevent double-clicks
+      hideContextMenu();
       
       if (confirm(`Permanently delete "${podData.filename}" from pile and Firefox downloads?`)) {
         try {
@@ -1853,7 +1983,11 @@
         debugLog(`[ContextMenu] User cancelled deletion of: ${podData.filename}`);
       }
       
-      hideContextMenu();
+      // Re-enable after a delay (even though the menu will be hidden)
+      setTimeout(() => {
+        deleteItem.style.pointerEvents = "auto";
+        deleteItem.style.opacity = "1";
+      }, 300);
     });
 
     // Add items to menu
@@ -2054,6 +2188,7 @@
       margin: 0 0 15px 0;
       font-size: 16px;
       font-weight: 600;
+      color: light-dark(rgb(255,255,255), rgb(0,0,0));
     `;
     
     // Create current filename display
@@ -2062,7 +2197,7 @@
     currentName.style.cssText = `
       margin-bottom: 10px;
       font-size: 13px;
-      color: var(--text-color-deemphasized);
+      color: light-dark(rgb(255,255,255), rgb(0,0,0));
       word-break: break-all;
     `;
     
@@ -2075,8 +2210,8 @@
       padding: 8px 12px;
       border: 1px solid var(--panel-border-color);
       border-radius: 4px;
-      background: var(--toolbar-field-background-color);
-      color: var(--toolbar-field-color);
+      background: light-dark(color-mix(in srgb, var(--zen-primary-color) 70%, black), rgb(255,255,255));
+      color: light-dark(rgb(255,255,255), rgb(0,0,0));
       font-size: 14px;
       margin-bottom: 15px;
       box-sizing: border-box;
@@ -2112,7 +2247,7 @@
       border: 1px solid var(--panel-border-color);
       border-radius: 4px;
       background: transparent;
-      color: inherit;
+      color: light-dark(rgb(255,255,255), rgb(0,0,0));
       cursor: pointer;
       font-size: 13px;
     `;
@@ -2132,8 +2267,9 @@
       border: 1px solid var(--zen-primary-color);
       border-radius: 4px;
       background: var(--zen-primary-color);
-      color: white;
+      color: color-mix(in srgb, var(--zen-primary-color) 70%, black);
       cursor: pointer;
+      font-weight: 700;
       font-size: 13px;
     `;
     
@@ -2149,7 +2285,24 @@
       overlay.remove();
     };
     
-    cancelButton.addEventListener('click', closeDialog);
+    cancelButton.addEventListener('click', (e) => {
+      // Windows-specific double-click fix
+      cancelButton.style.pointerEvents = "none";
+      cancelButton.style.opacity = "0.5";
+      
+      // Visual feedback
+      setTimeout(() => {
+        cancelButton.style.opacity = "1";
+      }, 100);
+      
+      closeDialog();
+      
+      // Re-enable after a delay
+      setTimeout(() => {
+        cancelButton.style.pointerEvents = "auto";
+      }, 300);
+    });
+    
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
         closeDialog();
@@ -2158,11 +2311,18 @@
     
     // Handle rename
     const handleRename = async () => {
+      // Windows-specific double-click fix
+      renameButton.style.pointerEvents = "none";
+      renameButton.style.opacity = "0.5";
+      
       const newName = input.value.trim();
       
       if (!newName) {
         alert('Please enter a valid filename.');
         input.focus();
+        // Re-enable button if validation fails
+        renameButton.style.pointerEvents = "auto";
+        renameButton.style.opacity = "1";
         return;
       }
       
@@ -2176,6 +2336,10 @@
         await renamePodFile(podData, newName);
         closeDialog();
       } catch (error) {
+        // Re-enable button on error
+        renameButton.style.pointerEvents = "auto";
+        renameButton.style.opacity = "1";
+        
         debugLog(`[Rename] Error renaming file:`, error);
         alert(`Error renaming file: ${error.message}`);
       }
