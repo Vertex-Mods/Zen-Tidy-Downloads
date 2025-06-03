@@ -651,42 +651,44 @@
     if (index === -1) return;
 
     // 2x3 grid: 2 rows, 3 columns
-    // First pod (index 0) stays at (0,0) - becomes the anchor
-    // Other pods position relative to the first pod
+    // Get position in the reversed order (newest pod at index 0)
+    const reversedIndex = pods.length - 1 - index;
+    
     const cols = 3;
     const maxRows = 2;
     
-    const col = index % cols; // Column: 0, 1, 2, 0, 1, 2, ...
-    const logicalRow = Math.floor(index / cols); // Which row logically: 0, 0, 0, 1, 1, 1, ...
+    const col = reversedIndex % cols; // Column: 0, 1, 2, 0, 1, 2, ...
+    const logicalRow = Math.floor(reversedIndex / cols); // Which row logically: 0, 0, 0, 1, 1, 1, ...
     const visualRow = logicalRow % maxRows; // 0 = bottom row, 1 = top row
     
     const podSize = CONFIG.minPodSize;
     const spacing = CONFIG.gridPadding;
     
-    // First pod stays at origin (0,0) - this is our anchor
+    // Newest pod (highest original index, lowest reversedIndex) stays at origin (0,0)
     // Other pods position relative to it
     let x, y;
     
-    if (index === 0) {
-      // First pod stays at pile position
+    if (reversedIndex === 0) {
+      // Newest pod stays at pile position (0,0)
       x = 0;
       y = 0;
     } else {
-      // Other pods arrange in grid pattern relative to first pod
+      // Other pods arrange in grid pattern relative to newest pod
       x = col * (podSize + spacing);
       y = -visualRow * (podSize + spacing); // Negative Y grows upward
     }
 
     gridPositions.set(podKey, { x, y, row: logicalRow, col });
     
-    debugLog(`Anchor-based Grid position for ${podKey}:`, {
-      index,
+    debugLog(`Reversed Grid position for ${podKey}:`, {
+      originalIndex: index,
+      reversedIndex,
       col,
       logicalRow,
       visualRow,
       x,
       y,
-      isAnchor: index === 0,
+      isNewest: reversedIndex === 0,
       description: visualRow === 0 ? 'bottom row' : 'top row'
     });
   }
@@ -1214,7 +1216,10 @@
     });
 
     // Regenerate grid positions for only the last 6 pods using anchor-based approach
-    lastSixPods.forEach((podKey, index) => {
+    // REVERSE the array so newest pod (last index) becomes first (index 0)
+    const reversedPods = [...lastSixPods].reverse();
+    
+    reversedPods.forEach((podKey, index) => {
       const cols = 3;
       const maxRows = 2;
       
@@ -1225,12 +1230,12 @@
       const podSize = CONFIG.minPodSize;
       const spacing = CONFIG.gridPadding;
       
-      // First pod (index 0) stays at anchor position (0,0)
+      // First pod (newest, index 0 in reversedPods) stays at anchor position (0,0)
       // Other pods arrange relative to it
       let x, y;
       
       if (index === 0) {
-        // First pod stays at anchor
+        // First pod (newest) stays at anchor (0,0)
         x = 0;
         y = 0;
       } else {
@@ -1240,6 +1245,12 @@
       }
 
       gridPositions.set(podKey, { x, y, row: logicalRow, col });
+      
+      debugLog(`[ReversedGrid] Set position for pod ${podKey}:`, {
+        reversedIndex: index,
+        isNewest: index === 0,
+        gridPosition: { x, y, row: logicalRow, col }
+      });
     });
 
     // Animate pods to grid positions with staggered timing
