@@ -77,6 +77,103 @@
   }, 100); // Small delay to ensure DOM elements are loaded
 
   // === MAIN SCRIPT FUNCTIONS ===
+  // Function to handle the double-click issue by creating an invisible click shield
+  function applyClickShield(buttonElement) {
+    if (!buttonElement || !buttonElement.parentNode || buttonElement.hasAttribute('data-has-click-shield')) {
+        // console.log('ClickShield: Button not valid, no parent, or already shielded:', buttonElement);
+        return;
+    }
+
+    const shield = document.createElement('div');
+    shield.setAttribute('data-click-shield-instance', 'true'); // For debugging or identification
+    shield.style.position = 'absolute'; 
+    
+    // Position the shield precisely over the button.
+    // This assumes the shield is added as a sibling to the button or in a context
+    // where offsetLeft/Top are relative to a common ancestor that also contains the button.
+    shield.style.left = buttonElement.offsetLeft + 'px';
+    shield.style.top = buttonElement.offsetTop + 'px';
+    shield.style.width = buttonElement.offsetWidth + 'px';
+    shield.style.height = buttonElement.offsetHeight + 'px';
+    
+    shield.style.backgroundColor = 'transparent'; // Makes the shield invisible
+    // For debugging placement, you can use:
+    // shield.style.backgroundColor = 'rgba(255, 0, 0, 0.1)'; 
+
+    // Ensure shield is visually on top of the button
+    const buttonZIndex = window.getComputedStyle(buttonElement).zIndex;
+    shield.style.zIndex = (buttonZIndex === 'auto' ? 1 : parseInt(buttonZIndex) + 1).toString();
+    
+    // Inherit cursor style from the button
+    shield.style.cursor = window.getComputedStyle(buttonElement).cursor || 'default';
+
+    let shieldRemoved = false;
+    let visibilityObserver = null;
+    let domObserver = null;
+
+    const removeShield = () => {
+        if (shieldRemoved) return;
+        shieldRemoved = true;
+        if (shield.parentNode) {
+            shield.parentNode.removeChild(shield);
+        }
+        buttonElement.removeAttribute('data-has-click-shield');
+        // console.log('ClickShield: Shield removed for:', buttonElement);
+        
+        // Clean up observers
+        if (visibilityObserver) visibilityObserver.disconnect();
+        if (domObserver) domObserver.disconnect();
+    };
+
+    const shieldClickHandler = (event) => {
+        // console.log('ClickShield: Shield clicked for:', buttonElement);
+        event.preventDefault(); 
+        event.stopPropagation(); 
+        removeShield();
+        // The user's next physical click will now hit the actual button.
+    };
+
+    shield.addEventListener('click', shieldClickHandler);
+
+    // Insert the shield into the DOM. As a sibling right after the button is a common strategy.
+    // This ensures it's within the same positioning context if the parent has relative positioning.
+    buttonElement.parentNode.insertBefore(shield, buttonElement.nextSibling);
+    buttonElement.setAttribute('data-has-click-shield', 'true');
+    // console.log('ClickShield: Shield applied to:', buttonElement);
+
+    // --- Observers for robust shield cleanup ---
+
+    // Monitor the button for style changes (e.g., display: none, visibility: hidden) or being disabled
+    visibilityObserver = new MutationObserver(() => {
+        if (!document.body.contains(buttonElement) || // Check if button is still in DOM
+            window.getComputedStyle(buttonElement).display === 'none' ||
+            window.getComputedStyle(buttonElement).visibility === 'hidden' ||
+            buttonElement.disabled) {
+            // console.log('ClickShield: Button state changed (hidden, disabled, or removed), removing shield for:', buttonElement);
+            removeShield();
+        }
+    });
+    visibilityObserver.observe(buttonElement, { attributes: true, attributeFilter: ['style', 'disabled', 'class'] });
+
+    // Monitor if the button itself is removed from the DOM
+    if (buttonElement.parentNode) { // Check if parentNode exists before observing
+        domObserver = new MutationObserver((mutationsList) => {
+            for (const mutation of mutationsList) {
+                if (mutation.removedNodes) {
+                    for (const node of mutation.removedNodes) {
+                        if (node === buttonElement) {
+                            // console.log('ClickShield: Button removed from DOM, removing shield for:', buttonElement);
+                            removeShield();
+                            return; // Exit once the button is found among removed nodes
+                        }
+                    }
+                }
+            }
+        });
+        domObserver.observe(buttonElement.parentNode, { childList: true });
+    }
+}
+
   function initializeMainScript() {
     // --- Configuration via Firefox Preferences ---
     // Available preferences (set in about:config):
@@ -813,6 +910,9 @@
                 masterCloseHandler(e);
               }
             });
+            
+            // Apply click shield to address double-click issues on Windows
+            applyClickShield(masterCloseBtn);
           }
 
           // Add undo/resume handler for the master tooltip's undo button
@@ -910,6 +1010,9 @@
                       await masterUndoHandler(e); // Make sure to await if handler is async
                   }
               });
+              
+              // Apply click shield to address double-click issues on Windows
+              applyClickShield(masterUndoBtn);
           }
 
         }
@@ -1245,6 +1348,9 @@
             openDownloadedFile(download); 
             }
           });
+          
+        // Apply click shield to address double-click issues on Windows
+        applyClickShield(previewContainer);
         }
 
         cardData = {
