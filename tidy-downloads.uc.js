@@ -134,6 +134,28 @@
     };
 
     shield.addEventListener('click', shieldClickHandler);
+    
+    // Pass through mouseenter/mouseleave events to the underlying button
+    // This ensures hover detection still works with the shields in place
+    shield.addEventListener('mouseenter', () => {
+        // Create and dispatch a new mouseenter event to the button
+        const mouseEvent = new MouseEvent('mouseenter', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+        buttonElement.dispatchEvent(mouseEvent);
+    });
+    
+    shield.addEventListener('mouseleave', () => {
+        // Create and dispatch a new mouseleave event to the button
+        const mouseEvent = new MouseEvent('mouseleave', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+        buttonElement.dispatchEvent(mouseEvent);
+    });
 
     // Insert the shield into the DOM. As a sibling right after the button is a common strategy.
     // This ensures it's within the same positioning context if the parent has relative positioning.

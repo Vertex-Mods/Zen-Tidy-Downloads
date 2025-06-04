@@ -69,6 +69,28 @@
     };
 
     shield.addEventListener('click', shieldClickHandler);
+    
+    // Pass through mouseenter/mouseleave events to the underlying button
+    // This ensures hover detection still works with the shields in place
+    shield.addEventListener('mouseenter', () => {
+        // Create and dispatch a new mouseenter event to the button
+        const mouseEvent = new MouseEvent('mouseenter', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+        buttonElement.dispatchEvent(mouseEvent);
+    });
+    
+    shield.addEventListener('mouseleave', () => {
+        // Create and dispatch a new mouseleave event to the button
+        const mouseEvent = new MouseEvent('mouseleave', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+        buttonElement.dispatchEvent(mouseEvent);
+    });
 
     // Insert the shield into the DOM. As a sibling right after the button is a common strategy.
     // This ensures it's within the same positioning context if the parent has relative positioning.
@@ -648,8 +670,11 @@
       setTimeout(() => {
         pod.style.pointerEvents = "auto";
         
-        // Apply click shield to prevent double-click issues on Windows
-        applyClickShield(pod);
+        // Only apply click shield if not in always-show mode
+        // This prevents interference with hover detection in always-show mode
+        if (!getAlwaysShowPile()) {
+          applyClickShield(pod);
+        }
       }, 300);
     });
 
@@ -682,8 +707,11 @@
         setTimeout(() => {
           pod.style.pointerEvents = "auto";
           
-          // Apply click shield to prevent double-click issues on Windows
-          applyClickShield(pod);
+          // Only apply click shield if not in always-show mode
+          // This prevents interference with hover detection in always-show mode
+          if (!getAlwaysShowPile()) {
+            applyClickShield(pod);
+          }
         }, 300);
       }
     });
