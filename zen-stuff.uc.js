@@ -301,10 +301,14 @@
     `;
 
     // Add hover effect
-    downloadsButton.addEventListener('mouseenter', () => {
+    downloadsButton.addEventListener('mouseenter', (e) => {
+      // Prevent event from triggering container handlers
+      e.stopPropagation();
       downloadsButton.style.background = 'color-mix(in srgb, var(--zen-primary-color) 80%, transparent)';
     });
-    downloadsButton.addEventListener('mouseleave', () => {
+    downloadsButton.addEventListener('mouseleave', (e) => {
+      // Prevent event from triggering container handlers
+      e.stopPropagation();
       downloadsButton.style.background = 'var(--zen-primary-color)';
     });
 
@@ -371,10 +375,14 @@
     `;
 
     // Add hover effect for clear button
-    clearAllButton.addEventListener('mouseenter', () => {
+    clearAllButton.addEventListener('mouseenter', (e) => {
+      // Prevent event from triggering container handlers
+      e.stopPropagation();
       clearAllButton.style.background = 'light-dark(rgb(223, 90, 104), rgba(220, 53, 69, 1))';
     });
-    clearAllButton.addEventListener('mouseleave', () => {
+    clearAllButton.addEventListener('mouseleave', (e) => {
+      // Prevent event from triggering container handlers
+      e.stopPropagation();
       clearAllButton.style.background = 'light-dark(rgba(220, 53, 69, 1), rgb(223, 90, 104))';
     });
 
@@ -1059,10 +1067,20 @@
   }
 
   // Dynamic sizer leave handler
-  function handleDynamicSizerLeave() {
+  function handleDynamicSizerLeave(event) {
     debugLog("[SizerHover] handleDynamicSizerLeave called");
     
     clearTimeout(hoverTimeout);
+    
+    // Check if the cursor is still inside the dynamic sizer despite the mouseleave event
+    // This can happen if the event is coming from child elements like buttons
+    if (event && event.relatedTarget) {
+      // If the cursor moved to a child element of dynamicSizer, don't process the leave
+      if (dynamicSizer.contains(event.relatedTarget)) {
+        debugLog("[SizerHover] Cursor still within dynamicSizer - ignoring leave event");
+        return;
+      }
+    }
     
     // Don't do anything if context menu is visible
     if (isContextMenuVisible()) {
@@ -1093,14 +1111,25 @@
       const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
       const isHoveringDownloadArea = downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
       
+      // Check if the cursor is hovering over any of the buttons
+      const downloadsButton = document.getElementById("zen-pile-downloads-button");
+      const clearAllButton = document.getElementById("zen-pile-clear-all-button");
+      const isHoveringButtons = (downloadsButton?.matches(':hover') || clearAllButton?.matches(':hover'));
+      
       debugLog("[SizerHover] Leave timeout - checking hover states", {
         isHoveringDownloadArea,
         pileContainerHover: pileContainer.matches(':hover'),
+        dynamicSizerHover: dynamicSizer.matches(':hover'),
+        isHoveringButtons,
         contextMenuVisible: isContextMenuVisible()
       });
       
-      // Only hide if not hovering download area AND not hovering pile container AND context menu not visible
-      if (!isHoveringDownloadArea && !pileContainer.matches(':hover') && !isContextMenuVisible()) {
+      // Only hide if not hovering any relevant elements AND context menu not visible
+      if (!isHoveringDownloadArea && 
+          !pileContainer.matches(':hover') && 
+          !dynamicSizer.matches(':hover') && 
+          !isHoveringButtons && 
+          !isContextMenuVisible()) {
         debugLog("[SizerHover] Calling hidePile()");
         hidePile();
       }
@@ -1129,7 +1158,7 @@
   }
 
   // Pile leave handler
-  function handlePileLeave() {
+  function handlePileLeave(event) {
     debugLog("[PileHover] handlePileLeave called", {
       alwaysShowMode: getAlwaysShowPile(),
       isGridMode,
@@ -1137,6 +1166,16 @@
     });
     
     clearTimeout(hoverTimeout);
+    
+    // Check if the cursor is still inside the pile or dynamic sizer despite the mouseleave event
+    // This can happen if the event is coming from child elements like buttons
+    if (event && event.relatedTarget) {
+      // If the cursor moved to the dynamic sizer or a child element, don't process the leave
+      if (dynamicSizer === event.relatedTarget || dynamicSizer.contains(event.relatedTarget)) {
+        debugLog("[PileHover] Cursor moved to dynamicSizer - ignoring leave event");
+        return;
+      }
+    }
     
     // Don't do anything if context menu is visible
     if (isContextMenuVisible()) {
@@ -1148,7 +1187,7 @@
     if (isGridMode) {
       setTimeout(() => {
         // Only transition back if we're not hovering over the sizer and context menu isn't visible
-        if (!dynamicSizer.matches(':hover') && !isContextMenuVisible()) {
+        if (!dynamicSizer.matches(':hover') && !pileContainer.matches(':hover') && !isContextMenuVisible()) {
           debugLog("[PileHover] Transitioning back to pile mode from grid");
           transitionToPile();
         }
@@ -1166,14 +1205,25 @@
       const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
       const isHoveringDownloadArea = downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
       
+      // Check if the cursor is hovering over any of the buttons
+      const downloadsButton = document.getElementById("zen-pile-downloads-button");
+      const clearAllButton = document.getElementById("zen-pile-clear-all-button");
+      const isHoveringButtons = (downloadsButton?.matches(':hover') || clearAllButton?.matches(':hover'));
+      
       debugLog("[PileHover] Leave timeout - checking hover states", {
         isHoveringDownloadArea,
+        pileContainerHover: pileContainer.matches(':hover'),
         dynamicSizerHover: dynamicSizer.matches(':hover'),
+        isHoveringButtons,
         contextMenuVisible: isContextMenuVisible()
       });
       
-      // Only hide if not hovering download area AND not hovering dynamic sizer AND context menu not visible
-      if (!isHoveringDownloadArea && !dynamicSizer.matches(':hover') && !isContextMenuVisible()) {
+      // Only hide if not hovering any relevant elements AND context menu not visible
+      if (!isHoveringDownloadArea && 
+          !dynamicSizer.matches(':hover') && 
+          !pileContainer.matches(':hover') &&
+          !isHoveringButtons && 
+          !isContextMenuVisible()) {
         debugLog("[PileHover] Calling hidePile()");
         hidePile();
       }
