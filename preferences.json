@@ -56,5 +56,15 @@
     "value": "number",
     "label": "Show old completed downloads on startup (hours)",
     "default": 2
-  }
+  },
+    {
+    "type": "separator",
+    "label": "Zen Stuff"
+  },
+  {
+    "property": "zen.stuff-pile.always-show",
+    "type": "checkbox",
+    "label": "Makes the Stuff pile always show (Hold Alt to temporarily hide the pile)",
+    "defaultValue": true
+  },
 ] 
