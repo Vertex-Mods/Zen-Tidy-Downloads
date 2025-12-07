@@ -2,30 +2,29 @@
   -moz-window-dragging: no-drag;
 }
 
-/* Main download cards container */
+/* Main download cards container - uses absolute positioning for toolbar integration */
+/* Positioned same as zen-stuff pile: bottom: 35px above toolbar buttons */
 #userchrome-download-cards-container {
-  z-index: 999999999999999999999999999999999999999999999999999 !important;
-  position: fixed !important;
-  left: 0px !important;
-  bottom: 47px !important;
-  z-index: 50 !important;
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 35px;
+  z-index: 4;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0px;
   pointer-events: none;
-  max-width: 380px;
-  max-height: 80vh;
+  box-sizing: border-box;
   -moz-window-dragging: no-drag;
 }
 
-/* Master tooltip */
+/* Master tooltip - relative positioning for toolbar integration */
 .details-tooltip {
   position: relative;
   order: 0;
-  margin-left: 12px;
-  width: 350px;
-  min-width: 176.3333282470703px;
+  width: 100%;
+  min-width: 150px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.9);
   backdrop-filter: blur(40px);
@@ -44,7 +43,7 @@
   transform-origin: bottom left;
   transition: opacity 0.3s ease-out 0.15s,
     transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1.1) 0.15s, width 0.2s ease-out;
-  margin-bottom: 15px;
+  margin-bottom: 8px;
 }
 
 /* Tooltip content elements */
@@ -139,7 +138,7 @@
   border-right: 8px solid transparent;
   border-top: 8px solid rgba(0, 0, 0, 0.9);
   bottom: -8px;
-  left: 21px;
+  left: 20px;
 }
 
 /* Pods row container */
@@ -147,10 +146,11 @@
   display: flex;
   flex-direction: row;
   align-items: flex-end;
+  justify-content: flex-start;
   position: relative;
-  margin-left: 15px;
   height: 0px;
   order: 1;
+  width: 100%;
 }
 
 /* Download pods */
@@ -288,31 +288,29 @@
 }
 
 @media (max-width: 400px) {
-  #userchrome-download-cards-container {
-    max-width: 300px;
-  }
-
   .details-tooltip.master-tooltip {
-    width: 280px;
-    margin-left: 10px;
-  }
-
-  #userchrome-pods-row-container {
-    margin-left: 15px;
+    width: 100%;
   }
 }
 
-#main-window[zen-right-side] {
-  #userchrome-download-cards-container {
-    left: unset !important;
-    right: 0 !important;
-    align-items: flex-end !important;
-    .master-tooltip {
-      margin-right: 12px !important;
-    }
-    #userchrome-pods-row-container {
-      width: 56px !important;
-      margin-right: 15px !important;
-    }
-  }
+/* Right-side sidebar adjustments - align to right */
+#main-window[zen-right-side] #userchrome-download-cards-container,
+:root[zen-right-side] #userchrome-download-cards-container {
+  align-items: flex-end;
+}
+
+#main-window[zen-right-side] #userchrome-download-cards-container .details-tooltip,
+:root[zen-right-side] #userchrome-download-cards-container .details-tooltip {
+  transform-origin: bottom right;
+}
+
+#main-window[zen-right-side] #userchrome-download-cards-container .tooltip-tail,
+:root[zen-right-side] #userchrome-download-cards-container .tooltip-tail {
+  left: auto;
+  right: 20px;
+}
+
+#main-window[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container,
+:root[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container {
+  justify-content: flex-end;
 }
