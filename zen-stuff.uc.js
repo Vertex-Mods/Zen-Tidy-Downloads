@@ -64,6 +64,8 @@
       this.carouselStartIndex = 0;
       // --- add isGridAnimating flag ---
       this.isGridAnimating = false;
+      // --- add workspaceScrollboxStyle for controlling ::after opacity ---
+      this.workspaceScrollboxStyle = null;
     }
 
     // Safe getters with validation
@@ -442,7 +444,8 @@
       z-index: 1;
       width: 100%;
       box-sizing: border-box;
-
+      padding-left: 5px;
+      padding-right: 5px;
     `;
 
     // Buttons removed - no longer needed
@@ -483,6 +486,19 @@
     
     // Set up observer for compact mode changes
     setupCompactModeObserver();
+    
+    // Create style element for controlling workspace-arrowscrollbox::after opacity
+    if (!state.workspaceScrollboxStyle) {
+      state.workspaceScrollboxStyle = document.createElement('style');
+      state.workspaceScrollboxStyle.id = 'zen-stuff-workspace-scrollbox-style';
+      state.workspaceScrollboxStyle.textContent = `
+        arrowscrollbox.workspace-arrowscrollbox::after {
+          opacity: var(--zen-stuff-scrollbox-after-opacity, 1) !important;
+        }
+      `;
+      document.head.appendChild(state.workspaceScrollboxStyle);
+      debugLog("Created arrowscrollbox.workspace-arrowscrollbox::after style control");
+    }
   }
 
   // Setup event listeners
@@ -1358,16 +1374,12 @@
         updatePileContainerWidth();
     }
 
-    // For absolute positioning, use left/right with equal margins for symmetric gaps
-    const sidePadding = CONFIG.minSidePadding; // Padding from sidebar edges (5px)
+    // Parent container spans full toolbar width
+    state.dynamicSizer.style.left = '0px';
+    state.dynamicSizer.style.right = '0px';
+    // Remove width when using left/right - it's automatically calculated
     
-    // Use left: 0 and right: 0 to span full width, then use margin for symmetric gaps
-    state.dynamicSizer.style.left = `${sidePadding}px`;
-    state.dynamicSizer.style.right = `${sidePadding}px`;
-    state.dynamicSizer.style.width = 'auto'; // Let left/right determine width
-    
-    debugLog("Positioned pile for absolute positioning with symmetric gaps", {
-      sidePadding,
+    debugLog("Positioned pile for full-width container", {
       position: state.dynamicSizer.style.position,
       left: state.dynamicSizer.style.left,
       right: state.dynamicSizer.style.right
@@ -1402,6 +1414,9 @@
     
     // Set background to ensure backdrop-filter is properly rendered
     showPileBackground();
+    
+    // Hide workspace-arrowscrollbox::after when pile is showing
+    hideWorkspaceScrollboxAfter();
     
     // Update positions for all pods (show only 4 most recent)
     state.dismissedPods.forEach((_, podKey) => {
@@ -1447,6 +1462,9 @@
     // Hide background and buttons when hiding pile
     hidePileBackground();
     
+    // Restore workspace-arrowscrollbox::after when pile is hidden
+    showWorkspaceScrollboxAfter();
+    
     // No mode transitions needed
     
     debugLog("Hiding dismissed downloads pile by collapsing sizer");
@@ -1467,18 +1485,14 @@
       generateGridPosition(podKey);
     });
 
-    // Recalculate position if pile is currently shown (using same logic as showPile)
+    // Recalculate position if pile is currently shown - parent container spans full width
     if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
-      const sidePadding = CONFIG.minSidePadding; // Padding from sidebar edges (5px)
+      // Parent container spans full toolbar width
+      state.dynamicSizer.style.left = '0px';
+      state.dynamicSizer.style.right = '0px';
+      // Remove width when using left/right - it's automatically calculated
       
-      // Use left and right with equal values for symmetric gaps
-      state.dynamicSizer.style.left = `${sidePadding}px`;
-      state.dynamicSizer.style.right = `${sidePadding}px`;
-      state.dynamicSizer.style.width = 'auto'; // Let left/right determine width
-      
-      debugLog("Recalculated pile position on resize with symmetric gaps", {
-        sidePadding
-      });
+      debugLog("Recalculated pile position on resize - full width container");
     }
 
     // Apply positions for all pods (always single column mode now)
@@ -1730,6 +1744,13 @@
           
           if (computedColor && computedColor !== 'transparent' && computedColor !== 'rgba(0, 0, 0, 0)') {
             debugLog('[BackgroundColor] Using toolbar background color for compact mode:', computedColor);
+            // Ensure fully opaque - convert rgba to rgb if needed
+            if (computedColor.startsWith('rgba(')) {
+              const match = computedColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*[\d.]+\)/);
+              if (match) {
+                return `rgb(${match[1]}, ${match[2]}, ${match[3]})`;
+              }
+            }
             return computedColor;
           }
           
@@ -1826,14 +1847,8 @@
     const blendedG = Math.round(baseRGB.g * (1 - wrapperRatio) + wrapperRGB.g * wrapperRatio);
     const blendedB = Math.round(baseRGB.b * (1 - wrapperRatio) + wrapperRGB.b * wrapperRatio);
     
-    // Use the base's opacity if it has one, otherwise fully opaque
-    const finalAlpha = baseRGB.a || 1;
-    
-    if (finalAlpha < 1) {
-      return `rgba(${blendedR}, ${blendedG}, ${blendedB}, ${finalAlpha})`;
-    } else {
-      return `rgb(${blendedR}, ${blendedG}, ${blendedB})`;
-    }
+    // Always return fully opaque color (no transparency)
+    return `rgb(${blendedR}, ${blendedG}, ${blendedB})`;
   }
 
   // Calculate text color based on background color (using Zen's luminance/contrast logic)
@@ -1940,6 +1955,22 @@
       return;
     }
     state.dynamicSizer.style.background = 'transparent';
+  }
+
+  // Hide arrowscrollbox.workspace-arrowscrollbox::after when pile is showing
+  function hideWorkspaceScrollboxAfter() {
+    if (state.workspaceScrollboxStyle) {
+      document.documentElement.style.setProperty('--zen-stuff-scrollbox-after-opacity', '0');
+      debugLog("Hidden arrowscrollbox.workspace-arrowscrollbox::after");
+    }
+  }
+
+  // Show arrowscrollbox.workspace-arrowscrollbox::after when pile is hidden
+  function showWorkspaceScrollboxAfter() {
+    if (state.workspaceScrollboxStyle) {
+      document.documentElement.style.setProperty('--zen-stuff-scrollbox-after-opacity', '1');
+      debugLog("Shown arrowscrollbox.workspace-arrowscrollbox::after");
+    }
   }
 
   // Setup hover events for background/buttons (simplified - always single column mode)
