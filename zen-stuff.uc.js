@@ -335,6 +335,9 @@
       return;
     }
 
+      // Wait for SessionStore to be ready
+      await initSessionStore();
+
       await ErrorHandler.withRetry(async () => {
       await findDownloadButton();
         await createPileContainer();
@@ -349,6 +352,254 @@
       ErrorHandler.handleError(error, 'initialization');
       state.retryCount++;
       setTimeout(init, CONFIG.retryDelay);
+    }
+  }
+
+  // Initialize SessionStore and wait for it to be ready
+  async function initSessionStore() {
+    if (!window.SessionStore) {
+      console.warn("[Dismissed Pile] SessionStore not available, retrying...");
+      await new Promise(resolve => setTimeout(resolve, 200));
+      return initSessionStore();
+    }
+
+    try {
+      if (window.SessionStore.promiseInitialized) {
+        await window.SessionStore.promiseInitialized;
+      }
+      debugLog("[SessionStore] SessionStore initialized and ready");
+    } catch (error) {
+      console.error("[Dismissed Pile] Error initializing SessionStore:", error);
+    }
+  }
+
+  // Save dismissed pod to SessionStore
+  function saveDismissedPodToSession(podData) {
+    try {
+      if (!window.SessionStore) {
+        console.warn("[Dismissed Pile] SessionStore not available for saving");
+        return;
+      }
+
+      // Serialize pod data (exclude DOM elements and functions)
+      const serializedData = {
+        key: podData.key,
+        filename: podData.filename,
+        originalFilename: podData.originalFilename,
+        fileSize: podData.fileSize,
+        contentType: podData.contentType,
+        targetPath: podData.targetPath,
+        sourceUrl: podData.sourceUrl,
+        startTime: podData.startTime,
+        endTime: podData.endTime,
+        dismissTime: podData.dismissTime,
+        wasRenamed: podData.wasRenamed,
+        previewData: podData.previewData,
+        dominantColor: podData.dominantColor
+      };
+
+      SessionStore.setCustomWindowValue(
+        window,
+        `zen-stuff-pod-${podData.key}`,
+        JSON.stringify(serializedData)
+      );
+      
+      debugLog(`[SessionStore] Saved pod to session: ${podData.key}`);
+    } catch (error) {
+      console.error("[Dismissed Pile] Error saving pod to SessionStore:", error);
+    }
+  }
+
+  // Remove dismissed pod from SessionStore
+  function removeDismissedPodFromSession(podKey) {
+    try {
+      if (!window.SessionStore) {
+        console.warn("[Dismissed Pile] SessionStore not available for removal");
+        return;
+      }
+
+      SessionStore.deleteCustomWindowValue(window, `zen-stuff-pod-${podKey}`);
+      debugLog(`[SessionStore] Removed pod from session: ${podKey}`);
+    } catch (error) {
+      console.error("[Dismissed Pile] Error removing pod from SessionStore:", error);
+    }
+  }
+
+  // Restore dismissed pods from SessionStore
+  async function restoreDismissedPodsFromSession() {
+    try {
+      if (!window.SessionStore) {
+        console.warn("[Dismissed Pile] SessionStore not available for restoration");
+        return;
+      }
+
+      // Get the list of pod keys from SessionStore
+      const podKeysJson = SessionStore.getCustomWindowValue(window, 'zen-stuff-pod-keys');
+      if (!podKeysJson) {
+        debugLog("[SessionStore] No saved pod keys found");
+        return;
+      }
+
+      const podKeys = JSON.parse(podKeysJson);
+      let restoredCount = 0;
+      const restorationPromises = [];
+
+      for (const podKey of podKeys) {
+        const restorationPromise = (async () => {
+          try {
+            const podDataJson = SessionStore.getCustomWindowValue(window, `zen-stuff-pod-${podKey}`);
+            if (podDataJson) {
+              const podData = JSON.parse(podDataJson);
+              
+              // Verify the file still exists before restoring
+              let actualPath = podData.targetPath;
+              let exists = await FileSystem.fileExists(actualPath);
+              
+              console.log(`[SessionStore] Checking file existence for ${podData.filename}: saved path=${podData.targetPath}, exists=${exists}`);
+              
+              // If file doesn't exist at saved path, try to find it with current filename
+              if (!exists && podData.filename) {
+                try {
+                  const parentDir = await FileSystem.getParentDirectory(podData.targetPath);
+                  console.log(`[SessionStore] Parent directory exists: ${parentDir && parentDir.exists()}`);
+                  
+                  if (parentDir && parentDir.exists()) {
+                    const newFile = parentDir.clone();
+                    newFile.append(podData.filename);
+                    const newPath = newFile.path;
+                    const newExists = newFile.exists();
+                    
+                    console.log(`[SessionStore] Trying new path: ${newPath}, exists=${newExists}`);
+                    
+                    if (newExists) {
+                      actualPath = newPath;
+                      exists = true;
+                      podData.targetPath = actualPath; // Update the saved path
+                      console.log(`[SessionStore] Found file with updated path: ${podData.filename} -> ${actualPath}`);
+                      
+                      // Also save the updated path back to SessionStore
+                      saveDismissedPodToSession(podData);
+                    } else {
+                      console.log(`[SessionStore] File not found with current filename: ${podData.filename}`);
+                    }
+                  }
+                } catch (error) {
+                  console.warn(`[SessionStore] Error checking for file with current filename:`, error);
+                }
+              }
+              
+              if (exists) {
+                console.log(`[SessionStore] File exists, checking if image regeneration needed. ContentType: "${podData.contentType}", filename: ${podData.filename}`);
+                
+                // Always regenerate image preview for image files to ensure correct path
+                const hasImageContentType = podData.contentType && podData.contentType !== "null" && podData.contentType.startsWith('image/');
+                const hasImageExtension = podData.filename && /\.(jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i.test(podData.filename);
+                const isImage = hasImageContentType || hasImageExtension;
+                
+                console.log(`[SessionStore] Image detection - contentType: "${podData.contentType}", hasImageContentType: ${hasImageContentType}, hasImageExtension: ${hasImageExtension}, isImage: ${isImage}`);
+                
+                if (isImage) {
+                  console.log(`[SessionStore] Starting image preview regeneration for: ${podData.filename}`);
+                  try {
+                    const file = await FileSystem.createFileInstance(actualPath);
+                    
+                    // Try multiple approaches to create a working image URL
+                    let fileUrl;
+                    
+                    // Method 1: Use Services.io.newFileURI (most reliable)
+                    if (Services.io && Services.io.newFileURI) {
+                      try {
+                        fileUrl = Services.io.newFileURI(file).spec;
+                        console.log(`[SessionStore] Created file URL using Services.io: ${fileUrl}`);
+                      } catch (ioError) {
+                        console.warn(`[SessionStore] Services.io.newFileURI failed:`, ioError);
+                      }
+                    }
+                    
+                    // Method 2: Manual file URL construction (fallback)
+                    if (!fileUrl) {
+                      const path = actualPath.replace(/\\/g, '/');
+                      fileUrl = 'file:///' + (path.startsWith('/') ? path.substring(1) : path);
+                      console.log(`[SessionStore] Created file URL manually: ${fileUrl}`);
+                    }
+                    
+                    podData.previewData = {
+                      type: 'image',
+                      src: fileUrl
+                    };
+                    console.log(`[SessionStore] Regenerated image preview for: ${podData.filename}, URL: ${fileUrl}`);
+                  } catch (error) {
+                    console.error(`[SessionStore] Error regenerating image preview for ${podData.filename}:`, error);
+                    // Fall back to icon if image preview fails
+                    podData.previewData = null;
+                  }
+                }
+                
+                // Don't call addPodToPile as it would save again, just restore the state
+                state.dismissedPods.set(podData.key, podData);
+                
+                // Create DOM element
+                const podElement = createPodElement(podData);
+                state.podElements.set(podData.key, podElement);
+                state.pileContainer.appendChild(podElement);
+
+                // Generate position for single column layout
+                generateGridPosition(podData.key);
+                applyGridPosition(podData.key, 0);
+
+                restoredCount++;
+                debugLog(`[SessionStore] Restored pod: ${podData.filename}`);
+              } else {
+                // File no longer exists, remove from session
+                removeDismissedPodFromSession(podKey);
+                debugLog(`[SessionStore] File no longer exists, skipping: ${podData.filename}`);
+              }
+            }
+          } catch (error) {
+            console.error(`[Dismissed Pile] Error restoring pod ${podKey}:`, error);
+          }
+        })();
+        
+        restorationPromises.push(restorationPromise);
+      }
+
+      // Wait for all restorations to complete
+      await Promise.all(restorationPromises);
+
+      if (restoredCount > 0) {
+        // Update the pod keys list to remove any that failed to restore
+        updatePodKeysInSession();
+        
+        updatePileVisibility();
+        updateDownloadsButtonVisibility();
+        
+        // Show pile if in always-show mode
+        if (getAlwaysShowPile() && shouldPileBeVisible()) {
+          setTimeout(() => showPile(), 100);
+        }
+      }
+
+      debugLog(`[SessionStore] Restored ${restoredCount} pods from session`);
+    } catch (error) {
+      console.error("[Dismissed Pile] Error restoring pods from SessionStore:", error);
+    }
+  }
+
+  // Update the list of pod keys in SessionStore
+  function updatePodKeysInSession() {
+    try {
+      if (!window.SessionStore) return;
+
+      const podKeys = Array.from(state.dismissedPods.keys());
+      SessionStore.setCustomWindowValue(
+        window,
+        'zen-stuff-pod-keys',
+        JSON.stringify(podKeys)
+      );
+      
+      debugLog(`[SessionStore] Updated pod keys list: ${podKeys.length} pods`);
+    } catch (error) {
+      console.error("[Dismissed Pile] Error updating pod keys in SessionStore:", error);
     }
   }
 
@@ -577,6 +828,9 @@
     });
     debugLog(`Loaded ${existingPods.size} existing dismissed pods`);
     
+    // Restore dismissed pods from SessionStore
+    restoreDismissedPodsFromSession();
+    
     // If always-show mode is enabled and we have pods, show the pile
     if (getAlwaysShowPile() && existingPods.size > 0) {
       setTimeout(() => {
@@ -603,6 +857,12 @@
 
     // Store pod data
     state.dismissedPods.set(podData.key, podData);
+
+    // Save to SessionStore for persistence
+    saveDismissedPodToSession(podData);
+    
+    // Update the list of pod keys in SessionStore
+    updatePodKeysInSession();
 
     // Create DOM element
     const podElement = createPodElement(podData);
@@ -705,10 +965,15 @@
           height: 100%;
           object-fit: cover;
         `;
-        img.onerror = () => {
+        img.onload = () => {
+          console.log(`[PodElement] Image loaded successfully: ${podData.filename}, src: ${podData.previewData.src}`);
+        };
+        img.onerror = (e) => {
+          console.error(`[PodElement] Image failed to load: ${podData.filename}, src: ${podData.previewData.src}`, e);
           preview.innerHTML = getFileIcon(podData.contentType);
         };
         preview.appendChild(img);
+        console.log(`[PodElement] Created image element for: ${podData.filename}, src: ${podData.previewData.src}`);
       } else if (podData.previewData.html) {
         preview.innerHTML = podData.previewData.html;
       } else {
@@ -987,6 +1252,12 @@
     state.podElements.delete(podKey);
     state.pilePositions.delete(podKey);
     state.gridPositions.delete(podKey);
+
+    // Remove from SessionStore
+    removeDismissedPodFromSession(podKey);
+    
+    // Update the list of pod keys in SessionStore
+    updatePodKeysInSession();
 
     // Recalculate grid positions for remaining pods
     state.dismissedPods.forEach((_, key) => generateGridPosition(key));
