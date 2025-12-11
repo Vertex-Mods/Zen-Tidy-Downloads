@@ -1931,19 +1931,98 @@
   }
 
   // Show pile background on hover
+  // Show pile background
   function showPileBackground() {
-    if (!state.dynamicSizer) {
-      return;
+    if (!state.dynamicSizer) return;
+
+    // Read the base background color from zen-main-app-wrapper (like the toolbar does)
+    const appWrapper = document.getElementById('zen-main-app-wrapper');
+    let baseBackgroundColor = null;
+    
+    if (appWrapper) {
+      const wrapperBg = window.getComputedStyle(appWrapper).backgroundColor;
+      console.log("[ThemeDebug] zen-main-app-wrapper background:", wrapperBg);
+      
+      if (wrapperBg && wrapperBg !== 'transparent' && wrapperBg !== 'rgba(0, 0, 0, 0)') {
+        baseBackgroundColor = wrapperBg;
+      }
     }
     
-    const blendedColor = computeBlendedBackgroundColor();
-    state.dynamicSizer.style.backgroundColor = blendedColor;
-    state.dynamicSizer.style.backgroundImage = 'none';
+    // Fallback base color if we can't read from app wrapper
+    if (!baseBackgroundColor) {
+      const isDarkMode = document.documentElement.getAttribute('zen-should-be-dark-mode') === 'true';
+      baseBackgroundColor = isDarkMode ? '#131313' : '#e9e9e9';
+    }
     
-    // Update text colors to match the new background
+    // Get or create the base background element (acts like zen-main-app-wrapper)
+    let baseBgElement = state.dynamicSizer.querySelector('.zen-pile-base-background');
+    if (!baseBgElement) {
+      baseBgElement = document.createElement('div');
+      baseBgElement.className = 'zen-pile-base-background';
+      baseBgElement.style.position = 'absolute';
+      baseBgElement.style.top = '0';
+      baseBgElement.style.left = '0';
+      baseBgElement.style.width = '100%';
+      baseBgElement.style.height = '100%';
+      baseBgElement.style.pointerEvents = 'none';
+      baseBgElement.style.zIndex = '0';
+      state.dynamicSizer.insertBefore(baseBgElement, state.dynamicSizer.firstChild);
+    }
+    
+    // Set the base background color on the child element
+    baseBgElement.style.backgroundColor = baseBackgroundColor;
+    console.log("[ThemeDebug] Set base background color:", baseBackgroundColor);
+    
+    // Get or create the overlay element that will have the CSS variable (composites over base)
+    let overlayElement = state.dynamicSizer.querySelector('.zen-pile-background-overlay');
+    if (!overlayElement) {
+      overlayElement = document.createElement('div');
+      overlayElement.className = 'zen-pile-background-overlay';
+      overlayElement.style.position = 'absolute';
+      overlayElement.style.top = '0';
+      overlayElement.style.left = '0';
+      overlayElement.style.width = '100%';
+      overlayElement.style.height = '100%';
+      overlayElement.style.pointerEvents = 'none';
+      overlayElement.style.zIndex = '1';
+      state.dynamicSizer.insertBefore(overlayElement, state.dynamicSizer.firstChild);
+    }
+    
+    // Now apply the CSS variable to the overlay element (composites over the base)
+    const rootStyle = window.getComputedStyle(document.documentElement);
+    const mainBgVar = rootStyle.getPropertyValue('--zen-main-browser-background').trim();
+    
+    console.log("[ThemeDebug] Using CSS variable --zen-main-browser-background:", mainBgVar);
+    
+    if (mainBgVar) {
+      // Apply the CSS variable to the overlay element - it will composite over the base
+      overlayElement.style.background = mainBgVar;
+      overlayElement.style.backgroundAttachment = 'fixed';
+      overlayElement.style.backgroundSize = '100vw 100vh';
+      
+      // Check if acrylic elements are enabled
+      const acrylicEnabled = Services?.prefs?.getBoolPref('zen.theme.acrylic-elements', false);
+      if (acrylicEnabled) {
+        overlayElement.style.backdropFilter = 'blur(42px) saturate(110%) brightness(0.25) contrast(100%)';
+        overlayElement.style.webkitBackdropFilter = 'blur(42px) saturate(110%) brightness(0.25) contrast(100%)';
+      }
+      
+      // Make sure dynamicSizer itself is transparent so we can see the layers
+      state.dynamicSizer.style.backgroundColor = 'transparent';
+      state.dynamicSizer.style.background = 'transparent';
+    } else {
+      // Fallback: just use base color on dynamicSizer
+      state.dynamicSizer.style.backgroundColor = baseBackgroundColor;
+    }
+    
+    // Force a reflow
+    void state.dynamicSizer.offsetWidth;
+    
+    const computedBg = window.getComputedStyle(state.dynamicSizer).backgroundColor;
+    console.log("[ThemeDebug] Final computed background:", computedBg);
+
+    // Update text colors
     updatePodTextColors();
-    
-    console.log('[ShowPile] Computed blended background color:', blendedColor);
   }
 
   // Hide pile background when not hovering
