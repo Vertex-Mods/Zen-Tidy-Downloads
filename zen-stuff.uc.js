@@ -694,6 +694,7 @@
       position: relative;
       z-index: 1;
       width: 100%;
+      height: 100%;
       box-sizing: border-box;
       padding-left: 5px;
       padding-right: 5px;
@@ -1304,11 +1305,11 @@
     // Always show max 4 pods
     const podsToShow = Math.min(state.dismissedPods.size, 4);
     
-    // Calculate height: base height + (rows * row height) + spacing between rows + base bottom offset
-    const baseHeight = 20; // Reduced base padding
-    const baseBottomOffset = 10; // Small base offset for first row (matches applyGridPosition)
+    // Calculate height: (rows * row height) + spacing between rows + space below first pod
+    // The baseBottomOffset in positioning creates the space, so we add it to height to accommodate it
+    const baseBottomOffset = 10; // Space under first pod row (matches applyGridPosition)
     const totalRowHeight = (podsToShow * rowHeight) + ((podsToShow - 1) * rowSpacing);
-    const gridHeight = baseHeight + totalRowHeight + baseBottomOffset;
+    const gridHeight = totalRowHeight + baseBottomOffset;
     
     debugLog("Updating pile height dynamically", {
       totalPods: state.dismissedPods.size,
@@ -1669,11 +1670,11 @@
     const rowHeight = 60; // Height of each row (pod + text)
     const rowSpacing = 8; // Spacing between rows
     
-    // Calculate height: base height + (rows * row height) + spacing between rows + base bottom offset
-    const baseHeight = 20; // Reduced base padding
-    const baseBottomOffset = 5; // Small base offset for first row (matches applyGridPosition)
+    // Calculate height: (rows * row height) + spacing between rows + space below first pod
+    // The baseBottomOffset in positioning creates the space, so we add it to height to accommodate it
+    const baseBottomOffset = 10; // Space under first pod row (matches applyGridPosition)
     const totalRowHeight = (podsToShow * rowHeight) + ((podsToShow - 1) * rowSpacing);
-    const gridHeight = baseHeight + totalRowHeight + baseBottomOffset;
+    const gridHeight = totalRowHeight + baseBottomOffset;
     
     debugLog("Dynamic height calculation (4 most recent)", {
       totalPods,
