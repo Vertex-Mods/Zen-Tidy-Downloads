@@ -1659,8 +1659,8 @@
 
     // Set pointer-events based on mode and state
     updatePointerEvents();
-    
-    state.dynamicSizer.style.paddingBottom = '10px';
+
+    state.dynamicSizer.style.paddingBottom = '0px'; // No padding - space comes from baseBottomOffset
     state.dynamicSizer.style.paddingLeft = `0px`; // No left padding for full-width rows
     
     // Calculate dynamic height for 4 most recent pods
