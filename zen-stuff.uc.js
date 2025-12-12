@@ -2239,7 +2239,7 @@
       return;
     }
     
-    const maskValue = `linear-gradient(to bottom, black, transparent 80%)`;
+    const maskValue = `linear-gradient(to bottom, black, transparent 76%)`;
     tabsWrapper.style.maskImage = maskValue;
     tabsWrapper.style.webkitMaskImage = maskValue;
     tabsWrapper.style.setProperty('-moz-mask-image', maskValue, 'important'); // For Firefox
