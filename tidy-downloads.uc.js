@@ -235,6 +235,53 @@
         }
         
         return wasPresent;
+      },
+      
+      // Add external file to Zen Stuff
+      addExternalFile: async (podData) => {
+        debugLog(`[API] Add external file requested: ${podData.filename}`);
+        
+        try {
+          // Validate the pod data
+          if (!podData || !podData.key || !podData.filename || !podData.targetPath) {
+            throw new Error('Invalid pod data: missing required fields');
+          }
+          
+          // Verify the file exists
+          const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
+          file.initWithPath(podData.targetPath);
+          
+          if (!file.exists()) {
+            throw new Error('File does not exist at the specified path');
+          }
+          
+          // Update file size if not provided
+          if (!podData.fileSize) {
+            podData.fileSize = file.fileSize;
+          }
+          
+          // Store the pod data
+          dismissedPodsData.set(podData.key, podData);
+          
+          // Fire dismiss event to notify the pile system
+          dismissEventListeners.forEach(callback => {
+            try {
+              callback(podData);
+            } catch (error) {
+              debugLog(`[API] Error in dismiss event listener:`, error);
+            }
+          });
+          
+          // Fire custom event
+          fireCustomEvent('external-file-added-to-stuff', { podData });
+          
+          debugLog(`[API] Successfully added external file: ${podData.filename}`);
+          return true;
+          
+        } catch (error) {
+          debugLog(`[API] Error adding external file:`, error);
+          throw error;
+        }
       }
     };
     
