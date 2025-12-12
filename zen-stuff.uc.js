@@ -2540,6 +2540,8 @@
       <menuitem id="zenPilePodRename" label="Rename"/>
       <menuitem id="zenPilePodRemove" label="Remove from Stuff"/>
       <menuitem id="zenPilePodCopy" label="Copy to Clipboard"/>
+      <menuseparator/>
+      <menuitem id="zenPilePodDelete" label="Delete"/>
     </menupopup>
   `);
   let podContextMenu = null;
@@ -2664,6 +2666,17 @@
             await copyPodFileToClipboard(podContextMenuPodData);
           } catch (err) {
             showUserNotification(`Error copying file to clipboard: ${err.message}`);
+          }
+        }
+      });
+
+      // Delete File
+      podContextMenu.querySelector("#zenPilePodDelete").addEventListener("command", async () => {
+        if (podContextMenuPodData) {
+          try {
+            await deletePodFile(podContextMenuPodData);
+          } catch (err) {
+            showUserNotification(`Error deleting file: ${err.message}`);
           }
         }
       });
@@ -3101,6 +3114,73 @@
       debugLog(`[Clipboard] File copied to clipboard: ${podData.filename}`);
     } catch (error) {
       ErrorHandler.handleError(error, 'copyPodFileToClipboard');
+      throw error;
+    }
+  }
+
+  // --- Delete file from system ---
+  async function deletePodFile(podData) {
+    debugLog(`[DeleteFile] Attempting to delete file from system: ${podData.filename}`);
+    try {
+      ErrorHandler.validatePodData(podData);
+      if (!podData.targetPath) {
+        throw new Error('No file path available');
+      }
+
+      // Confirm deletion with user
+      const confirmed = Services.prompt.confirm(
+        null,
+        'Delete File',
+        `Are you sure you want to permanently delete "${podData.filename}"?\n\nThis action cannot be undone.`
+      );
+
+      if (!confirmed) {
+        debugLog(`[DeleteFile] User cancelled deletion`);
+        return;
+      }
+
+      // Check if file exists before attempting deletion
+      const fileExists = await FileSystem.fileExists(podData.targetPath);
+      if (!fileExists) {
+        // File doesn't exist, but still remove from pile
+        debugLog(`[DeleteFile] File does not exist, removing from pile only: ${podData.filename}`);
+        removePodFromPile(podData.key);
+        showUserNotification(`File "${podData.filename}" was already deleted. Removed from pile.`);
+        return;
+      }
+
+      // Delete the file
+      const deleted = await FileSystem.deleteFile(podData.targetPath);
+      if (!deleted) {
+        throw new Error('File deletion failed');
+      }
+
+      debugLog(`[DeleteFile] Successfully deleted file: ${podData.filename}`);
+
+      // Try to remove from Firefox downloads list
+      try {
+        await removeDownloadFromFirefoxList(podData);
+      } catch (error) {
+        debugLog(`[DeleteFile] Could not remove from Firefox downloads list:`, error);
+        // Continue even if this fails
+      }
+
+      // Remove pod from pile
+      removePodFromPile(podData.key);
+
+      // Try to remove from main script's dismissed pods if API exists
+      if (window.zenTidyDownloads && window.zenTidyDownloads.dismissedPods) {
+        try {
+          window.zenTidyDownloads.dismissedPods.delete(podData.key);
+          debugLog(`[DeleteFile] Removed from main script dismissed pods`);
+        } catch (error) {
+          debugLog(`[DeleteFile] Could not remove from main script dismissed pods:`, error);
+        }
+      }
+
+      showUserNotification(`File "${podData.filename}" has been deleted.`);
+    } catch (error) {
+      ErrorHandler.handleError(error, 'deletePodFile');
       throw error;
     }
   }
