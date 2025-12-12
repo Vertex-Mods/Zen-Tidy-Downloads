@@ -905,11 +905,11 @@
     row.style.cssText = `
       position: absolute;
       width: 100%;
-      height: 60px;
+      height: 48px;
       display: flex;
       flex-direction: row;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       padding: 0 8px;
       box-sizing: border-box;
       cursor: pointer;
@@ -933,10 +933,10 @@
     const pod = document.createElement("div");
     pod.className = "dismissed-pod";
     pod.style.cssText = `
-      width: 45px;
-      height: 45px;
-      min-width: 45px;
-      border-radius: 8px;
+      width: 36px;
+      height: 36px;
+      min-width: 36px;
+      border-radius: 6px;
       overflow: hidden;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
       flex-shrink: 0;
@@ -953,7 +953,7 @@
       justify-content: center;
       background: #2a2a2a;
       color: white;
-      font-size: 20px;
+      font-size: 16px;
     `;
 
     // Set preview content
@@ -1005,13 +1005,13 @@
     filename.className = "dismissed-pod-filename";
     filename.textContent = podData.filename || "Untitled";
     filename.style.cssText = `
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       color: var(--zen-text-color, #e0e0e0);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     `;
 
     // Create file size element
@@ -1020,7 +1020,7 @@
     const sizeBytes = podData.fileSize || 0;
     fileSize.textContent = formatBytes(sizeBytes);
     fileSize.style.cssText = `
-      font-size: 11px;
+      font-size: 10px;
       color: var(--zen-text-color-deemphasized, #a0a0a0);
       white-space: nowrap;
     `;
@@ -1220,9 +1220,9 @@
 
     setTimeout(() => {
       // Use bottom positioning for bottom-up layout
-      const rowHeight = 60;
-      const rowSpacing = 8;
-      const baseBottomOffset = 10; // Small base offset for first row
+      const rowHeight = 48;
+      const rowSpacing = 6;
+      const baseBottomOffset = 8; // Small base offset for first row
       const bottomOffset = baseBottomOffset + (position.row * (rowHeight + rowSpacing));
       podElement.style.bottom = `${bottomOffset}px`;
       podElement.style.left = '0';
@@ -1299,15 +1299,15 @@
   function updatePileHeight() {
     if (!state.dynamicSizer || state.dismissedPods.size === 0) return;
     
-    const rowHeight = 60; // Height of each row (pod + text)
-    const rowSpacing = 8; // Spacing between rows
+    const rowHeight = 48; // Height of each row (pod + text)
+    const rowSpacing = 6; // Spacing between rows
     
     // Always show max 4 pods
     const podsToShow = Math.min(state.dismissedPods.size, 4);
     
     // Calculate height: (rows * row height) + spacing between rows + space below first pod
     // The baseBottomOffset in positioning creates the space, so we add it to height to accommodate it
-    const baseBottomOffset = 10; // Space under first pod row (matches applyGridPosition)
+    const baseBottomOffset = 8; // Space under first pod row (matches applyGridPosition)
     const totalRowHeight = (podsToShow * rowHeight) + ((podsToShow - 1) * rowSpacing);
     const gridHeight = totalRowHeight + baseBottomOffset;
     
@@ -1667,12 +1667,12 @@
     const totalPods = state.dismissedPods.size;
     const podsToShow = Math.min(totalPods, 4); // Always max 4 pods
     
-    const rowHeight = 60; // Height of each row (pod + text)
-    const rowSpacing = 8; // Spacing between rows
+    const rowHeight = 48; // Height of each row (pod + text)
+    const rowSpacing = 6; // Spacing between rows
     
     // Calculate height: (rows * row height) + spacing between rows + space below first pod
     // The baseBottomOffset in positioning creates the space, so we add it to height to accommodate it
-    const baseBottomOffset = 10; // Space under first pod row (matches applyGridPosition)
+    const baseBottomOffset = 8; // Space under first pod row (matches applyGridPosition)
     const totalRowHeight = (podsToShow * rowHeight) + ((podsToShow - 1) * rowSpacing);
     const gridHeight = totalRowHeight + baseBottomOffset;
     
