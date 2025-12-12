@@ -672,9 +672,9 @@
       bottom: 35px;
       left: 0px;
       right: 0px;
-      background: var(--zen-primary-color, rgba(0, 0, 0, 0.85));
-      backdrop-filter: blur(1.5rem);
-      -webkit-backdrop-filter: blur(1.5rem);
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
       box-sizing: border-box;
       transition: height ${CONFIG.containerAnimationDuration}ms ease, padding-bottom ${CONFIG.containerAnimationDuration}ms ease, padding-left ${CONFIG.containerAnimationDuration}ms ease, background 0.2s ease;
       display: flex;
@@ -1366,6 +1366,12 @@
       return;
     }
 
+    // Apply mask to tabs wrapper immediately on hover
+    const isCompactToolbar = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+    if (!isCompactToolbar) {
+      applyTabsWrapperMask();
+    }
+
     clearTimeout(state.hoverTimeout);
     state.hoverTimeout = setTimeout(() => {
       debugLog("[DownloadHover] Timeout triggered - calling showPile()");
@@ -1429,6 +1435,8 @@
       
       // Only hide if cursor is not over download area AND not over pile components
       if (!isHoveringDownloadArea && !state.pileContainer.matches(':hover') && !state.dynamicSizer.matches(':hover')) {
+        // Remove mask when leaving download button area
+        removeTabsWrapperMask();
         debugLog("[DownloadHover] Calling hidePile()");
         hidePile();
       }
@@ -1448,6 +1456,12 @@
         mediaControlsToolbar.style.pointerEvents = 'none';
         debugLog("[SizerHover] Hid media controls toolbar");
       }
+    }
+    
+    // Keep mask applied when hovering over pile
+    const isCompactToolbar = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+    if (!isCompactToolbar && state.dismissedPods.size > 0) {
+      applyTabsWrapperMask();
     }
     
     if (getAlwaysShowPile()) return;
@@ -1528,6 +1542,8 @@
           debugLog("[SizerHover] Context menu visible at timeout - deferring pile close");
           state.pendingPileClose = true;
         } else {
+          // Remove mask when leaving pile area
+          removeTabsWrapperMask();
           debugLog("[SizerHover] Calling hidePile()");
           hidePile();
         }
@@ -1548,6 +1564,12 @@
         mediaControlsToolbar.style.pointerEvents = 'none';
         debugLog("[PileHover] Hid media controls toolbar");
       }
+    }
+    
+    // Keep mask applied when hovering over pile
+    const isCompactToolbar = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+    if (!isCompactToolbar && state.dismissedPods.size > 0) {
+      applyTabsWrapperMask();
     }
     
     clearTimeout(state.hoverTimeout);
@@ -1610,6 +1632,8 @@
         if (isContextMenuVisible()) {
           state.pendingPileClose = true;
         } else {
+          // Remove mask when leaving pile area
+          removeTabsWrapperMask();
           hidePile();
         }
       }
@@ -1687,6 +1711,8 @@
     // Set background to ensure backdrop-filter is properly rendered
     showPileBackground();
     
+    // Mask is applied in hover handlers, not here
+    
     // Hide workspace-arrowscrollbox::after when pile is showing
     hideWorkspaceScrollboxAfter();
     
@@ -1733,6 +1759,9 @@
     
     // Hide background and buttons when hiding pile
     hidePileBackground();
+    
+    // Remove mask-image from tabs wrapper when pile is hidden
+    removeTabsWrapperMask();
     
     // Restore workspace-arrowscrollbox::after when pile is hidden
     showWorkspaceScrollboxAfter();
@@ -2202,120 +2231,59 @@
     console.log('[ShowPile] Updated text colors to:', textColor, 'for background:', blendedColor);
   }
 
+  // Apply mask to tabs wrapper element directly
+  function applyTabsWrapperMask() {
+    const tabsWrapper = document.getElementById('zen-tabs-wrapper');
+    if (!tabsWrapper) {
+      debugLog('[Mask] #zen-tabs-wrapper not found');
+      return;
+    }
+    
+    const maskValue = `linear-gradient(to top, transparent 16%, black 20%)`;
+    tabsWrapper.style.maskImage = maskValue;
+    tabsWrapper.style.webkitMaskImage = maskValue;
+    tabsWrapper.style.setProperty('-moz-mask-image', maskValue, 'important'); // For Firefox
+    debugLog('[Mask] Applied tabs wrapper mask: linear-gradient(to bottom, black, transparent 20%)');
+  }
+
+  // Remove mask from tabs wrapper element
+  function removeTabsWrapperMask() {
+    const tabsWrapper = document.getElementById('zen-tabs-wrapper');
+    if (!tabsWrapper) {
+      return;
+    }
+    
+    tabsWrapper.style.maskImage = 'none';
+    tabsWrapper.style.webkitMaskImage = 'none';
+    tabsWrapper.style.removeProperty('-moz-mask-image');
+    debugLog('[Mask] Removed tabs wrapper mask');
+  }
+
   // Show pile background on hover
-  // Show pile background
+  // Simplified: use mask-image on #zen-tabs-wrapper and make dynamicSizer transparent overlay
   function showPileBackground() {
     if (!state.dynamicSizer) return;
 
     // Detect compact toolbar mode (sidebar collapsed)
     const isCompactToolbar = document.documentElement.getAttribute('zen-compact-mode') === 'true';
 
-    // Read the base background color from zen-main-app-wrapper (like the toolbar does)
-    const appWrapper = document.getElementById('zen-main-app-wrapper');
-    let baseBackgroundColor = null;
-    
-    if (appWrapper) {
-      const wrapperBg = window.getComputedStyle(appWrapper).backgroundColor;
-      console.log("[ThemeDebug] zen-main-app-wrapper background:", wrapperBg);
-      
-      if (wrapperBg && wrapperBg !== 'transparent' && wrapperBg !== 'rgba(0, 0, 0, 0)') {
-        baseBackgroundColor = wrapperBg;
-      }
-    }
-    
-    // Fallback base color if we can't read from app wrapper
-    if (!baseBackgroundColor) {
-      const isDarkMode = document.documentElement.getAttribute('zen-should-be-dark-mode') === 'true';
-      baseBackgroundColor = isDarkMode ? '#131313' : '#e9e9e9';
-    }
-    
-    // Get or create the base background element (acts like zen-main-app-wrapper)
-    let baseBgElement = state.dynamicSizer.querySelector('.zen-pile-base-background');
-    if (!baseBgElement) {
-      baseBgElement = document.createElement('div');
-      baseBgElement.className = 'zen-pile-base-background';
-      baseBgElement.style.position = 'absolute';
-      baseBgElement.style.top = '0';
-      baseBgElement.style.left = '0';
-      baseBgElement.style.width = '100%';
-      baseBgElement.style.height = '100%';
-      baseBgElement.style.pointerEvents = 'none';
-      baseBgElement.style.zIndex = '0';
-      state.dynamicSizer.insertBefore(baseBgElement, state.dynamicSizer.firstChild);
-    }
-    
-    // Hide the base layer when the toolbar is in compact mode to avoid double-layered tint
-    baseBgElement.style.display = isCompactToolbar ? 'none' : 'block';
-
-    // Set the base background color on the child element
-    baseBgElement.style.backgroundColor = baseBackgroundColor;
-    console.log("[ThemeDebug] Set base background color:", baseBackgroundColor);
-    
-    // Get or create the overlay element that will have the CSS variable (composites over base)
-    let overlayElement = state.dynamicSizer.querySelector('.zen-pile-background-overlay');
-    if (!overlayElement) {
-      overlayElement = document.createElement('div');
-      overlayElement.className = 'zen-pile-background-overlay';
-      overlayElement.style.position = 'absolute';
-      overlayElement.style.top = '0';
-      overlayElement.style.left = '0';
-      overlayElement.style.width = '100%';
-      overlayElement.style.height = '100%';
-      overlayElement.style.pointerEvents = 'none';
-      overlayElement.style.zIndex = '1';
-      state.dynamicSizer.insertBefore(overlayElement, state.dynamicSizer.firstChild);
-    }
-    
-    // Resolve the main toolbar background variable once for all modes
-    const rootStyle = window.getComputedStyle(document.documentElement);
-    const mainBgVar = rootStyle.getPropertyValue('--zen-main-browser-background').trim();
-
-    // In compact toolbar mode, keep the dynamicSizer fully opaque to match toolbar appearance
+    // In compact toolbar mode, use solid background to match toolbar
     if (isCompactToolbar) {
-      overlayElement.style.display = 'none';
-      // Use Zen primary color for the compact toolbar's opaque background
+      const rootStyle = window.getComputedStyle(document.documentElement);
       const primaryBg = rootStyle.getPropertyValue('--zen-primary-color').trim() || 'var(--zen-primary-color)';
-      const compactBg = primaryBg || mainBgVar || 'var(--zen-primary-color)';
-      state.dynamicSizer.style.background = compactBg;
-      state.dynamicSizer.style.backgroundColor = compactBg;
+      state.dynamicSizer.style.background = primaryBg;
+      state.dynamicSizer.style.backgroundColor = primaryBg;
       state.dynamicSizer.style.backdropFilter = 'none';
       state.dynamicSizer.style.webkitBackdropFilter = 'none';
-      // Update text colors for the solid background
       updatePodTextColors();
       return;
-    } else {
-      overlayElement.style.display = 'block';
     }
 
-    // Now apply the CSS variable to the overlay element (composites over the base)
-    console.log("[ThemeDebug] Using CSS variable --zen-main-browser-background:", mainBgVar);
-    
-    if (mainBgVar) {
-      // Apply the CSS variable to the overlay element - it will composite over the base
-      overlayElement.style.background = mainBgVar;
-      overlayElement.style.backgroundAttachment = 'fixed';
-      overlayElement.style.backgroundSize = '100vw 100vh';
-      
-      // Check if acrylic elements are enabled
-      const acrylicEnabled = Services?.prefs?.getBoolPref('zen.theme.acrylic-elements', false);
-      if (acrylicEnabled) {
-        overlayElement.style.backdropFilter = 'blur(42px) saturate(110%) brightness(0.25) contrast(100%)';
-        overlayElement.style.webkitBackdropFilter = 'blur(42px) saturate(110%) brightness(0.25) contrast(100%)';
-      }
-      
-      // Make sure dynamicSizer itself is transparent so we can see the layers
-      state.dynamicSizer.style.backgroundColor = 'transparent';
-      state.dynamicSizer.style.background = 'transparent';
-    } else {
-      // Fallback: just use base color on dynamicSizer
-      state.dynamicSizer.style.backgroundColor = baseBackgroundColor;
-    }
-    
-    // Force a reflow
-    void state.dynamicSizer.offsetWidth;
-    
-    const computedBg = window.getComputedStyle(state.dynamicSizer).backgroundColor;
-    console.log("[ThemeDebug] Final computed background:", computedBg);
+    // Normal mode: make dynamicSizer transparent so it overlays the masked tabs wrapper
+    state.dynamicSizer.style.backgroundColor = 'transparent';
+    state.dynamicSizer.style.background = 'transparent';
+    state.dynamicSizer.style.backdropFilter = 'none';
+    state.dynamicSizer.style.webkitBackdropFilter = 'none';
 
     // Update text colors
     updatePodTextColors();
@@ -2329,7 +2297,9 @@
     if (state.isTransitioning) {
       return;
     }
+    // Keep transparent - the mask on tabs wrapper handles the fade effect
     state.dynamicSizer.style.background = 'transparent';
+    state.dynamicSizer.style.backgroundColor = 'transparent';
   }
 
   // Hide arrowscrollbox.workspace-arrowscrollbox::after when pile is showing
