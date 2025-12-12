@@ -2207,6 +2207,9 @@
   function showPileBackground() {
     if (!state.dynamicSizer) return;
 
+    // Detect compact toolbar mode (sidebar collapsed)
+    const isCompactToolbar = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+
     // Read the base background color from zen-main-app-wrapper (like the toolbar does)
     const appWrapper = document.getElementById('zen-main-app-wrapper');
     let baseBackgroundColor = null;
@@ -2241,6 +2244,9 @@
       state.dynamicSizer.insertBefore(baseBgElement, state.dynamicSizer.firstChild);
     }
     
+    // Hide the base layer when the toolbar is in compact mode to avoid double-layered tint
+    baseBgElement.style.display = isCompactToolbar ? 'none' : 'block';
+
     // Set the base background color on the child element
     baseBgElement.style.backgroundColor = baseBackgroundColor;
     console.log("[ThemeDebug] Set base background color:", baseBackgroundColor);
@@ -2260,10 +2266,28 @@
       state.dynamicSizer.insertBefore(overlayElement, state.dynamicSizer.firstChild);
     }
     
-    // Now apply the CSS variable to the overlay element (composites over the base)
+    // Resolve the main toolbar background variable once for all modes
     const rootStyle = window.getComputedStyle(document.documentElement);
     const mainBgVar = rootStyle.getPropertyValue('--zen-main-browser-background').trim();
-    
+
+    // In compact toolbar mode, keep the dynamicSizer fully opaque to match toolbar appearance
+    if (isCompactToolbar) {
+      overlayElement.style.display = 'none';
+      // Use Zen primary color for the compact toolbar's opaque background
+      const primaryBg = rootStyle.getPropertyValue('--zen-primary-color').trim() || 'var(--zen-primary-color)';
+      const compactBg = primaryBg || mainBgVar || 'var(--zen-primary-color)';
+      state.dynamicSizer.style.background = compactBg;
+      state.dynamicSizer.style.backgroundColor = compactBg;
+      state.dynamicSizer.style.backdropFilter = 'none';
+      state.dynamicSizer.style.webkitBackdropFilter = 'none';
+      // Update text colors for the solid background
+      updatePodTextColors();
+      return;
+    } else {
+      overlayElement.style.display = 'block';
+    }
+
+    // Now apply the CSS variable to the overlay element (composites over the base)
     console.log("[ThemeDebug] Using CSS variable --zen-main-browser-background:", mainBgVar);
     
     if (mainBgVar) {
