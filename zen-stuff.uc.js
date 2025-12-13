@@ -751,7 +751,7 @@
         @property --zen-pile-height {
           syntax: "<length>";
           inherits: true;
-          initial-value: 0px;
+          initial-value: -50px;
         }
 
         #zen-tabs-wrapper {
@@ -1769,8 +1769,8 @@
     // Hide background and buttons when hiding pile
     hidePileBackground();
 
-    // Reset mask height variable to 0
-    document.documentElement.style.setProperty('--zen-pile-height', '0px');
+    // Reset mask height variable to -50px (to account for fade offset)
+    document.documentElement.style.setProperty('--zen-pile-height', '-50px');
 
     // Restore workspace-arrowscrollbox::after when pile is hidden
     showWorkspaceScrollboxAfter();
