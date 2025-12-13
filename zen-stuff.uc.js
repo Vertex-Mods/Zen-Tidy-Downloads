@@ -68,6 +68,8 @@
       this.workspaceScrollboxStyle = null;
       // --- add isEditing flag to prevent pile from hiding during rename ---
       this.isEditing = false;
+      // --- add recentlyRemoved flag to prevent pile from hiding immediately after removal ---
+      this.recentlyRemoved = false;
     }
 
     // Safe getters with validation
@@ -1263,9 +1265,21 @@
     const wasVisible = state.dynamicSizer && state.dynamicSizer.style.height !== '0px';
     
     if (podElement) {
-      podElement.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+      // Set lower z-index and disable pointer events to prevent overlap during animation
+      podElement.style.zIndex = '0';
+      podElement.style.pointerEvents = 'none';
+      // Collapse height immediately so it doesn't affect layout, then fade out
+      const originalHeight = podElement.offsetHeight;
+      podElement.style.transition = 'opacity 0.25s ease, transform 0.25s ease, height 0.25s ease, margin 0.25s ease, padding 0.25s ease';
+      podElement.style.height = '0px';
+      podElement.style.marginTop = '0px';
+      podElement.style.marginBottom = '0px';
+      podElement.style.paddingTop = '0px';
+      podElement.style.paddingBottom = '0px';
+      podElement.style.overflow = 'hidden';
+      // Then fade it out
       podElement.style.opacity = '0';
-      podElement.style.transform += ' scale(0.8)';
+      podElement.style.transform = 'translate3d(0, 0, 0) rotate(0deg) scale(0.8)';
 
       setTimeout(() => {
         if (podElement.parentNode) {
@@ -1285,22 +1299,58 @@
     // Update the list of pod keys in SessionStore
     updatePodKeysInSession();
 
+    // Clear any pending hide timeout to prevent pile from hiding too quickly after removal
+    if (state.hoverTimeout) {
+      clearTimeout(state.hoverTimeout);
+      state.hoverTimeout = null;
+    }
+
+    // Set flag to prevent pile from hiding immediately after removal
+    state.recentlyRemoved = true;
+
     // Recalculate grid positions for remaining pods
     state.dismissedPods.forEach((_, key) => generateGridPosition(key));
 
     // If pile was visible, animate remaining pods to new positions
-    // Wait a bit for the removal animation to start before repositioning
+    // Wait for removal animation to fully complete before repositioning to avoid overlap
     if (wasVisible && state.dismissedPods.size > 0) {
+      // Ensure pile stays visible during and after removal animation
+      showPile();
+      
       setTimeout(() => {
         updatePileVisibility(true); // Pass true to indicate we should animate
         // Update downloads button visibility
         updateDownloadsButtonVisibility();
-      }, 50); // Small delay to let removal animation start
+        
+        // Clear the flag after repositioning animation completes + grace period
+        setTimeout(() => {
+          state.recentlyRemoved = false;
+          debugLog("[RemovePod] Cleared recentlyRemoved flag - pile can now hide normally");
+          
+          // After clearing the flag, check if we should hide the pile
+          // (if user is not hovering and not in always-show mode)
+          if (!getAlwaysShowPile() && !shouldDisableHover()) {
+            const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
+            const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
+            const isHoveringPile = state.pileContainer?.matches(':hover') || state.dynamicSizer?.matches(':hover');
+            
+            if (!isHoveringDownloadArea && !isHoveringPile) {
+              // Start the hide timeout
+              clearTimeout(state.hoverTimeout);
+              state.hoverTimeout = setTimeout(() => {
+                hidePile();
+              }, CONFIG.hoverDebounceMs);
+            }
+          }
+        }, 600); // Grace period: 300ms (repositioning delay) + 250ms (animation) + 50ms buffer
+      }, 300); // Wait for full fade-out (250ms) + small buffer before repositioning
     } else {
       // updatePileVisibility will handle sizer height if needed
       updatePileVisibility(); // This will now call showPile/hidePile which adjust sizer
       // Update downloads button visibility
       updateDownloadsButtonVisibility();
+      // Clear the flag since pile is now empty
+      state.recentlyRemoved = false;
     }
   }
 
@@ -1801,12 +1851,19 @@
   function hidePile() {
     debugLog("[HidePile] hidePile called", {
       currentHeight: state.dynamicSizer?.style.height,
-      isEditing: state.isEditing
+      isEditing: state.isEditing,
+      recentlyRemoved: state.recentlyRemoved
     });
 
     // Don't hide pile if user is editing a filename
     if (state.isEditing) {
       debugLog("[HidePile] Pile kept visible - editing in progress");
+      return;
+    }
+
+    // Don't hide pile if a pod was recently removed (give user time to see the result)
+    if (state.recentlyRemoved) {
+      debugLog("[HidePile] Pile kept visible - recent removal in progress");
       return;
     }
 
