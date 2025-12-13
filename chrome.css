@@ -303,13 +303,8 @@
   transform-origin: bottom right;
 }
 
-#main-window[zen-right-side] #userchrome-download-cards-container .tooltip-tail,
-:root[zen-right-side] #userchrome-download-cards-container .tooltip-tail {
-  left: auto;
-  right: 20px;
-}
-
+/* Pods should stay left-aligned regardless of tab position */
 #main-window[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container,
 :root[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container {
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
