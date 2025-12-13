@@ -2560,9 +2560,9 @@
     <menupopup id="zen-pile-pod-context-menu">
       <menuitem id="zenPilePodOpen" label="Open"/>
       <menuitem id="zenPilePodRename" label="Rename"/>
-      <menuitem id="zenPilePodRemove" label="Remove from Stuff"/>
       <menuitem id="zenPilePodCopy" label="Copy to Clipboard"/>
       <menuseparator/>
+      <menuitem id="zenPilePodRemove" label="Remove from Stuff"/>
       <menuitem id="zenPilePodDelete" label="Delete"/>
     </menupopup>
   `);
@@ -2587,6 +2587,12 @@
       // Remove from Stuff
       podContextMenu.querySelector("#zenPilePodRemove").addEventListener("command", async () => {
         if (podContextMenuPodData) {
+          // Ask for confirmation before removing
+          const confirmed = confirm(`Are you sure you want to remove "${podContextMenuPodData.filename}" from Stuff?\n\nThis will remove it from the pile but won't delete the file.`);
+          if (!confirmed) {
+            return; // User cancelled
+          }
+          
           try {
             window.zenTidyDownloads.permanentDelete(podContextMenuPodData.key);
             removePodFromPile(podContextMenuPodData.key);
