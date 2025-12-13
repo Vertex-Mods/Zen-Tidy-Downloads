@@ -66,6 +66,8 @@
       this.isGridAnimating = false;
       // --- add workspaceScrollboxStyle for controlling ::after opacity ---
       this.workspaceScrollboxStyle = null;
+      // --- add isEditing flag to prevent pile from hiding during rename ---
+      this.isEditing = false;
     }
 
     // Safe getters with validation
@@ -1011,7 +1013,7 @@
       height: 100%;
     `;
 
-    // Create filename element
+    // Create filename element (editable inline)
     const filename = document.createElement("div");
     filename.className = "dismissed-pod-filename";
     filename.textContent = podData.filename || "Untitled";
@@ -1023,7 +1025,12 @@
       overflow: hidden;
       text-overflow: ellipsis;
       margin-bottom: 2px;
+      cursor: pointer;
+      user-select: text;
     `;
+    
+    // Store reference to filename element for inline editing via context menu
+    // Inline editing is only triggered from context menu, not double-click
 
     // Create file size element
     const fileSize = document.createElement("div");
@@ -1793,8 +1800,15 @@
   // Hide the pile
   function hidePile() {
     debugLog("[HidePile] hidePile called", {
-      currentHeight: state.dynamicSizer?.style.height
+      currentHeight: state.dynamicSizer?.style.height,
+      isEditing: state.isEditing
     });
+
+    // Don't hide pile if user is editing a filename
+    if (state.isEditing) {
+      debugLog("[HidePile] Pile kept visible - editing in progress");
+      return;
+    }
 
     if (!state.dynamicSizer) return;
 
@@ -2564,9 +2578,11 @@
       podContextMenu.querySelector("#zenPilePodOpen").addEventListener("command", () => {
         if (podContextMenuPodData) openPodFile(podContextMenuPodData);
       });
-      // Rename
+      // Rename (trigger inline editing)
       podContextMenu.querySelector("#zenPilePodRename").addEventListener("command", () => {
-        if (podContextMenuPodData) showRenameDialog(podContextMenuPodData);
+        if (podContextMenuPodData) {
+          startInlineRename(podContextMenuPodData);
+        }
       });
       // Remove from Stuff
       podContextMenu.querySelector("#zenPilePodRemove").addEventListener("command", async () => {
@@ -3003,6 +3019,120 @@
     debugLog(`[Rename] Rename dialog created for: ${podData.filename}`);
   }
 
+  // --- Start inline rename editing ---
+  function startInlineRename(podData) {
+    const podElement = state.getPodElement(podData.key);
+    if (!podElement) {
+      debugLog(`[Rename] Cannot start inline rename - pod element not found: ${podData.key}`);
+      return;
+    }
+    
+    const filenameElement = podElement.querySelector('.dismissed-pod-filename');
+    if (!filenameElement) {
+      debugLog(`[Rename] Cannot start inline rename - filename element not found`);
+      return;
+    }
+    
+    // Check if already editing
+    if (state.isEditing) {
+      debugLog(`[Rename] Already editing a filename`);
+      return;
+    }
+    
+    state.isEditing = true; // Prevent pile from hiding during editing
+    
+    // Ensure pile is visible during editing
+    if (state.dynamicSizer && state.dismissedPods.size > 0) {
+      showPile();
+    }
+    
+    const originalText = filenameElement.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = originalText;
+    input.style.cssText = `
+      width: 100%;
+      padding: 0;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      color: var(--zen-text-color, #e0e0e0);
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      margin: 0;
+      box-sizing: border-box;
+      outline: none;
+    `;
+    
+    // Select filename without extension
+    const lastDotIndex = originalText.lastIndexOf('.');
+    if (lastDotIndex > 0) {
+      input.setSelectionRange(0, lastDotIndex);
+    } else {
+      input.select();
+    }
+    
+    // Replace filename with input
+    const parent = filenameElement.parentNode;
+    parent.replaceChild(input, filenameElement);
+    input.focus();
+    
+    const finishEditing = async (save = false) => {
+      if (!state.isEditing) return;
+      state.isEditing = false; // Allow pile to hide again after editing
+      
+      const newName = input.value.trim();
+      if (save && newName && newName !== originalText) {
+        try {
+          debugLog(`[Rename] Inline rename: ${originalText} -> ${newName}`);
+          await renamePodFile(podData, newName);
+        } catch (error) {
+          debugLog(`[Rename] Error renaming file:`, error);
+          showUserNotification(`Error renaming file: ${error.message}`);
+          // Restore original text on error
+          input.value = originalText;
+        }
+      }
+      
+      // Restore filename element
+      filenameElement.textContent = podData.filename || originalText;
+      parent.replaceChild(filenameElement, input);
+      
+      // Check if we should hide the pile after editing (if not hovering)
+      if (!getAlwaysShowPile() && !shouldDisableHover()) {
+        // Small delay to allow DOM to update
+        setTimeout(() => {
+          const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
+          const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
+          const isHoveringPile = state.pileContainer?.matches(':hover') || state.dynamicSizer?.matches(':hover');
+          
+          // Only hide if not hovering over download area or pile
+          if (!isHoveringDownloadArea && !isHoveringPile) {
+            debugLog("[Rename] Editing finished, hiding pile (not hovering)");
+            clearTimeout(state.hoverTimeout);
+            state.hoverTimeout = setTimeout(() => {
+              hidePile();
+            }, CONFIG.hoverDebounceMs);
+          }
+        }, 50);
+      }
+    };
+    
+    input.addEventListener('blur', () => finishEditing(true));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        finishEditing(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        finishEditing(false);
+      }
+    });
+  }
+
   // --- Global pod file rename logic ---
   async function renamePodFile(podData, newFilename) {
     try {
@@ -3023,6 +3153,8 @@
       podData.targetPath = newPath;
       // Update the pod in our local storage
       state.setPodData(podData.key, podData);
+      // Save updated pod data to SessionStore for persistence
+      saveDismissedPodToSession(podData);
       // Update the pod element
       const podElement = state.getPodElement(podData.key);
       if (podElement) {
