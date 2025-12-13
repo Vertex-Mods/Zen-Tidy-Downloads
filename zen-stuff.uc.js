@@ -23,7 +23,7 @@
     gridPadding: 12, // pixels between grid items
     minPodSize: 45, // minimum pod size in grid
     minSidePadding: 5, // minimum padding from sidebar edges
-    animationDuration: 400, // pod transition duration
+    animationDuration: 100, // pod transition duration
     containerAnimationDuration: 100, // container height/padding transition duration
     maxRetryAttempts: 10, // Maximum initialization retry attempts
     retryDelay: 500, // Delay between retry attempts
@@ -924,7 +924,7 @@
       padding: 0 8px;
       box-sizing: border-box;
       cursor: pointer;
-      transition: bottom 0.3s ease, opacity 0.3s ease, background-color 0.2s ease;
+      transition: bottom 0.2s ease, opacity 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
       will-change: bottom;
       left: 0;
       right: 0;
@@ -1242,6 +1242,7 @@
       podElement.style.transform = `translate3d(0, 0, 0) rotate(0deg)`;
       podElement.style.display = 'flex'; // Ensure flex layout is maintained
       podElement.style.zIndex = '1';
+      podElement.style.opacity = '1';
     }, delay);
   }
 
@@ -1657,6 +1658,9 @@
 
     if (state.dismissedPods.size === 0 || !state.dynamicSizer) return;
 
+    // Check if pile is currently visible to prevent double animation
+    const wasVisible = state.dynamicSizer.style.height !== '0px';
+
     // Check compact mode state - hide pile if sidebar is collapsed (similar to media controls)
     const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
     const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
@@ -1726,9 +1730,34 @@
     hideWorkspaceScrollboxAfter();
 
     // Update positions for all pods (show only 4 most recent)
-    state.dismissedPods.forEach((_, podKey) => {
+    // Reset pods to hidden state before staggering in (only if not already visible)
+    const recentPods = Array.from(state.dismissedPods.keys()).slice(-4);
+
+    if (!wasVisible) {
+      recentPods.forEach(podKey => {
+        const el = state.podElements.get(podKey);
+        if (el) {
+          el.style.transition = 'none';
+          el.style.opacity = '0';
+          el.style.transform = 'translateY(20px)';
+        }
+      });
+
+      // Force reflow
+      if (state.dynamicSizer) state.dynamicSizer.offsetHeight;
+    }
+
+    // Trigger staggered entrance (or just update position if already visible)
+    recentPods.forEach((podKey, index) => {
+      const el = state.podElements.get(podKey);
+      if (!wasVisible && el) {
+        // Restore transition
+        el.style.transition = 'bottom 0.3s ease, opacity 0.3s ease, background-color 0.2s ease, transform 0.3s ease';
+      }
       generateGridPosition(podKey);
-      applyGridPosition(podKey, 0);
+      // Staggers bottom-up (first valid pod is index 0) if animating
+      const delay = wasVisible ? 0 : index * 30;
+      applyGridPosition(podKey, delay);
     });
 
     // Ensure hover events are properly set up for the current mode
@@ -1768,6 +1797,15 @@
 
     // Hide background and buttons when hiding pile
     hidePileBackground();
+
+    // Fade out pods when hiding
+    state.dismissedPods.forEach((_, podKey) => {
+      const el = state.podElements.get(podKey);
+      if (el) {
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(20px)';
+      }
+    });
 
     // Reset mask height variable to -50px (to account for fade offset)
     document.documentElement.style.setProperty('--zen-pile-height', '-50px');
