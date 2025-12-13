@@ -924,7 +924,7 @@
       padding: 0 8px;
       box-sizing: border-box;
       cursor: pointer;
-      transition: bottom 0.2s ease, opacity 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+      transition: bottom 0.1s ease, opacity 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
       will-change: bottom;
       left: 0;
       right: 0;
@@ -1218,7 +1218,7 @@
   }
 
   // Apply position to a pod (simple single column, no rotation)
-  function applyGridPosition(podKey, delay = 0) {
+  function applyGridPosition(podKey, delay = 0, shouldAnimate = false) {
     const podElement = state.podElements.get(podKey);
     const position = state.gridPositions.get(podKey);
     if (!podElement || !position) {
@@ -1230,6 +1230,10 @@
     }
 
     setTimeout(() => {
+      // Set transition if animation is needed
+      if (shouldAnimate) {
+        podElement.style.transition = 'bottom 0.25s ease, opacity 0.25s ease, transform 0.25s ease';
+      }
       // Use bottom positioning for bottom-up layout
       const rowHeight = 48;
       const rowSpacing = 6;
@@ -1249,8 +1253,10 @@
   // Remove a pod from the pile
   function removePodFromPile(podKey) {
     const podElement = state.podElements.get(podKey);
+    const wasVisible = state.dynamicSizer && state.dynamicSizer.style.height !== '0px';
+    
     if (podElement) {
-      podElement.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+      podElement.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
       podElement.style.opacity = '0';
       podElement.style.transform += ' scale(0.8)';
 
@@ -1258,7 +1264,7 @@
         if (podElement.parentNode) {
           podElement.parentNode.removeChild(podElement);
         }
-      }, 300);
+      }, 250);
     }
 
     state.dismissedPods.delete(podKey);
@@ -1275,15 +1281,24 @@
     // Recalculate grid positions for remaining pods
     state.dismissedPods.forEach((_, key) => generateGridPosition(key));
 
-    // updatePileVisibility will handle sizer height if needed
-    updatePileVisibility(); // This will now call showPile/hidePile which adjust sizer
-
-    // Update downloads button visibility
-    updateDownloadsButtonVisibility();
+    // If pile was visible, animate remaining pods to new positions
+    // Wait a bit for the removal animation to start before repositioning
+    if (wasVisible && state.dismissedPods.size > 0) {
+      setTimeout(() => {
+        updatePileVisibility(true); // Pass true to indicate we should animate
+        // Update downloads button visibility
+        updateDownloadsButtonVisibility();
+      }, 50); // Small delay to let removal animation start
+    } else {
+      // updatePileVisibility will handle sizer height if needed
+      updatePileVisibility(); // This will now call showPile/hidePile which adjust sizer
+      // Update downloads button visibility
+      updateDownloadsButtonVisibility();
+    }
   }
 
   // Update pile visibility based on pod count
-  function updatePileVisibility() {
+  function updatePileVisibility(shouldAnimate = false) {
     if (state.dismissedPods.size === 0) {
       // If pile becomes empty, hide it (will set sizer height to 0)
       if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
@@ -1297,7 +1312,8 @@
       // Regenerate positions for all pods
       allPods.forEach(podKey => {
         generateGridPosition(podKey);
-        applyGridPosition(podKey, 0);
+        // If animating (e.g., after removal), animate remaining pods to new positions
+        applyGridPosition(podKey, 0, shouldAnimate);
       });
 
       // If pile is currently visible, recalculate height dynamically
@@ -1752,11 +1768,11 @@
       const el = state.podElements.get(podKey);
       if (!wasVisible && el) {
         // Restore transition
-        el.style.transition = 'bottom 0.3s ease, opacity 0.3s ease, background-color 0.2s ease, transform 0.3s ease';
+        el.style.transition = 'bottom 0.1s ease, opacity 0.1s ease, background-color 0.1s ease, transform 0.1s ease';
       }
       generateGridPosition(podKey);
       // Staggers bottom-up (first valid pod is index 0) if animating
-      const delay = wasVisible ? 0 : index * 30;
+      const delay = wasVisible ? 0 : index * 25;
       applyGridPosition(podKey, delay);
     });
 
