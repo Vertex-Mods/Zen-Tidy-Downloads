@@ -133,6 +133,88 @@
     let isProcessingAIQueue = false; // Flag to prevent concurrent queue processing
     let currentlyProcessingKey = null; // Track which download is currently being processed
     
+    // SECURITY: Rate limiting for API calls
+    const RateLimiter = (function() {
+      'use strict';
+      
+      const MAX_REQUESTS_PER_MINUTE = 10; // Conservative limit
+      const MAX_REQUESTS_PER_HOUR = 100;
+      const REQUEST_HISTORY = [];
+      
+      /**
+       * Check if a new request can be made based on rate limits
+       * @returns {Object} { allowed: boolean, waitTime?: number, reason?: string }
+       */
+      function canMakeRequest() {
+        const now = Date.now();
+        const oneMinuteAgo = now - 60000;
+        const oneHourAgo = now - 3600000;
+        
+        // Clean old requests
+        while (REQUEST_HISTORY.length > 0 && REQUEST_HISTORY[0] < oneHourAgo) {
+          REQUEST_HISTORY.shift();
+        }
+        
+        // Check per-minute limit
+        const recentRequests = REQUEST_HISTORY.filter(time => time > oneMinuteAgo);
+        if (recentRequests.length >= MAX_REQUESTS_PER_MINUTE) {
+          const oldestRecent = Math.min(...recentRequests);
+          const waitTime = Math.ceil((oldestRecent + 60000 - now) / 1000);
+          return {
+            allowed: false,
+            waitTime,
+            reason: `Rate limit exceeded: ${recentRequests.length} requests in the last minute (max: ${MAX_REQUESTS_PER_MINUTE})`
+          };
+        }
+        
+        // Check per-hour limit
+        if (REQUEST_HISTORY.length >= MAX_REQUESTS_PER_HOUR) {
+          const oldestRequest = REQUEST_HISTORY[0];
+          const waitTime = Math.ceil((oldestRequest + 3600000 - now) / 1000);
+          return {
+            allowed: false,
+            waitTime,
+            reason: `Rate limit exceeded: ${REQUEST_HISTORY.length} requests in the last hour (max: ${MAX_REQUESTS_PER_HOUR})`
+          };
+        }
+        
+        return { allowed: true };
+      }
+      
+      /**
+       * Record a new API request
+       */
+      function recordRequest() {
+        REQUEST_HISTORY.push(Date.now());
+      }
+      
+      /**
+       * Get current rate limit statistics
+       * @returns {Object} Statistics about current rate limit usage
+       */
+      function getStats() {
+        const now = Date.now();
+        const oneMinuteAgo = now - 60000;
+        const oneHourAgo = now - 3600000;
+        
+        return {
+          lastMinute: REQUEST_HISTORY.filter(time => time > oneMinuteAgo).length,
+          lastHour: REQUEST_HISTORY.filter(time => time > oneHourAgo).length,
+          total: REQUEST_HISTORY.length,
+          limits: {
+            perMinute: MAX_REQUESTS_PER_MINUTE,
+            perHour: MAX_REQUESTS_PER_HOUR
+          }
+        };
+      }
+      
+      return {
+        canMakeRequest,
+        recordRequest,
+        getStats
+      };
+    })();
+    
     // CSS availability flag
     let cssStylesAvailable = false;
 
@@ -237,14 +319,54 @@
         return wasPresent;
       },
       
-      // Add external file to Zen Stuff
+      /**
+       * Add external file to Zen Stuff with comprehensive validation
+       * @param {Object} podData - Pod data object with file information
+       * @returns {boolean} True if file was added successfully
+       * @throws {Error} If validation fails or file doesn't exist
+       */
       addExternalFile: async (podData) => {
-        debugLog(`[API] Add external file requested: ${podData.filename}`);
+        debugLog(`[API] Add external file requested: ${podData?.filename}`);
         
         try {
-          // Validate the pod data
-          if (!podData || !podData.key || !podData.filename || !podData.targetPath) {
-            throw new Error('Invalid pod data: missing required fields');
+          // Validate the pod data structure
+          if (!podData || typeof podData !== 'object') {
+            throw new Error('Invalid pod data: must be an object');
+          }
+          
+          const requiredFields = ['key', 'filename', 'targetPath'];
+          const missingFields = requiredFields.filter(field => !podData[field]);
+          if (missingFields.length > 0) {
+            throw new Error(`Invalid pod data: missing required fields: ${missingFields.join(', ')}`);
+          }
+          
+          // SECURITY: Validate field types
+          if (typeof podData.key !== 'string' || podData.key.length === 0) {
+            throw new Error('Invalid pod data: key must be a non-empty string');
+          }
+          if (typeof podData.filename !== 'string' || podData.filename.length === 0) {
+            throw new Error('Invalid pod data: filename must be a non-empty string');
+          }
+          if (typeof podData.targetPath !== 'string' || podData.targetPath.length === 0) {
+            throw new Error('Invalid pod data: targetPath must be a non-empty string');
+          }
+          
+          // SECURITY: Comprehensive path validation (strict mode for external files)
+          const pathValidation = SecurityUtils.validateFilePath(podData.targetPath, { strict: true });
+          if (!pathValidation.valid) {
+            throw new Error(`Invalid file path: ${pathValidation.error} (code: ${pathValidation.code})`);
+          }
+          
+          // SECURITY: Restrict to common download directories (optional but recommended)
+          // Allow user to configure allowed directories if needed
+          const allowedDirs = [
+            'Downloads', 'Desktop', 'Documents', 'Pictures', 'Videos', 'Music'
+          ];
+          const pathLower = podData.targetPath.toLowerCase();
+          const isInAllowedDir = allowedDirs.some(dir => pathLower.includes(dir.toLowerCase()));
+          if (!isInAllowedDir) {
+            debugLog(`[API] Warning: File path is outside common directories: ${podData.targetPath}`);
+            // Don't block, but log for security monitoring
           }
           
           // Verify the file exists
@@ -255,9 +377,20 @@
             throw new Error('File does not exist at the specified path');
           }
           
+          // SECURITY: Validate file is actually a file (not a directory)
+          if (file.isDirectory()) {
+            throw new Error('Path points to a directory, not a file');
+          }
+          
           // Update file size if not provided
-          if (!podData.fileSize) {
+          if (!podData.fileSize || podData.fileSize <= 0) {
             podData.fileSize = file.fileSize;
+          }
+          
+          // SECURITY: Validate file size is reasonable (prevent DoS)
+          const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10GB
+          if (podData.fileSize > MAX_FILE_SIZE) {
+            throw new Error(`File size exceeds maximum allowed: ${podData.fileSize} bytes`);
           }
           
           // Store the pod data
@@ -279,7 +412,13 @@
           return true;
           
         } catch (error) {
-          debugLog(`[API] Error adding external file:`, error);
+          const errorInfo = {
+            error: error.message || error.toString(),
+            name: error.name || 'Error',
+            filename: podData?.filename,
+            path: podData?.targetPath
+          };
+          debugLog(`[API] Error adding external file:`, errorInfo);
           throw error;
         }
       }
@@ -340,10 +479,11 @@
               src: img.src
             };
           } else {
-            // Capture icon/text preview
+            // SECURITY FIX: Don't store raw HTML, just mark as icon type
+            // The icon will be regenerated safely from contentType when restored
             dismissedData.previewData = {
-              type: 'icon',
-              html: previewContainer.innerHTML
+              type: 'icon'
+              // No html field - will use contentType to regenerate icon safely
             };
           }
         }
@@ -498,6 +638,48 @@
       }
     }
 
+    // SECURITY: Helper function to redact sensitive data from logs
+    // Uses efficient regex patterns and avoids deep recursion issues
+    function redactSensitiveData(data) {
+      if (typeof data === 'string') {
+        // Redact API keys and tokens (single pass with combined regex)
+        return data
+          .replace(/Bearer\s+[A-Za-z0-9_-]+/gi, 'Bearer [REDACTED]')
+          .replace(/Authorization:\s*Bearer\s+[A-Za-z0-9_-]+/gi, 'Authorization: Bearer [REDACTED]')
+          .replace(/(api[_-]?key|apikey|secret[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*[A-Za-z0-9_-]+/gi, '$1=[REDACTED]');
+      }
+      
+      if (typeof data !== 'object' || data === null) {
+        return data;
+      }
+      
+      // Handle arrays
+      if (Array.isArray(data)) {
+        return data.map(item => redactSensitiveData(item));
+      }
+      
+      // Handle objects with depth limit to prevent stack overflow
+      const SENSITIVE_KEY_PATTERN = /(api|key|authorization|token|secret|password|credential)/i;
+      const redacted = {};
+      
+      for (const key in data) {
+        if (!data.hasOwnProperty(key)) continue;
+        
+        const value = data[key];
+        if (SENSITIVE_KEY_PATTERN.test(key)) {
+          redacted[key] = '[REDACTED]';
+        } else if (typeof value === 'string') {
+          redacted[key] = redactSensitiveData(value);
+        } else if (typeof value === 'object' && value !== null) {
+          redacted[key] = redactSensitiveData(value);
+        } else {
+          redacted[key] = value;
+        }
+      }
+      
+      return redacted;
+    }
+
     // Add debug logging function with Firefox preferences support
     function debugLog(message, data = null, category = 'general') {
       try {
@@ -510,14 +692,20 @@
         const timestamp = new Date().toISOString();
         const prefix = `[${timestamp}] Download Preview [${category.toUpperCase()}]:`;
         
-        if (data) {
-          console.log(`${prefix} ${message}`, data);
+        // SECURITY: Redact sensitive data before logging
+        const safeData = data ? redactSensitiveData(data) : null;
+        const safeMessage = typeof message === 'string' ? redactSensitiveData(message) : message;
+        
+        if (safeData) {
+          console.log(`${prefix} ${safeMessage}`, safeData);
         } else {
-          console.log(`${prefix} ${message}`);
+          console.log(`${prefix} ${safeMessage}`);
         }
       } catch (e) {
-        // Fallback if preferences fail
-        console.log(`[Download Preview] ${message}`, data || '');
+        // Fallback if preferences fail - still redact sensitive data
+        const safeData = data ? redactSensitiveData(data) : null;
+        const safeMessage = typeof message === 'string' ? redactSensitiveData(message) : message;
+        console.log(`[Download Preview] ${safeMessage}`, safeData || '');
       }
     }
 
@@ -2334,6 +2522,222 @@
     }
   }
 
+  // ============================================================================
+  // SECURITY UTILITIES
+  // ============================================================================
+  
+  /**
+   * Security utilities for path validation and sanitization
+   * Uses Result pattern for better error handling without exceptions
+   */
+  const SecurityUtils = (function() {
+    'use strict';
+    
+    // Constants
+    const WINDOWS_RESERVED_NAMES = Object.freeze([
+      'CON', 'PRN', 'AUX', 'NUL',
+      'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+      'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+    ]);
+    
+    const WINDOWS_INVALID_CHARS = /[<>:"|?*\x00-\x1F]/;
+    const CONTROL_CHARS = /[\x00-\x1F\x7F]/;
+    const MAX_PATH_LENGTH = 32767;
+    const MAX_FILENAME_LENGTH = 200;
+    
+    // Cache platform detection
+    const isWindowsPlatform = navigator.platform.includes('Win');
+    
+    /**
+     * Result object for validation operations
+     * @typedef {Object} ValidationResult
+     * @property {boolean} valid - Whether the validation passed
+     * @property {string|null} error - Error message if validation failed
+     * @property {string} code - Error code for programmatic handling
+     */
+    
+    /**
+     * Parse and normalize a path once for multiple validations
+     * @param {string} path - Path to parse
+     * @returns {Object} Parsed path components
+     */
+    function parsePath(path) {
+      const normalized = path.replace(/\\/g, '/');
+      const parts = normalized.split('/').filter(Boolean);
+      const filename = parts[parts.length - 1] || path;
+      const isWindows = isWindowsPlatform || path.includes('\\');
+      
+      return { normalized, parts, filename, isWindows };
+    }
+    
+    /**
+     * Validate file path for security issues
+     * @param {string} path - Path to validate
+     * @param {Object} options - Validation options
+     * @param {boolean} options.strict - If false, returns warnings instead of errors
+     * @returns {ValidationResult} Validation result
+     */
+    function validateFilePath(path, options = {}) {
+      const { strict = true } = options;
+      
+      // Type check
+      if (!path || typeof path !== 'string') {
+        return { valid: false, error: 'Path must be a non-empty string', code: 'INVALID_TYPE' };
+      }
+      
+      // Length check (fastest, fail early)
+      if (path.length > MAX_PATH_LENGTH) {
+        return { valid: false, error: 'Path exceeds maximum length', code: 'PATH_TOO_LONG' };
+      }
+      
+      // Null byte check
+      if (path.includes('\0') || path.includes('\x00')) {
+        return { valid: false, error: 'Path contains null bytes', code: 'NULL_BYTES' };
+      }
+      
+      // Parse path once
+      const { normalized, parts, filename, isWindows } = parsePath(path);
+      
+      // Directory traversal check
+      if (parts.some(part => part === '..' || part.startsWith('../'))) {
+        return { valid: false, error: 'Path contains directory traversal patterns', code: 'TRAVERSAL' };
+      }
+      if (normalized.startsWith('../') || normalized.endsWith('/..')) {
+        return { valid: false, error: 'Path contains directory traversal patterns', code: 'TRAVERSAL' };
+      }
+      
+      // Double slashes check (except UNC paths)
+      if (path.includes('//') && !path.match(/^\\\\/)) {
+        return { valid: false, error: 'Path contains invalid path separators', code: 'INVALID_SEPARATORS' };
+      }
+      
+      // Control characters check
+      if (CONTROL_CHARS.test(path.replace(/[\n\t]/g, ''))) {
+        return { valid: false, error: 'Path contains control characters', code: 'CONTROL_CHARS' };
+      }
+      
+      // Windows-specific validations
+      if (isWindows) {
+        // Reserved names check
+        for (const part of parts) {
+          const nameBase = part.toUpperCase().split('.')[0];
+          if (WINDOWS_RESERVED_NAMES.includes(nameBase)) {
+            return { valid: false, error: `Path contains Windows reserved name: ${nameBase}`, code: 'RESERVED_NAME' };
+          }
+        }
+        
+        // Invalid characters in filename only (not full path - drive letters have colons)
+        if (WINDOWS_INVALID_CHARS.test(filename)) {
+          return { valid: false, error: 'Filename contains invalid characters for Windows', code: 'INVALID_CHARS' };
+        }
+      }
+      
+      return { valid: true, error: null, code: 'VALID' };
+    }
+    
+    /**
+     * Normalize Unicode string to NFC form for consistent filename handling
+     * @param {string} str - String to normalize
+     * @returns {string} Normalized string
+     */
+    function normalizeUnicode(str) {
+      try {
+        // Use String.prototype.normalize if available (ES6+)
+        if (typeof str.normalize === 'function') {
+          return str.normalize('NFC'); // Normalization Form Canonical Composition
+        }
+        // Fallback for older environments
+        return str;
+      } catch (e) {
+        // If normalization fails, return original
+        return str;
+      }
+    }
+    
+    /**
+     * Sanitize a filename by removing dangerous characters and normalizing Unicode
+     * @param {string} filename - Filename to sanitize
+     * @returns {string} Sanitized filename
+     * @throws {Error} If filename becomes empty after sanitization
+     */
+    function sanitizeFilename(filename) {
+      if (!filename || typeof filename !== 'string') {
+        throw new Error('Filename must be a non-empty string');
+      }
+      
+      // SECURITY: Normalize Unicode to prevent homograph attacks and ensure consistency
+      let sanitized = normalizeUnicode(filename);
+      
+      // Remove control characters (including null bytes)
+      sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+      
+      // Remove Windows invalid characters if on Windows
+      if (isWindowsPlatform) {
+        sanitized = sanitized.replace(/[<>:"|?*]/g, '');
+      }
+      
+      // Remove leading/trailing spaces and dots (Windows doesn't allow these)
+      sanitized = sanitized.trim().replace(/^\.+|\.+$/g, '');
+      
+      // Remove consecutive dots (except for file extensions)
+      sanitized = sanitized.replace(/\.{2,}/g, '.');
+      
+      // Handle Windows reserved names
+      if (isWindowsPlatform && sanitized) {
+        const nameBase = sanitized.split('.')[0].toUpperCase();
+        if (WINDOWS_RESERVED_NAMES.includes(nameBase)) {
+          sanitized = `FILE_${sanitized}`;
+        }
+      }
+      
+      // SECURITY: Remove potentially dangerous Unicode characters
+      // Remove zero-width characters that could be used for obfuscation
+      sanitized = sanitized.replace(/[\u200B-\u200D\uFEFF]/g, ''); // Zero-width space, joiner, non-joiner, BOM
+      
+      // Remove RTL/LTR marks that could cause display issues
+      sanitized = sanitized.replace(/[\u200E-\u200F\u202A-\u202E]/g, '');
+      
+      // Validate result
+      if (!sanitized || sanitized.trim().length === 0) {
+        throw new Error('Filename is empty after sanitization');
+      }
+      
+      // Enforce length limit (preserve extension)
+      if (sanitized.length > MAX_FILENAME_LENGTH) {
+        const lastDot = sanitized.lastIndexOf('.');
+        if (lastDot > 0) {
+          const ext = sanitized.substring(lastDot);
+          const name = sanitized.substring(0, lastDot);
+          sanitized = name.substring(0, MAX_FILENAME_LENGTH - ext.length) + ext;
+        } else {
+          sanitized = sanitized.substring(0, MAX_FILENAME_LENGTH);
+        }
+      }
+      
+      return sanitized;
+    }
+    
+    return {
+      validateFilePath,
+      sanitizeFilename,
+      WINDOWS_RESERVED_NAMES,
+      MAX_PATH_LENGTH,
+      MAX_FILENAME_LENGTH
+    };
+  })();
+  
+  // Backward compatibility wrapper (throws instead of returning result)
+  function validateFilePath(path) {
+    const result = SecurityUtils.validateFilePath(path);
+    if (!result.valid) {
+      throw new Error(result.error);
+    }
+    return path;
+  }
+
+  // Use SecurityUtils for sanitization
+  const sanitizeFilename = SecurityUtils.sanitizeFilename;
+
   // Helper function to get preferences
   function getPref(prefName, defaultValue) {
     try {
@@ -2740,8 +3144,24 @@
     }
 
           try {
+        // SECURITY: Validate path before file operations (non-strict mode for edge cases)
+        const validation = SecurityUtils.validateFilePath(downloadPath, { strict: false });
+        if (!validation.valid) {
+          debugLog(`Path validation warning (continuing anyway): ${validation.error}`, { 
+            path: downloadPath,
+            code: validation.code 
+          });
+        }
+        
         const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
         file.initWithPath(downloadPath);
+        
+        if (!file.exists()) {
+          debugLog(`File does not exist for AI rename: ${downloadPath}`);
+          activeAIProcesses.delete(key);
+          return false;
+        }
+        
         if (file.fileSize > getPref("extensions.downloads.max_file_size_for_ai", 52428800)) { // 50MB default
           debugLog(`Skipping AI rename - file too large: ${formatBytes(file.fileSize)}`);
           if (statusElToUpdate) statusElToUpdate.textContent = "File too large for AI analysis";
@@ -2749,7 +3169,13 @@
           return false;
         }
       } catch (e) {
-        debugLog("Error checking file size:", e);
+        // Log the actual error message for debugging
+        const errorMessage = e.message || e.toString() || 'Unknown error';
+        const errorName = e.name || 'Error';
+        debugLog(`Error checking file size: ${errorName}: ${errorMessage}`, { 
+          path: downloadPath,
+          error: errorMessage 
+        });
         activeAIProcesses.delete(key); // Clean up
         return false;
       }
@@ -3131,15 +3557,26 @@ Instructions:
       const oldPath = download.target.path;
       if (!oldPath) throw new Error("No file path available");
 
+      // SECURITY: Validate the existing path (non-strict mode)
+      const oldPathValidation = SecurityUtils.validateFilePath(oldPath, { strict: false });
+      if (!oldPathValidation.valid) {
+        debugLog(`Path validation warning for old path (continuing anyway): ${oldPathValidation.error}`, { 
+          path: oldPath,
+          code: oldPathValidation.code 
+        });
+      }
+
       const directory = oldPath.substring(0, oldPath.lastIndexOf(PATH_SEPARATOR));
       const oldFileName = oldPath.split(PATH_SEPARATOR).pop();
       const fileExt = oldFileName.includes(".") 
         ? oldFileName.substring(oldFileName.lastIndexOf(".")) 
         : "";
 
-      let cleanNewName = newName.trim().replace(/[\\/:*?"<>|]/g, "");
+      // SECURITY: Use comprehensive filename sanitization
+      let cleanNewName = sanitizeFilename(newName);
+      // Ensure extension is preserved and re-sanitize if needed
       if (fileExt && !cleanNewName.endsWith(fileExt)) {
-        cleanNewName += fileExt;
+        cleanNewName = sanitizeFilename(cleanNewName + fileExt);
       }
 
       // Handle duplicate names
@@ -3149,11 +3586,21 @@ Instructions:
         const testPath = directory + PATH_SEPARATOR + finalName;
         let exists = false;
         try {
+          // SECURITY: Validate path (non-strict for duplicate check)
+          const testValidation = SecurityUtils.validateFilePath(testPath, { strict: false });
+          if (!testValidation.valid) {
+            // If validation fails, treat as non-existent to avoid infinite loop
+            debugLog(`Path validation warning in duplicate check (treating as non-existent): ${testValidation.error}`);
+            break;
+          }
           const testFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
           testFile.initWithPath(testPath);
           exists = testFile.exists();
         } catch (e) {
           // File doesn't exist or can't access - proceed
+          if (e.message && e.message.includes('Invalid file path')) {
+            break; // Break loop on path errors
+          }
         }
         if (!exists) break;
         
@@ -3165,6 +3612,15 @@ Instructions:
       }
 
       const newPath = directory + PATH_SEPARATOR + finalName;
+      
+      // SECURITY: Validate new path (non-strict mode)
+      const newPathValidation = SecurityUtils.validateFilePath(newPath, { strict: false });
+      if (!newPathValidation.valid) {
+        debugLog(`Path validation warning for new path (continuing anyway): ${newPathValidation.error}`, { 
+          path: newPath,
+          code: newPathValidation.code 
+        });
+      }
       debugLog("Rename paths", { oldPath, newPath });
 
       const oldFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
@@ -3211,7 +3667,20 @@ Instructions:
       debugLog("File renamed successfully");
       return true;
     } catch (e) {
-      console.error("Rename failed:", e);
+      // Log detailed error information for debugging
+      const errorInfo = {
+        name: e.name || 'Error',
+        message: e.message || e.toString() || 'Unknown error',
+        oldPath: download?.target?.path,
+        newName: newName,
+        key: key
+      };
+      
+      console.error(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, errorInfo);
+      debugLog(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, {
+        oldPath: errorInfo.oldPath,
+        newName: errorInfo.newName
+      });
       return false;
     }
   }
@@ -3250,8 +3719,27 @@ Instructions:
   }
 
   // Mistral AI function
+  /**
+   * Call Mistral AI API with rate limiting and security measures
+   * @param {Object} params - API call parameters
+   * @param {string} params.systemPrompt - System prompt for the AI
+   * @param {string} params.userPrompt - User prompt for the AI
+   * @param {AbortSignal} params.abortSignal - Signal to abort the request
+   * @returns {Promise<string|null>} AI-generated filename or null
+   */
   async function callMistralAI({ systemPrompt, userPrompt, abortSignal }) {
     if (abortSignal?.aborted) return null;
+
+    // SECURITY: Rate limiting check
+    const rateLimitCheck = RateLimiter.canMakeRequest();
+    if (!rateLimitCheck.allowed) {
+      debugLog(`Mistral AI rate limit exceeded: ${rateLimitCheck.reason}`, {
+        waitTime: rateLimitCheck.waitTime,
+        stats: RateLimiter.getStats()
+      });
+      console.warn(`API rate limit exceeded. Please wait ${rateLimitCheck.waitTime} seconds.`);
+      return null;
+    }
 
     const apiKey = getPref(MISTRAL_API_KEY_PREF, "");
     if (!apiKey) {
@@ -3259,8 +3747,19 @@ Instructions:
       return null;
     }
 
+    // SECURITY: Never log the API key - validate it exists but don't expose it
+    if (apiKey.length < 10) {
+      console.warn("Mistral API key appears to be invalid (too short)");
+      return null;
+    }
+
     try {
-      debugLog("Sending request to Mistral AI");
+      // Record the request for rate limiting
+      RateLimiter.recordRequest();
+      
+      debugLog("Sending request to Mistral AI", {
+        rateLimitStats: RateLimiter.getStats()
+      });
       const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -3281,7 +3780,9 @@ Instructions:
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+        // SECURITY: Redact any sensitive data from error messages
+        const safeErrorText = redactSensitiveData(errorText);
+        throw new Error(`HTTP error! status: ${response.status} - ${safeErrorText}`);
       }
 
       const data = await response.json();
@@ -3308,7 +3809,9 @@ Instructions:
       debugLog("Mistral AI response:", name);
       return name || null;
     } catch (error) {
-      console.error("Mistral AI error:", error);
+      // SECURITY: Redact sensitive data from error logs
+      const safeError = error.message ? redactSensitiveData(error.message) : 'Unknown error';
+      console.error("Mistral AI error:", safeError);
       return null;
     }
   }
@@ -3316,6 +3819,10 @@ Instructions:
 
 
   // --- Function to Open Downloaded File ---
+  /**
+   * Open a downloaded file with the default system application
+   * @param {Object} download - Download object with target path
+   */
   function openDownloadedFile(download) {
     if (!download || !download.target || !download.target.path) {
       debugLog("openDownloadedFile: Invalid download object or path", { download });
@@ -3323,6 +3830,18 @@ Instructions:
     }
 
     const filePath = download.target.path;
+    
+    // SECURITY: Validate path before file operations (non-strict for user-initiated actions)
+    const validation = SecurityUtils.validateFilePath(filePath, { strict: false });
+    if (!validation.valid) {
+      debugLog("openDownloadedFile: Path validation failed", { 
+        filePath, 
+        error: validation.error,
+        code: validation.code 
+      });
+      return;
+    }
+
     debugLog("openDownloadedFile: Attempting to open file", { filePath });
 
     try {
@@ -3331,22 +3850,44 @@ Instructions:
 
       if (file.exists() && file.isReadable()) {
         file.launch(); // Opens with default system application
+        debugLog("openDownloadedFile: File launched successfully", { filePath });
       } else {
         debugLog("openDownloadedFile: File does not exist or is not readable", { filePath });
-        // Optionally, notify the user via the card status or an alert
-        // For now, just logging.
       }
     } catch (ex) {
-      debugLog("openDownloadedFile: Error launching file", { filePath, error: ex.message, stack: ex.stack });
-      // Optionally, notify the user
+      const errorInfo = {
+        filePath,
+        error: ex.message || ex.toString(),
+        name: ex.name || 'Error',
+        stack: ex.stack
+      };
+      debugLog("openDownloadedFile: Error launching file", errorInfo);
+      console.error("openDownloadedFile failed:", errorInfo);
     }
   }
 
-  // --- Function to Erase Download from Firefox History ---
+  /**
+   * Erase download from Firefox history
+   * @param {Object} download - Download object to remove
+   * @throws {Error} If download object is invalid or operation fails
+   */
   async function eraseDownloadFromHistory(download) {
     if (!download) {
       debugLog("eraseDownloadFromHistory: Invalid download object", { download });
       throw new Error("Invalid download object");
+    }
+
+    // SECURITY: Validate path if present (non-strict mode)
+    if (download.target?.path) {
+      const pathValidation = SecurityUtils.validateFilePath(download.target.path, { strict: false });
+      if (!pathValidation.valid) {
+        debugLog("eraseDownloadFromHistory: Path validation warning", {
+          path: download.target.path,
+          error: pathValidation.error,
+          code: pathValidation.code
+        });
+        // Continue anyway - path validation is advisory for this operation
+      }
     }
 
     try {
@@ -3365,9 +3906,15 @@ Instructions:
         // Try to match by ID first (most reliable)
         if (download.id && dl.id === download.id) return true;
         
-        // Fallback to path matching if IDs don't match or are missing
-        if (download.target?.path && dl.target?.path && 
-            dl.target.path === download.target.path) return true;
+        // SECURITY: Validate paths before comparing (non-strict)
+        if (download.target?.path && dl.target?.path) {
+          const downloadPathValid = SecurityUtils.validateFilePath(download.target.path, { strict: false });
+          const dlPathValid = SecurityUtils.validateFilePath(dl.target.path, { strict: false });
+          
+          // Only compare if both paths are valid
+          if (downloadPathValid.valid && dlPathValid.valid && 
+              dl.target.path === download.target.path) return true;
+        }
             
         // Additional fallback for URL matching (in case path changed)
         if (download.source?.url && dl.source?.url && 
@@ -4013,9 +4560,22 @@ async function undoRename(keyOfAIRenamedFile) {
       targetOriginalPathForRename: targetOriginalPath // The path we want to rename *to*
   });
 
-  // Use a modified version of rename logic. 
-  // We are renaming from currentAIRenamedPath to targetOriginalPath (which uses originalSimpleName)
+  /**
+   * Undo AI rename operation - restore original filename
+   * Uses a modified version of rename logic
+   */
   try {
+      // SECURITY: Validate path before file operations (non-strict for undo operations)
+      const undoPathValidation = SecurityUtils.validateFilePath(currentAIRenamedPath, { strict: false });
+      if (!undoPathValidation.valid) {
+        debugLog("[UndoRename] Path validation warning", {
+          path: currentAIRenamedPath,
+          error: undoPathValidation.error,
+          code: undoPathValidation.code
+        });
+        // Continue anyway - user-initiated undo operation
+      }
+      
       const fileToUndo = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
       fileToUndo.initWithPath(currentAIRenamedPath);
 

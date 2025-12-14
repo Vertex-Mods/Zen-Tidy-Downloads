@@ -142,14 +142,67 @@
       }
     }
 
+    /**
+     * Validate file path for security issues
+     * Optimized single-pass validation with early returns
+     * @param {string} path - Path to validate
+     * @returns {string} Validated path
+     * @throws {Error} If path is invalid
+     */
     static validateFilePath(path) {
       if (!path || typeof path !== 'string') {
         throw new Error('Invalid file path: path must be a non-empty string');
       }
 
-      // Basic path validation - prevent directory traversal
-      if (path.includes('..') || path.includes('//')) {
-        throw new Error('Invalid file path: contains forbidden characters');
+      // Fast early returns for common cases
+      if (path.length > 32767) {
+        throw new Error('Invalid file path: path exceeds maximum length');
+      }
+      
+      if (path.includes('\0') || path.includes('\x00')) {
+        throw new Error('Invalid file path: contains null bytes');
+      }
+
+      // Parse path once and reuse
+      const normalized = path.replace(/\\/g, '/');
+      const parts = normalized.split('/').filter(Boolean);
+      const filename = parts[parts.length - 1] || path;
+      const isWindows = navigator.platform.includes('Win') || path.includes('\\');
+
+      // Directory traversal check (single pass)
+      if (parts.some(part => part === '..' || part.startsWith('../')) ||
+          normalized.startsWith('../') || normalized.endsWith('/..')) {
+        throw new Error('Invalid file path: contains directory traversal patterns');
+      }
+
+      // Double slashes check (except UNC)
+      if (path.includes('//') && !path.match(/^\\\\/)) {
+        throw new Error('Invalid file path: contains invalid path separators');
+      }
+
+      // Control characters check
+      if (/[\x00-\x1F\x7F]/.test(path.replace(/[\n\t]/g, ''))) {
+        throw new Error('Invalid file path: contains control characters');
+      }
+
+      // Windows-specific validations
+      if (isWindows) {
+        const WINDOWS_RESERVED = ['CON', 'PRN', 'AUX', 'NUL',
+          'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+          'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
+        
+        // Check reserved names (single pass)
+        for (const part of parts) {
+          const nameBase = part.toUpperCase().split('.')[0];
+          if (WINDOWS_RESERVED.includes(nameBase)) {
+            throw new Error(`Invalid file path: contains Windows reserved name: ${nameBase}`);
+          }
+        }
+        
+        // Invalid characters in filename only (not full path)
+        if (/[<>:"|?*\x00-\x1F]/.test(filename)) {
+          throw new Error('Invalid file path: filename contains invalid characters for Windows');
+        }
       }
 
       return path;
@@ -444,7 +497,23 @@
         return;
       }
 
-      const podKeys = JSON.parse(podKeysJson);
+      // SECURITY FIX: Add error handling for JSON.parse
+      let podKeys;
+      try {
+        podKeys = JSON.parse(podKeysJson);
+      } catch (error) {
+        console.error("[SessionStore] Error parsing pod keys JSON:", error);
+        debugLog("[SessionStore] Invalid pod keys JSON, skipping restoration");
+        return;
+      }
+
+      // Validate podKeys is an array
+      if (!Array.isArray(podKeys)) {
+        console.error("[SessionStore] Pod keys is not an array:", typeof podKeys);
+        debugLog("[SessionStore] Pod keys is not an array, skipping restoration");
+        return;
+      }
+
       let restoredCount = 0;
       const restorationPromises = [];
 
@@ -453,7 +522,71 @@
           try {
             const podDataJson = SessionStore.getCustomWindowValue(window, `zen-stuff-pod-${podKey}`);
             if (podDataJson) {
-              const podData = JSON.parse(podDataJson);
+              // SECURITY: Comprehensive data validation for SessionStore
+              let podData;
+              try {
+                podData = JSON.parse(podDataJson);
+              } catch (error) {
+                console.error(`[SessionStore] Error parsing pod data JSON for key ${podKey}:`, error);
+                debugLog(`[SessionStore] Invalid pod data JSON for ${podKey}, skipping`);
+                return;
+              }
+
+              // SECURITY: Validate pod data structure and content
+              if (!podData || typeof podData !== 'object') {
+                console.error(`[SessionStore] Invalid pod data type for key ${podKey}:`, typeof podData);
+                debugLog(`[SessionStore] Pod data is not an object for ${podKey}, skipping`);
+                return;
+              }
+
+              // Validate required fields
+              const requiredFields = ['key', 'filename', 'targetPath'];
+              const missingFields = requiredFields.filter(field => !podData[field]);
+              if (missingFields.length > 0) {
+                console.error(`[SessionStore] Missing required fields for ${podKey}:`, missingFields);
+                debugLog(`[SessionStore] Pod data missing required fields: ${missingFields.join(', ')}, skipping`);
+                return;
+              }
+
+              // Validate field types
+              if (typeof podData.key !== 'string' || podData.key.length === 0) {
+                console.error(`[SessionStore] Invalid key field for ${podKey}`);
+                return;
+              }
+              if (typeof podData.filename !== 'string' || podData.filename.length === 0) {
+                console.error(`[SessionStore] Invalid filename field for ${podKey}`);
+                return;
+              }
+              if (typeof podData.targetPath !== 'string' || podData.targetPath.length === 0) {
+                console.error(`[SessionStore] Invalid targetPath field for ${podKey}`);
+                return;
+              }
+
+              // SECURITY: Validate path before using it
+              try {
+                ErrorHandler.validateFilePath(podData.targetPath);
+              } catch (pathError) {
+                console.error(`[SessionStore] Invalid path in stored data for ${podKey}:`, pathError.message);
+                debugLog(`[SessionStore] Path validation failed for ${podKey}, skipping`);
+                return;
+              }
+
+              // Validate numeric fields if present
+              if (podData.fileSize !== undefined && (typeof podData.fileSize !== 'number' || podData.fileSize < 0)) {
+                console.warn(`[SessionStore] Invalid fileSize for ${podKey}, resetting to 0`);
+                podData.fileSize = 0;
+              }
+
+              // Validate previewData structure if present
+              if (podData.previewData !== null && podData.previewData !== undefined) {
+                if (typeof podData.previewData !== 'object') {
+                  console.warn(`[SessionStore] Invalid previewData type for ${podKey}, clearing`);
+                  podData.previewData = null;
+                } else if (podData.previewData.type === 'image' && !podData.previewData.src) {
+                  console.warn(`[SessionStore] Image previewData missing src for ${podKey}, clearing`);
+                  podData.previewData = null;
+                }
+              }
 
               // Verify the file still exists before restoring
               let actualPath = podData.targetPath;
@@ -986,17 +1119,33 @@
         };
         img.onerror = (e) => {
           console.error(`[PodElement] Image failed to load: ${podData.filename}, src: ${podData.previewData.src}`, e);
-          preview.innerHTML = getFileIcon(podData.contentType);
+          // Use safe method to set icon
+          const icon = getFileIcon(podData.contentType);
+          const iconSpan = document.createElement("span");
+          iconSpan.style.fontSize = "24px";
+          iconSpan.textContent = icon;
+          preview.innerHTML = "";
+          preview.appendChild(iconSpan);
         };
         preview.appendChild(img);
         console.log(`[PodElement] Created image element for: ${podData.filename}, src: ${podData.previewData.src}`);
-      } else if (podData.previewData.html) {
-        preview.innerHTML = podData.previewData.html;
       } else {
-        preview.innerHTML = getFileIcon(podData.contentType);
+        // SECURITY FIX: Don't use stored HTML, regenerate icon safely from contentType
+        const icon = getFileIcon(podData.contentType);
+        const iconSpan = document.createElement("span");
+        iconSpan.style.fontSize = "24px";
+        iconSpan.textContent = icon;
+        preview.innerHTML = "";
+        preview.appendChild(iconSpan);
       }
     } else {
-      preview.innerHTML = getFileIcon(podData.contentType);
+      // SECURITY FIX: Use safe method to set icon
+      const icon = getFileIcon(podData.contentType);
+      const iconSpan = document.createElement("span");
+      iconSpan.style.fontSize = "24px";
+      iconSpan.textContent = icon;
+      preview.innerHTML = "";
+      preview.appendChild(iconSpan);
     }
 
     pod.appendChild(preview);
@@ -2030,10 +2179,11 @@
             src: img.src
           };
         } else {
-          // Capture icon/text preview
+          // SECURITY FIX: Don't store raw HTML, just mark as icon type
+          // The icon will be regenerated safely from contentType when restored
           dismissedData.previewData = {
-            type: 'icon',
-            html: previewContainer.innerHTML
+            type: 'icon'
+            // No html field - will use contentType to regenerate icon safely
           };
         }
       }
