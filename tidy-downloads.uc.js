@@ -950,6 +950,13 @@
           // Most styles are now in CSS file, only dynamic styles remain inline
 
           masterTooltipDOMElement.innerHTML = `
+            <div class="ai-sparkle-layer">
+              <div class="sparkle-icon"></div>
+              <div class="sparkle-icon"></div>
+              <div class="sparkle-icon"></div>
+              <div class="sparkle-icon"></div>
+              <div class="sparkle-icon"></div>
+            </div>
             <div class="card-status">Tooltip Status</div>
             <div class="card-title">Tooltip Title</div>
             <div class="card-original-filename">Original Filename</div>
@@ -1229,7 +1236,12 @@
       
       // More aggressive throttling for in-progress downloads to reduce UI churn
       const progressThrottleMs = getPref("extensions.downloads.progress_update_throttle_ms", 500);
-      const throttleDelay = (!download.succeeded && !download.error && !download.canceled) ? progressThrottleMs : 100;
+      
+      // CRITICAL FIX: Never throttle final states (succeeded, error, canceled). 
+      // Large files can finish shortly after a progress update, and we must not miss the success event.
+      const isFinalState = download.succeeded || download.error || download.canceled;
+      const throttleDelay = isFinalState ? 0 : progressThrottleMs;
+
       if (now - lastUpdate < throttleDelay && !isNewCardOnInit) {
         debugLog(`[Throttle] Skipping throttled update for download: ${key} (delay: ${throttleDelay}ms)`);
         return;
@@ -1788,8 +1800,26 @@
         const progressEl = masterTooltipDOMElement.querySelector(".card-progress");
         const originalFilenameEl = masterTooltipDOMElement.querySelector(".card-original-filename");
         const undoBtnEl = masterTooltipDOMElement.querySelector(".card-undo-button"); // Get the undo button
+        const sparkleLayer = masterTooltipDOMElement.querySelector(".ai-sparkle-layer"); // Get the sparkle layer
 
-        const displayName = download.aiName || cardDataToFocus.originalFilename || "File";
+        // Derive display name from actual file path if possible to catch OS renames (e.g. file(1).jpg)
+        let displayName = download.aiName || cardDataToFocus.originalFilename || "File";
+        // Always attempt to get the actual filename from disk, even if AI renamed it.
+        // If AI renamed it to "foo.jpg" but OS made it "foo(1).jpg", we want "foo(1).jpg".
+        if (download.target?.path) {
+            try {
+                const pathSeparator = download.target.path.includes('\\') ? '\\' : '/';
+                const actualFilename = download.target.path.split(pathSeparator).pop();
+                // We prefer the actual filename if it exists and differs from what we thought
+                if (actualFilename && actualFilename !== displayName) {
+                     // If it was AI renamed, we might want to check if the actual filename contains the AI name
+                     // But generally, the file on disk is the ultimate truth.
+                    displayName = actualFilename;
+                }
+            } catch (e) {
+                // Fallback
+            }
+        }
         
         if (titleEl) {
           titleEl.textContent = displayName;
@@ -1818,6 +1848,11 @@
 
                 progressEl.style.display = "none"; 
                 undoBtnEl.style.display = "inline-flex"; // Show undo button
+                
+                // Show sparkles
+                if (sparkleLayer) {
+                  sparkleLayer.classList.add("visible");
+                }
             } else if (download.canceled && cardDataToFocus.userCanceled && !cardDataToFocus.permanentlyDeleted) {
                 // User-canceled state with resume option
                 statusEl.textContent = "Download canceled";
@@ -1825,6 +1860,11 @@
                 
                 originalFilenameEl.style.display = "none";
                 progressEl.style.display = "block";
+                
+                // Hide sparkles
+                if (sparkleLayer) {
+                  sparkleLayer.classList.remove("visible");
+                }
                 
                 // Hide the bottom-right file size element in canceled state
                 const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
@@ -1848,6 +1888,11 @@
                 originalFilenameEl.style.display = "none"; 
                 progressEl.style.display = "block";    
                 undoBtnEl.style.display = "none"; // Hide undo button
+                
+                // Hide sparkles
+                if (sparkleLayer) {
+                  sparkleLayer.classList.remove("visible");
+                }
                 
                 // Hide the bottom-right file size element in non-renamed states
                 const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
@@ -2776,6 +2821,9 @@
         else if (contentType.includes("application/")) icon = "📦";
       }
       previewElement.innerHTML = `<span style="font-size: 24px;">${icon}</span>`;
+      previewElement.style.display = "flex";
+      previewElement.style.alignItems = "center";
+      previewElement.style.justifyContent = "center";
     } catch (e) {
       debugLog("Error setting generic icon:", e);
       previewElement.innerHTML = `<span style="font-size: 24px;">📄</span>`;
@@ -2923,7 +2971,38 @@
     return [r * 255, g * 255, b * 255];
   }
 
-  // Set preview for completed file - simplified to only show images or icons
+  // Read text file preview (first 500 chars)
+  async function readTextFilePreview(path) {
+    try {
+      // Try IOUtils first (modern FF)
+      if (typeof IOUtils !== 'undefined') {
+          const content = await IOUtils.readUTF8(path, { maxBytes: 500 });
+          return content;
+      }
+      
+      // Fallback to legacy file stream
+      const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+      file.initWithPath(path);
+      if (!file.exists()) return null;
+
+      const fstream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(Ci.nsIFileInputStream);
+      const cstream = Cc["@mozilla.org/intl/converter-input-stream;1"].createInstance(Ci.nsIConverterInputStream);
+      
+      fstream.init(file, -1, 0, 0);
+      cstream.init(fstream, "UTF-8", 0, 0);
+
+      let str = {};
+      // Read up to 500 chars
+      cstream.readString(500, str);
+      cstream.close();
+      return str.value;
+    } catch (e) {
+      debugLog("Error reading text file preview:", e);
+      return null;
+    }
+  }
+
+  // Set preview for completed file - supports Images, Text, and System Icons
   async function setCompletedFilePreview(previewElement, download) {
     if (!previewElement) {
       debugLog("[setCompletedFilePreview] No preview element provided");
@@ -2935,13 +3014,48 @@
       targetPath: download?.target?.path,
       filename: download?.filename 
     });
+    
+    // Extensions mapping
+    const SYSTEM_ICON_EXTS = new Set([
+        // Video
+        '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
+        // Audio
+        '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.wma',
+        // Documents
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        // Executables
+        '.exe', '.msi', '.bat', '.cmd', '.scr',
+        // Archives
+        '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso'
+    ]);
+
+    const TEXT_EXTS = new Set([
+        '.txt', '.md', '.js', '.css', '.html', '.json', '.xml', '.log', '.ini', '.sh', '.py', '.java', '.c', '.cpp', '.h', '.ts', '.jsx', '.tsx'
+    ]);
 
     try {
-      // Check for images first (by content type)
-      if (download?.contentType?.startsWith("image/") && download.target?.path) {
-        debugLog("[setCompletedFilePreview] Attempting image preview via contentType", { path: download.target.path, contentType: download.contentType });
+      if (!download.target?.path) {
+         setGenericIcon(previewElement, null);
+         return;
+      }
+
+      const filePath = download.target.path;
+      const lowerPath = filePath.toLowerCase();
+      
+      // 1. Check for Images (via ContentType OR Extension)
+      const isImageContentType = download?.contentType?.startsWith("image/");
+      let isImageExtension = false;
+      for (const ext of IMAGE_EXTENSIONS) {
+        if (lowerPath.endsWith(ext)) {
+            isImageExtension = true;
+            break;
+        }
+      }
+
+      if (isImageContentType || isImageExtension) {
+        debugLog("[setCompletedFilePreview] Rendering Image Preview");
         const img = document.createElement("img");
-        const imgSrc = `file:///${download.target.path.replace(/\\/g, '/')}`;
+        const imgSrc = `file:///${filePath.replace(/\\/g, '/')}`;
         img.src = imgSrc;
         img.style.width = "100%";
         img.style.height = "100%";
@@ -2952,17 +3066,14 @@
         
         img.onload = () => { 
           img.style.opacity = "1"; 
-          debugLog("[setCompletedFilePreview] Image loaded successfully (by contentType)", { src: imgSrc });
           
-          // Extract dominant color and store it on the pod element
+          // Extract dominant color
           setTimeout(() => {
             const dominantColor = extractDominantColor(img);
             if (dominantColor) {
               const podElement = previewElement.closest('.download-pod');
               if (podElement) {
                 podElement.dataset.dominantColor = dominantColor;
-                debugLog("[ColorExtraction] Stored dominant color on pod", { color: dominantColor });
-                
                 // If this pod is currently focused, update its glow immediately
                 const downloadKey = podElement.dataset.downloadKey;
                 if (downloadKey === focusedDownloadKey) {
@@ -2970,79 +3081,104 @@
                 }
               }
             }
-          }, 100); // Small delay to ensure image is fully rendered
+          }, 100);
         };
         img.onerror = () => {
-          debugLog("[setCompletedFilePreview] Image failed to load (by contentType)", { src: imgSrc });
-          setGenericIcon(previewElement, download.contentType);
+           // Fallback to system icon if image fails
+           renderSystemIcon(previewElement, filePath);
         };
         
         previewElement.innerHTML = "";
         previewElement.appendChild(img);
-      } else if (download.target?.path) { 
-        // Check for images by file extension if contentType is missing
-        const filePath = download.target.path.toLowerCase();
-        let isImageTypeByExtension = false;
-        for (const ext of IMAGE_EXTENSIONS) {
-          if (filePath.endsWith(ext)) {
-            isImageTypeByExtension = true;
-            break;
-          }
-        }
-        if (isImageTypeByExtension) {
-          debugLog("[setCompletedFilePreview] Attempting image preview via file extension", { path: download.target.path });
-          const img = document.createElement("img");
-          const imgSrc = `file:///${download.target.path.replace(/\\/g, '/')}`;
-          img.src = imgSrc;
-          img.style.width = "100%";
-          img.style.height = "100%";
-          img.style.objectFit = "cover";
-          img.style.borderRadius = "12px";
-          img.style.transition = "all 0.3s ease";
-          img.style.opacity = "0";
-          
-          img.onload = () => { 
-            img.style.opacity = "1"; 
-            debugLog("[setCompletedFilePreview] Image loaded successfully (by extension)", { src: imgSrc });
-            
-            // Extract dominant color and store it on the pod element
-            setTimeout(() => {
-              const dominantColor = extractDominantColor(img);
-              if (dominantColor) {
-                const podElement = previewElement.closest('.download-pod');
-                if (podElement) {
-                  podElement.dataset.dominantColor = dominantColor;
-                  debugLog("[ColorExtraction] Stored dominant color on pod", { color: dominantColor });
-                  
-                  // If this pod is currently focused, update its glow immediately
-                  const downloadKey = podElement.dataset.downloadKey;
-                  if (downloadKey === focusedDownloadKey) {
-                    updatePodGlowColor(podElement, dominantColor);
-                  }
-                }
-              }
-            }, 100); // Small delay to ensure image is fully rendered
-          };
-          img.onerror = () => {
-            debugLog("[setCompletedFilePreview] Image failed to load (by extension)", { src: imgSrc });
-            setGenericIcon(previewElement, download.contentType);
-          };
-          
-          previewElement.innerHTML = "";
-          previewElement.appendChild(img);
-        } else {
-          // Not an image, use generic icon
-          debugLog("[setCompletedFilePreview] Not an image, setting generic icon", { contentType: download?.contentType, path: download.target.path });
-          setGenericIcon(previewElement, download?.contentType);
-        }
-      } else {
-        debugLog("[setCompletedFilePreview] No target path for preview, setting generic icon", { download });
-        setGenericIcon(previewElement, null);
+        return;
       }
+
+      // 2. Check for Text Files
+      let isTextExtension = false;
+      for (const ext of TEXT_EXTS) {
+          if (lowerPath.endsWith(ext)) {
+              isTextExtension = true;
+              break;
+          }
+      }
+      
+      if (isTextExtension || download?.contentType?.startsWith("text/")) {
+          debugLog("[setCompletedFilePreview] Rendering Text Preview");
+          const textContent = await readTextFilePreview(filePath);
+          if (textContent) {
+              previewElement.innerHTML = "";
+              const textDiv = document.createElement("div");
+              textDiv.style.cssText = `
+                  width: 100%;
+                  height: 100%;
+                  padding: 6px;
+                  box-sizing: border-box;
+                  font-family: monospace;
+                  font-size: 6px; /* Tiny font for preview effect */
+                  line-height: 1.2;
+                  overflow: hidden;
+                  white-space: pre-wrap;
+                  color: rgba(255,255,255,0.8);
+                  background: rgba(0,0,0,0.2);
+                  border-radius: 8px;
+                  text-align: left;
+                  word-break: break-all;
+              `;
+              textDiv.textContent = textContent;
+              previewElement.appendChild(textDiv);
+              return;
+          }
+      }
+
+      // 3. Check for System Icon Types (Video, PDF, Exe, etc.)
+      let isSystemIconType = false;
+      for (const ext of SYSTEM_ICON_EXTS) {
+          if (lowerPath.endsWith(ext)) {
+              isSystemIconType = true;
+              break;
+          }
+      }
+      
+      if (isSystemIconType || download?.contentType?.startsWith("video/") || download?.contentType?.startsWith("application/pdf")) {
+          debugLog("[setCompletedFilePreview] Rendering System Icon");
+          renderSystemIcon(previewElement, filePath);
+          return;
+      }
+
+      // 4. Default / Fallback
+      debugLog("[setCompletedFilePreview] Using Generic Icon");
+      setGenericIcon(previewElement, download?.contentType);
+
     } catch (e) {
       debugLog("Error setting file preview:", e);
       previewElement.innerHTML = `<span style="font-size: 24px;">🚫</span>`;
     }
+  }
+
+  // Helper to render system icon
+  function renderSystemIcon(container, filePath) {
+      // Use standard icon URL scheme
+      const fileUrl = "file:///" + filePath.replace(/\\/g, "/");
+      // Use moz-icon protocol with size 32
+      const iconUrl = `moz-icon://${fileUrl}?size=32`;
+      
+      const img = document.createElement("img");
+      img.src = iconUrl;
+      img.style.width = "32px"; 
+      img.style.height = "32px";
+      img.style.objectFit = "contain";
+      
+      // Fallback if system icon fails to load (e.g. permission issue or invalid path)
+      img.onerror = () => {
+          debugLog("[renderSystemIcon] Failed to load system icon, falling back to generic", { path: filePath });
+          setGenericIcon(container, null);
+      };
+      
+      container.innerHTML = "";
+      container.style.display = "flex";
+      container.style.alignItems = "center";
+      container.style.justifyContent = "center";
+      container.appendChild(img);
   }
 
   // Update pod glow color based on dominant color
@@ -3061,6 +3197,235 @@
       // Fallback to a basic grey shadow
       podElement.style.boxShadow = '0 2px 8px rgba(60,60,60,0.18)';
     }
+  }
+
+  // Simple Toast for generic messages
+  function showSimpleToast(message) {
+    const container = document.getElementById('zen-toast-container');
+    if (!container) return;
+    
+    const wrapper = document.createXULElement('hbox');
+    wrapper.classList.add('zen-toast');
+    wrapper.style.alignItems = "center";
+    wrapper.style.padding = "10px 16px";
+    
+    const label = document.createXULElement('label');
+    label.textContent = message;
+    label.style.margin = "0";
+    wrapper.appendChild(label);
+    
+    container.removeAttribute('hidden');
+    container.appendChild(wrapper);
+    
+    // Animation
+    if (!wrapper.style.transform) wrapper.style.transform = 'scale(0)';
+    if (window.gZenUIManager && window.gZenUIManager.motion) {
+        window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.5 });
+    } else {
+        wrapper.style.transform = 'scale(1)';
+    }
+    
+    const remove = () => {
+        if (window.gZenUIManager && window.gZenUIManager.motion) {
+             window.gZenUIManager.motion.animate(wrapper, { opacity: [1, 0], scale: [1, 0.5] }, { duration: 0.2, bounce: 0 })
+            .then(() => {
+                wrapper.remove();
+                if (container.children.length === 0) container.setAttribute('hidden', true);
+            });
+        } else {
+            wrapper.remove();
+            if (container.children.length === 0) container.setAttribute('hidden', true);
+        }
+    };
+    
+    setTimeout(remove, 3000);
+  }
+
+  // Custom Toast Notification Helper for AI Rename
+  function showRenameToast(newName, oldName, onUndo) {
+    const container = document.getElementById('zen-toast-container');
+    if (!container) return null;
+
+    const wrapper = document.createXULElement('hbox');
+    wrapper.style.position = "relative"; // For absolute positioning of undo button
+    wrapper.style.overflow = "visible"; // Allow undo button to hang out
+    wrapper.style.alignItems = "start"; // Align content to top
+    wrapper.style.height = "auto"; // Allow auto height
+    wrapper.style.minHeight = "fit-content"; // Ensure it fits content
+
+    const contentBox = document.createXULElement('vbox');
+    contentBox.style.padding = "4px";
+    // Ensure contentBox respects parent width for children truncation
+    contentBox.style.width = "100%"; 
+    contentBox.style.maxWidth = "100%";
+    
+    // 1. "Download renamed !" (small font)
+    const titleLabel = document.createXULElement('label');
+    titleLabel.textContent = "Download renamed !";
+    titleLabel.style.fontSize = "0.85em";
+    titleLabel.style.opacity = "0.7";
+    titleLabel.style.marginBottom = "2px";
+    
+    // 2. [NEW NAME]
+    const newNameLabel = document.createXULElement('label');
+    newNameLabel.textContent = newName;
+    newNameLabel.style.fontWeight = "bold";
+    newNameLabel.style.fontSize = "1.1em";
+    newNameLabel.style.marginBottom = "1px";
+    newNameLabel.style.whiteSpace = "nowrap"; // Keep on one line
+    newNameLabel.style.overflow = "hidden"; // Hide overflow
+    newNameLabel.style.textOverflow = "ellipsis"; // Add ellipsis
+    newNameLabel.style.width = "100%"; // Changed from maxWidth to width to force ellipsis constraint
+    newNameLabel.style.display = "block"; // Block display for width constraints
+    
+    // 3. [OLD NAME] (crossed out)
+    const oldNameLabel = document.createXULElement('label');
+    oldNameLabel.textContent = oldName;
+    oldNameLabel.style.textDecoration = "line-through";
+    oldNameLabel.style.opacity = "0.6";
+    oldNameLabel.style.fontSize = "0.9em";
+    oldNameLabel.style.whiteSpace = "nowrap"; // Keep on one line
+    oldNameLabel.style.overflow = "hidden"; // Hide overflow
+    oldNameLabel.style.textOverflow = "ellipsis"; // Add ellipsis
+    oldNameLabel.style.width = "90%"; // Changed from maxWidth to width to force ellipsis constraint
+    oldNameLabel.style.display = "block"; // Block display for width constraints
+    
+    contentBox.appendChild(titleLabel);
+    contentBox.appendChild(newNameLabel);
+    contentBox.appendChild(oldNameLabel);
+    wrapper.appendChild(contentBox);
+
+    let dismissToast = null;
+
+    if (onUndo) {
+      // Create pill-shaped undo container
+      const pill = document.createElement('div');
+      pill.style.cssText = `
+        position: absolute;
+        bottom: -28px;
+        right: 0;
+        background: var(--zen-primary-color, #0060df);
+        color: white;
+        border-radius: 9999px;
+        padding: 4px 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        cursor: pointer;
+        transition: transform 0.2s, filter 0.2s;
+        font-size: 12px;
+        font-weight: 600;
+      `;
+
+      // Small Undo Icon
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      icon.setAttribute("viewBox", "0 0 52 52");
+      icon.style.width = "14px";
+      icon.style.height = "14px";
+      icon.style.fill = "currentColor";
+      
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M30.3,12.6c10.4,0,18.9,8.4,18.9,18.9s-8.5,18.9-18.9,18.9h-8.2c-0.8,0-1.3-0.6-1.3-1.4v-3.2c0-0.8,0.6-1.5,1.4-1.5h8.1c7.1,0,12.8-5.7,12.8-12.8s-5.7-12.8-12.8-12.8H16.4c0,0-0.8,0-1.1,0.1c-0.8,0.4-0.6,1,0.1,1.7l4.9,4.9c0.6,0.6,0.5,1.5-0.1,2.1L18,29.7c-0.6,0.6-1.3,0.6-1.9,0.1l-13-13c-0.5-0.5-0.5-1.3,0-1.8L16,2.1c0.6-0.6,1.6-0.6,2.1,0l2.1,2.1c0.6,0.6,0.6,1.6,0,2.1l-4.9,4.9c-0.6,0.6-0.6,1.3,0.4,1.3c0.3,0,0.7,0,0.7,0L30.3,12.6z");
+      icon.appendChild(path);
+      
+      // "Undo" Text
+      const text = document.createElement('span');
+      text.textContent = "Undo";
+
+      pill.appendChild(icon);
+      pill.appendChild(text);
+
+      // Wrapper for XUL compatibility
+      const btnWrapper = document.createXULElement('box');
+      btnWrapper.appendChild(pill);
+      
+      // Hover effects
+      pill.addEventListener('mouseover', () => {
+          pill.style.transform = "scale(1.05)";
+          pill.style.filter = "brightness(1.1)";
+      });
+      pill.addEventListener('mouseout', () => {
+          pill.style.transform = "scale(1)";
+          pill.style.filter = "brightness(1)";
+      });
+
+      pill.addEventListener('click', (e) => {
+          e.stopPropagation();
+          onUndo(dismissToast);
+      });
+      
+      wrapper.appendChild(btnWrapper);
+    }
+
+    wrapper.classList.add('zen-toast');
+    // Ensure styles override class defaults if necessary for height
+    // Using cssText to ensure importance and override existing styles forcefully
+    wrapper.style.cssText = `
+        height: 85px !important;
+        max-height: none !important;
+        min-height: fit-content !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        padding: 8px !important;
+        width: 300px !important; 
+        max-width: 300px !important;
+    `;
+    
+    // Force container styles too
+    if (container) {
+        // We can't easily change the container's max-height if it's defined in CSS without !important
+        // But we can try setting inline style
+        container.style.height = "auto";
+        container.style.maxHeight = "none";
+    }
+    container.appendChild(wrapper);
+
+    // Initial state for animation
+    if (!wrapper.style.transform) {
+      wrapper.style.transform = 'scale(0)';
+    }
+    
+    // Animate in
+    if (window.gZenUIManager && window.gZenUIManager.motion) {
+        window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.5 });
+    } else {
+        wrapper.style.transform = 'scale(1)';
+    }
+
+    const timeoutDuration = 5000; // Slightly longer for more reading time
+    let isDismissed = false;
+
+    dismissToast = () => {
+        if (isDismissed) return;
+        isDismissed = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        
+        if (window.gZenUIManager && window.gZenUIManager.motion) {
+             window.gZenUIManager.motion.animate(wrapper, { opacity: [1, 0], scale: [1, 0.5] }, { duration: 0.2, bounce: 0 })
+            .then(() => {
+                wrapper.remove();
+                if (container.children.length === 0) container.setAttribute('hidden', true);
+            });
+        } else {
+            wrapper.remove();
+            if (container.children.length === 0) container.setAttribute('hidden', true);
+        }
+    };
+
+    const autoRemove = () => {
+        dismissToast();
+    };
+
+    let timeoutId = setTimeout(autoRemove, timeoutDuration);
+    
+    wrapper.addEventListener('mouseover', () => clearTimeout(timeoutId));
+    wrapper.addEventListener('mouseout', () => {
+        if (!isDismissed) timeoutId = setTimeout(autoRemove, timeoutDuration);
+    });
+
+    return { dismiss: dismissToast };
   }
 
   // Process download for AI renaming - with file size check
@@ -3162,12 +3527,15 @@
           return false;
         }
         
+        /* 
+        // Disabled size limit as requested - we analyze filename/metadata, not content
         if (file.fileSize > getPref("extensions.downloads.max_file_size_for_ai", 52428800)) { // 50MB default
           debugLog(`Skipping AI rename - file too large: ${formatBytes(file.fileSize)}`);
           if (statusElToUpdate) statusElToUpdate.textContent = "File too large for AI analysis";
           activeAIProcesses.delete(key); // Clean up
           return false;
         }
+        */
       } catch (e) {
         // Log the actual error message for debugging
         const errorMessage = e.message || e.toString() || 'Unknown error';
@@ -3443,7 +3811,12 @@ Instructions:
 
       if (success) {
         const newPath = download.target.path; // This is now the new path after rename
-        download.aiName = cleanName; // Set the aiName property on the download object
+        
+        // Extract the actual filename from the new path to ensure we capture OS renames (e.g. (1))
+        const pathSeparator = newPath.includes('\\') ? '\\' : '/';
+        const actualFilename = newPath.split(pathSeparator).pop() || cleanName;
+        
+        download.aiName = actualFilename; // Set the aiName property to the ACTUAL filename
         
         // Mark BOTH old and new paths as renamed to prevent re-processing
         renamedFiles.add(downloadPath); // Original path
@@ -3456,8 +3829,8 @@ Instructions:
 
 
         if (titleElToUpdate) { 
-          titleElToUpdate.textContent = cleanName;
-          titleElToUpdate.title = cleanName;
+          titleElToUpdate.textContent = actualFilename; // Use actual filename
+          titleElToUpdate.title = actualFilename;
         }
 
         if (statusElToUpdate) {
@@ -3514,7 +3887,83 @@ Instructions:
         // The direct update of tooltip elements within this function ensures immediate feedback.
         updateUIForFocusedDownload(keyForFinalUIUpdate, true); // Force a significant update as content structure changed
 
-        debugLog(`Successfully AI-renamed to: ${cleanName}`);
+        debugLog(`Successfully AI-renamed to: ${actualFilename}`);
+
+        // Compact mode notification
+        if (document.documentElement.getAttribute('zen-compact-mode') === 'true') {
+            const currentAIPath = newPath; // Capture the path after AI rename
+            showRenameToast(actualFilename, trueOriginalFilename, async (dismissPreviousToast) => {
+                 // Dismiss the previous toast immediately
+                 if (dismissPreviousToast) dismissPreviousToast();
+
+                 debugLog(`[Undo] Reverting rename for ${cleanName}`);
+                 
+                 // Revert the rename
+                 const success = await renameDownloadFileAndUpdateRecord(download, trueOriginalFilename, currentAIPath);
+                 
+                 if (success) {
+                     const revertedPath = download.target.path;
+                     
+                     // Clear the AI name property to reset UI state
+                     download.aiName = null;
+
+                     // 1. Update global focus if needed
+                     if (focusedDownloadKey === currentAIPath) {
+                         focusedDownloadKey = revertedPath;
+                         debugLog(`[Undo] Updated focusedDownloadKey to ${revertedPath}`);
+                     }
+                     
+                     // 2. Force UI update to show original name
+                     // Since we cleared download.aiName, this will render the standard completion state
+                     updateUIForFocusedDownload(revertedPath, true);
+                     
+                     // 3. Remove styling from pod
+                     const cardData = activeDownloadCards.get(revertedPath);
+                     if (cardData && cardData.podElement) {
+                         cardData.podElement.classList.remove("renamed-by-ai");
+                     }
+                     
+                     // 4. Ensure autohide is scheduled/rescheduled
+                     // We need to clear the old timeout associated with the OLD key (currentAIPath) 
+                     // and start a new one for the NEW key (revertedPath).
+                     
+                     // Try to find the cardData that was moved to the new key
+                     const revertedCardData = activeDownloadCards.get(revertedPath);
+                     
+                     if (revertedCardData) {
+                        // Reset timeout ID just in case it carried over but wasn't cleared
+                        if (revertedCardData.autohideTimeoutId) {
+                            clearTimeout(revertedCardData.autohideTimeoutId);
+                            revertedCardData.autohideTimeoutId = null;
+                        }
+                        
+                        // Schedule removal with a short delay (e.g. 2000ms) to allow user to see the change
+                        const shortDelay = 2000;
+                        debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
+                        revertedCardData.autohideTimeoutId = setTimeout(() => {
+                            performAutohideSequence(revertedPath);
+                        }, shortDelay);
+                     } else {
+                        // Fallback if cardData not found (unlikely)
+                        scheduleCardRemoval(revertedPath);
+                     }
+                     
+                     // 5. Fire event for pile to update
+                     window.dispatchEvent(new CustomEvent('pod-renamed-reverted', {
+                        detail: {
+                            podKey: currentAIPath,
+                            newPath: revertedPath,
+                            originalName: trueOriginalFilename
+                        }
+                     }));
+
+                     showSimpleToast("Rename reverted");
+                 } else {
+                     showSimpleToast("Undo failed");
+                 }
+            });
+        }
+
         activeAIProcesses.delete(key); // Clean up successful process
         return true;
       } else {
@@ -4643,6 +5092,35 @@ async function undoRename(keyOfAIRenamedFile) {
 
       // Trigger a full UI update
       updateUIForFocusedDownload(focusedDownloadKey || targetOriginalPath, true); 
+
+      // 4. Ensure autohide is scheduled/rescheduled
+      // We need to clear the old timeout associated with the OLD key (keyOfAIRenamedFile) 
+      // and start a new one for the NEW key (targetOriginalPath).
+      
+      // Try to find the cardData that was moved to the new key
+      const revertedCardData = activeDownloadCards.get(targetOriginalPath);
+      
+      if (revertedCardData) {
+         // Reset timeout ID just in case it carried over but wasn't cleared
+         if (revertedCardData.autohideTimeoutId) {
+             clearTimeout(revertedCardData.autohideTimeoutId);
+             revertedCardData.autohideTimeoutId = null;
+         }
+      }
+
+      // Schedule removal with a short delay (e.g. 2000ms) to allow user to see the change
+      const originalDelay = getPref("extensions.downloads.autohide_delay_ms", 20000);
+      const shortDelay = 2000;
+      
+      // Temporarily override the delay pref (or just manually call setTimeout/performAutohide)
+      // Since scheduleCardRemoval reads the pref, we'll implement a custom one-off removal here
+      // or just trust scheduleCardRemoval if we want standard behavior.
+      // But user asked for "dismiss automatically" which usually implies "soon".
+      
+      debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
+      revertedCardData.autohideTimeoutId = setTimeout(() => {
+          performAutohideSequence(targetOriginalPath);
+      }, shortDelay);
 
       debugLog("[UndoRename] Rename undone successfully.");
       return true;

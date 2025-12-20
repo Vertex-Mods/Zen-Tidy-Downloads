@@ -1086,7 +1086,6 @@
       min-width: 36px;
       border-radius: 6px;
       overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
       flex-shrink: 0;
     `;
 
@@ -1099,54 +1098,166 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #2a2a2a;
+      background: transparent; /* Changed from #2a2a2a to transparent */
       color: white;
       font-size: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     `;
 
+    // Helper to check for extensions
+    const checkExtension = (filename, extensions) => {
+        if (!filename) return false;
+        const lower = filename.toLowerCase();
+        return extensions.some(ext => lower.endsWith(ext));
+    };
+
+    // Helper to check for image extensions
+    const isImageFile = (filename, contentType) => {
+        const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.ico', '.avif'];
+        if (contentType && contentType.startsWith('image/')) return true;
+        return checkExtension(filename, IMAGE_EXTENSIONS);
+    };
+    
+    // Helper to check for text extensions
+    const isTextFile = (filename, contentType) => {
+        const TEXT_EXTS = ['.txt', '.md', '.js', '.css', '.html', '.json', '.xml', '.log', '.ini', '.sh', '.py', '.java', '.c', '.cpp', '.h', '.ts', '.jsx', '.tsx'];
+        if (contentType && contentType.startsWith('text/')) return true;
+        return checkExtension(filename, TEXT_EXTS);
+    };
+
+    // Helper to read text file preview (first 500 chars)
+    // DUPLICATED from tidy-downloads for now as zen-stuff is separate scope
+    const readTextFilePreview = async (path) => {
+        try {
+            if (typeof IOUtils !== 'undefined') {
+                const content = await IOUtils.readUTF8(path, { maxBytes: 500 });
+                return content;
+            }
+            const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+            file.initWithPath(path);
+            if (!file.exists()) return null;
+            const fstream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(Ci.nsIFileInputStream);
+            const cstream = Cc["@mozilla.org/intl/converter-input-stream;1"].createInstance(Ci.nsIConverterInputStream);
+            fstream.init(file, -1, 0, 0);
+            cstream.init(fstream, "UTF-8", 0, 0);
+            let str = {};
+            cstream.readString(500, str);
+            cstream.close();
+            return str.value;
+        } catch (e) {
+            return null;
+        }
+    };
+
+    // Helper to check for system icon extensions
+    const isSystemIconFile = (filename, contentType) => {
+        const SYSTEM_ICON_EXTS = [
+            // Video
+            '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
+            // Audio
+            '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.wma',
+            // Documents
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            // Executables
+            '.exe', '.msi', '.bat', '.cmd', '.scr',
+            // Archives
+            '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso'
+        ];
+        // Also check content types if needed, but extension is usually sufficient for system icons
+        if (contentType && (contentType.startsWith('video/') || contentType.startsWith('audio/') || contentType.includes('pdf'))) return true;
+        return checkExtension(filename, SYSTEM_ICON_EXTS);
+    };
+
     // Set preview content
-    if (podData.previewData) {
-      if (podData.previewData.type === 'image' && podData.previewData.src) {
-        const img = document.createElement("img");
-        img.src = podData.previewData.src;
-        img.style.cssText = `
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        `;
-        img.onload = () => {
-          console.log(`[PodElement] Image loaded successfully: ${podData.filename}, src: ${podData.previewData.src}`);
-        };
-        img.onerror = (e) => {
-          console.error(`[PodElement] Image failed to load: ${podData.filename}, src: ${podData.previewData.src}`, e);
-          // Use safe method to set icon
-          const icon = getFileIcon(podData.contentType);
-          const iconSpan = document.createElement("span");
-          iconSpan.style.fontSize = "24px";
-          iconSpan.textContent = icon;
-          preview.innerHTML = "";
-          preview.appendChild(iconSpan);
-        };
-        preview.appendChild(img);
-        console.log(`[PodElement] Created image element for: ${podData.filename}, src: ${podData.previewData.src}`);
-      } else {
-        // SECURITY FIX: Don't use stored HTML, regenerate icon safely from contentType
+    // Priority: Image -> Text -> System Icon -> Generic Icon
+    
+    const renderPreview = async () => {
+        // 1. Image
+        if (podData.previewData && podData.previewData.type === 'image' && podData.previewData.src) {
+             const img = document.createElement("img");
+            img.src = podData.previewData.src;
+            img.style.cssText = `
+              width: 100%;
+              height: 100%;
+              object-fit: cover;
+            `;
+            img.onload = () => {
+              // Image loaded
+            };
+            img.onerror = (e) => {
+              // Fallback
+              const icon = getFileIcon(podData.contentType);
+              renderIcon(icon);
+            };
+            preview.appendChild(img);
+            return;
+        }
+        
+        // 2. Text File (if path available)
+        if (podData.targetPath && isTextFile(podData.filename, podData.contentType)) {
+             const textContent = await readTextFilePreview(podData.targetPath);
+             if (textContent) {
+                  preview.innerHTML = "";
+                  const textDiv = document.createElement("div");
+                  textDiv.style.cssText = `
+                      width: 100%;
+                      height: 100%;
+                      padding: 4px;
+                      box-sizing: border-box;
+                      font-family: monospace;
+                      font-size: 5px; 
+                      line-height: 1.1;
+                      overflow: hidden;
+                      white-space: pre-wrap;
+                      color: rgba(255,255,255,0.8);
+                      background: rgba(0,0,0,0.2);
+                      text-align: left;
+                      word-break: break-all;
+                  `;
+                  textDiv.textContent = textContent;
+                  preview.appendChild(textDiv);
+                  return;
+             }
+        }
+
+        // 3. System Icon (for .exe, video, pdf, etc.)
+        if (podData.targetPath && isSystemIconFile(podData.filename, podData.contentType)) {
+            const fileUrl = "file:///" + podData.targetPath.replace(/\\/g, "/");
+            const iconUrl = `moz-icon://${fileUrl}?size=32`;
+            
+            const img = document.createElement("img");
+            img.src = iconUrl;
+            img.style.cssText = `
+              width: 100%;
+              height: 100%;
+              object-fit: cover; /* Make it fill the container like images */
+            `;
+            
+            // If system icon fails, fallback to generic
+            img.onerror = () => {
+                const icon = getFileIcon(podData.contentType);
+                renderIcon(icon);
+            };
+            
+            preview.innerHTML = "";
+            preview.appendChild(img);
+            return;
+        }
+
+        // 4. Fallback to Generic Icon
         const icon = getFileIcon(podData.contentType);
+        renderIcon(icon);
+    };
+    
+    const renderIcon = (iconChar) => {
         const iconSpan = document.createElement("span");
         iconSpan.style.fontSize = "24px";
-        iconSpan.textContent = icon;
+        iconSpan.textContent = iconChar;
         preview.innerHTML = "";
         preview.appendChild(iconSpan);
-      }
-    } else {
-      // SECURITY FIX: Use safe method to set icon
-      const icon = getFileIcon(podData.contentType);
-      const iconSpan = document.createElement("span");
-      iconSpan.style.fontSize = "24px";
-      iconSpan.textContent = icon;
-      preview.innerHTML = "";
-      preview.appendChild(iconSpan);
-    }
+    };
+
+    renderPreview();
 
     pod.appendChild(preview);
     row.appendChild(pod);
@@ -1167,7 +1278,24 @@
     // Create filename element (editable inline)
     const filename = document.createElement("div");
     filename.className = "dismissed-pod-filename";
-    filename.textContent = podData.filename || "Untitled";
+    
+    // Ensure filename matches the actual file on disk if possible, handling OS auto-renaming (e.g., "file(1).jpg")
+    let displayFilename = podData.filename || "Untitled";
+    if (podData.targetPath) {
+      try {
+        // Extract the filename from the full path to ensure it matches the actual file on disk
+        // This catches cases where the OS renamed the file (e.g. adding (1)) but podData.filename was stale
+        const pathSeparator = podData.targetPath.includes('\\') ? '\\' : '/';
+        const actualFilename = podData.targetPath.split(pathSeparator).pop();
+        if (actualFilename && actualFilename !== displayFilename) {
+            displayFilename = actualFilename;
+        }
+      } catch (e) {
+        // Fallback to existing filename if parsing fails
+      }
+    }
+    
+    filename.textContent = displayFilename;
     filename.style.cssText = `
       font-size: 12px;
       font-weight: 500;
@@ -2643,6 +2771,7 @@
   // Get preference values with defaults
   function getAlwaysShowPile() {
     try {
+      // Changed default to false as requested
       return Services.prefs.getBoolPref(PREFS.alwaysShowPile, false);
     } catch (e) {
       debugLog("Error reading always-show-pile preference, using default (false):", e);

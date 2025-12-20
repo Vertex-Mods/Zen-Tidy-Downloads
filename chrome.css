@@ -24,9 +24,9 @@
   position: relative;
   order: 0;
   width: 100%;
-  min-width: 160px;
+  min-width: 150px;
   box-sizing: border-box;
-  background: rgba(0, 0, 0, 0.9);
+  background: color-mix(in srgb, var(--zen-primary-color) 40%, black 60%);
   backdrop-filter: blur(40px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: 10px;
@@ -61,6 +61,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding-right: 50px;
   box-sizing: border-box;
   margin-top: 1px;
   margin-bottom: 1px;
@@ -135,7 +136,7 @@
   height: 0;
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
-  border-top: 8px solid rgba(0, 0, 0, 0.9);
+  border-top: 8px solid color-mix(in srgb, var(--zen-primary-color) 40%, black 60%);
   bottom: -8px;
   left: 20px;
 }
@@ -262,7 +263,8 @@
   object-fit: cover;
   border-radius: 12px;
   transition: all 0.3s ease;
-  opacity: 0;
+  /* Remove default opacity: 0 so system icons are visible immediately */
+  /* If images need fade-in, handle it via JS or a specific class */
 }
 
 .card-preview-container span {
@@ -303,8 +305,66 @@
   transform-origin: bottom right;
 }
 
-/* Pods should stay left-aligned regardless of tab position */
+#main-window[zen-right-side] #userchrome-download-cards-container .tooltip-tail,
+:root[zen-right-side] #userchrome-download-cards-container .tooltip-tail {
+  left: auto;
+  right: 20px;
+}
+
 #main-window[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container,
 :root[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container {
-  justify-content: flex-start;
+  justify-content: flex-end;
 }
+/* AI Sparkle Effect */
+.ai-sparkle-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1; /* Behind content but in front of background if possible, or just use mix-blend-mode */
+  overflow: hidden;
+  border-radius: 10px;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.ai-sparkle-layer.visible {
+  opacity: 1;
+}
+
+.sparkle-icon {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAABzklEQVR4nO2ZS04CQRRFzwh06HcJfuIS1IEaXI3AAhR/Iyc4MA4UTDRAdB9+UOI+YCwEVExs08nrxJiyrYb+VBlOcidNQt/bqXpVrwpG/F/yQEuUwzJWAeeHVrCIHUUA95k1FBUBjrGImiKA+8wanhUBGlhCGugpAvTkN+PZVJj3tIEFXPgEKGE400DHJ0AbmMJgTn3MezrBUBaAvkaAD2AJw0gDdQ3znh5Mq0jlAOY9VTCEgwHMezpM0rg7BC6HMO/pBhiP2/xiwDH/l+ryn5EzCRwB7yGad75Vp3NgNoqhkpEV1m+RCksdeVdmkErldlIF2btXZVep2pjFpVfxUBNPu36dXT5Bo05AZVUBWgYYczTVVAVo2h4ga4AxR0OfwNZv82BZJnFRlvonoJug2a54qIingngMRApYlxrdjsH0C3Am73TfHSoTspC9RWC8Lx9phhiYB+5DNH8LzBEzqZA2c9fAGAmyP4T5PQyhNID5KwwiLW2irvm7KCpMGBNbp6nvJzFhdTnRCGD0KfWUxsGW2xQZTdkngLvCGk/GJ8AaFh+vd02sPL/RUAR4xPIrpiqWX/IVsfyadRuLWFG0gYE7qaTJSfPd9OthR2A5XyXfjAnQ4fRwAAAAAElFTkSuQmCC");
+  background-size: contain;
+  background-repeat: no-repeat;
+  opacity: 0;
+  /* Make icon white using brightness(0) invert(1) and add glow */
+  filter: brightness(0) invert(1) drop-shadow(0 0 1px rgba(255, 255, 255, 0.5));
+  animation: sparkle-shine 3s infinite ease-in-out;
+}
+
+@keyframes sparkle-shine {
+  0% {
+    transform: scale(0) rotate(0deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1) rotate(180deg);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(0) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* Specific positions for sparkles to look random but composed */
+.sparkle-icon:nth-child(1) { top: 10%; left: 10%; animation-delay: 0s; width: 9px; height: 9px; }
+.sparkle-icon:nth-child(2) { top: 25%; right: 25%; animation-delay: 0.5s; width: 11px; height: 11px; }
+.sparkle-icon:nth-child(3) { bottom: 15%; left: 20%; animation-delay: 1.2s; width: 8px; height: 8px; }
+.sparkle-icon:nth-child(4) { bottom: 25%; right: 10%; animation-delay: 1.8s; width: 12px; height: 12px; }
+.sparkle-icon:nth-child(5) { top: 50%; left: 50%; animation-delay: 2.5s; width: 6px; height: 6px; }
