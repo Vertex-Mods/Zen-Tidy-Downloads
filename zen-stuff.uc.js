@@ -16,15 +16,15 @@
   const CONFIG = {
     maxPileSize: 20, // Maximum pods to keep in pile
     pileDisplayCount: 20, // Pods visible in messy pile
-    gridAnimationDelay: 50, // ms between pod animations
-    hoverDebounceMs: 150, // Hover debounce delay
+    gridAnimationDelay: 15, // ms between pod animations
+    hoverDebounceMs: 50, // Hover debounce delay
     pileRotationRange: 8, // degrees ±
     pileOffsetRange: 8, // pixels ±
     gridPadding: 12, // pixels between grid items
     minPodSize: 45, // minimum pod size in grid
     minSidePadding: 5, // minimum padding from sidebar edges
-    animationDuration: 100, // pod transition duration
-    containerAnimationDuration: 100, // container height/padding transition duration
+    animationDuration: 150, // pod transition duration
+    containerAnimationDuration: 80, // container height/padding transition duration
     maxRetryAttempts: 10, // Maximum initialization retry attempts
     retryDelay: 500, // Delay between retry attempts
   };
@@ -1061,8 +1061,8 @@
       padding: 0 8px;
       box-sizing: border-box;
       cursor: pointer;
-      transition: bottom 0.1s ease, opacity 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
-      will-change: bottom;
+      transition: opacity 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
+      will-change: transform, opacity;
       left: 0;
       right: 0;
       border-radius: 6px;
@@ -1515,25 +1515,33 @@
       return;
     }
 
-    setTimeout(() => {
+    const update = () => {
       // Set transition if animation is needed
       if (shouldAnimate) {
-        podElement.style.transition = 'bottom 0.25s ease, opacity 0.25s ease, transform 0.25s ease';
+        podElement.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
       }
       // Use bottom positioning for bottom-up layout
       const rowHeight = 48;
       const rowSpacing = 6;
       const baseBottomOffset = 8; // Small base offset for first row
       const bottomOffset = baseBottomOffset + (position.row * (rowHeight + rowSpacing));
-      podElement.style.bottom = `${bottomOffset}px`;
+      
+      podElement.style.bottom = '0px';
       podElement.style.left = '0';
       podElement.style.right = '0';
       podElement.style.top = 'auto';
-      podElement.style.transform = `translate3d(0, 0, 0) rotate(0deg)`;
+      // Use translateY to move up (negative value)
+      podElement.style.transform = `translate3d(0, -${bottomOffset}px, 0)`;
       podElement.style.display = 'flex'; // Ensure flex layout is maintained
       podElement.style.zIndex = '1';
       podElement.style.opacity = '1';
-    }, delay);
+    };
+
+    if (delay > 0) {
+      setTimeout(() => requestAnimationFrame(update), delay);
+    } else {
+      requestAnimationFrame(update);
+    }
   }
 
   // Remove a pod from the pile
@@ -1545,24 +1553,31 @@
       // Set lower z-index and disable pointer events to prevent overlap during animation
       podElement.style.zIndex = '0';
       podElement.style.pointerEvents = 'none';
-      // Collapse height immediately so it doesn't affect layout, then fade out
-      const originalHeight = podElement.offsetHeight;
-      podElement.style.transition = 'opacity 0.25s ease, transform 0.25s ease, height 0.25s ease, margin 0.25s ease, padding 0.25s ease';
-      podElement.style.height = '0px';
-      podElement.style.marginTop = '0px';
-      podElement.style.marginBottom = '0px';
-      podElement.style.paddingTop = '0px';
-      podElement.style.paddingBottom = '0px';
-      podElement.style.overflow = 'hidden';
-      // Then fade it out
-      podElement.style.opacity = '0';
-      podElement.style.transform = 'translate3d(0, 0, 0) rotate(0deg) scale(0.8)';
+      
+      // Animate out using transform and opacity only
+      requestAnimationFrame(() => {
+        podElement.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
+        
+        // Preserve current position but scale down
+        const position = state.gridPositions.get(podKey);
+        if (position) {
+             const rowHeight = 48;
+             const rowSpacing = 6;
+             const baseBottomOffset = 8;
+             const bottomOffset = baseBottomOffset + (position.row * (rowHeight + rowSpacing));
+             podElement.style.transform = `translate3d(0, -${bottomOffset}px, 0) scale(0.8)`;
+        } else {
+             podElement.style.transform = 'scale(0.8)';
+        }
+        
+        podElement.style.opacity = '0';
+      });
 
       setTimeout(() => {
         if (podElement.parentNode) {
           podElement.parentNode.removeChild(podElement);
         }
-      }, 250);
+      }, CONFIG.animationDuration);
     }
 
     state.dismissedPods.delete(podKey);
@@ -1594,6 +1609,7 @@
       // Ensure pile stays visible during and after removal animation
       showPile();
       
+      const removalDelay = CONFIG.animationDuration + 50;
       setTimeout(() => {
         updatePileVisibility(true); // Pass true to indicate we should animate
         // Update downloads button visibility
@@ -1619,8 +1635,8 @@
               }, CONFIG.hoverDebounceMs);
             }
           }
-        }, 600); // Grace period: 300ms (repositioning delay) + 250ms (animation) + 50ms buffer
-      }, 300); // Wait for full fade-out (250ms) + small buffer before repositioning
+        }, removalDelay); // Wait for repositioning animation
+      }, removalDelay); // Wait for full fade-out
     } else {
       // updatePileVisibility will handle sizer height if needed
       updatePileVisibility(); // This will now call showPile/hidePile which adjust sizer
@@ -2102,11 +2118,11 @@
       const el = state.podElements.get(podKey);
       if (!wasVisible && el) {
         // Restore transition
-        el.style.transition = 'bottom 0.1s ease, opacity 0.1s ease, background-color 0.1s ease, transform 0.1s ease';
+        el.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
       }
       generateGridPosition(podKey);
       // Staggers bottom-up (first valid pod is index 0) if animating
-      const delay = wasVisible ? 0 : index * 25;
+      const delay = wasVisible ? 0 : index * CONFIG.gridAnimationDelay;
       applyGridPosition(podKey, delay);
     });
 
@@ -3183,183 +3199,6 @@
 
   debugLog("Dismissed downloads pile script loaded");
 
-  // --- Global rename dialog for pods ---
-  function showRenameDialog(podData) {
-    debugLog(`[Rename] Showing rename dialog for: ${podData.filename}`);
-    // Remove any existing rename dialog
-    const existingDialog = document.getElementById('zen-pile-rename-dialog');
-    if (existingDialog) {
-      existingDialog.remove();
-    }
-    // Create dialog overlay
-    const overlay = document.createElement('div');
-    overlay.id = 'zen-pile-rename-dialog';
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10001;
-      backdrop-filter: blur(2px);
-    `;
-    // Create dialog box
-    const dialog = document.createElement('div');
-    dialog.style.cssText = `
-      background: var(--zen-primary-color);
-      border: 1px solid var(--panel-border-color);
-      border-radius: 8px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-      padding: 20px;
-      width: 400px;
-      max-width: 90vw;
-      color: inherit;
-    `;
-    // Create title
-    const title = document.createElement('h3');
-    title.textContent = 'Rename File';
-    title.style.cssText = `
-      margin: 0 0 15px 0;
-      font-size: 16px;
-      font-weight: 600;
-    `;
-    // Create current filename display
-    const currentName = document.createElement('div');
-    currentName.textContent = `Current: ${podData.filename}`;
-    currentName.style.cssText = `
-      margin-bottom: 10px;
-      font-size: 13px;
-      color: var(--text-color-deemphasized);
-      word-break: break-all;
-    `;
-    // Create input field
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = podData.filename;
-    input.style.cssText = `
-      width: 100%;
-      padding: 8px 12px;
-      border: 1px solid var(--panel-border-color);
-      border-radius: 4px;
-      background: var(--toolbar-field-background-color);
-      color: var(--toolbar-field-color);
-      font-size: 14px;
-      margin-bottom: 15px;
-      box-sizing: border-box;
-    `;
-    // Select filename without extension
-    const lastDotIndex = podData.filename.lastIndexOf('.');
-    if (lastDotIndex > 0) {
-      setTimeout(() => {
-        input.setSelectionRange(0, lastDotIndex);
-        input.focus();
-      }, 100);
-    } else {
-      setTimeout(() => {
-        input.select();
-        input.focus();
-      }, 100);
-    }
-    // Create button container
-    const buttonContainer = document.createElement('div');
-    buttonContainer.style.cssText = `
-      display: flex;
-      gap: 10px;
-      justify-content: flex-end;
-    `;
-    // Create cancel button
-    const cancelButton = document.createElement('button');
-    cancelButton.textContent = 'Cancel';
-    cancelButton.style.cssText = `
-      padding: 8px 16px;
-      border: 1px solid var(--panel-border-color);
-      border-radius: 4px;
-      background: transparent;
-      color: inherit;
-      cursor: pointer;
-      font-size: 13px;
-    `;
-    cancelButton.addEventListener('mouseenter', () => {
-      cancelButton.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-    });
-    cancelButton.addEventListener('mouseleave', () => {
-      cancelButton.style.backgroundColor = 'transparent';
-    });
-    // Create rename button
-    const renameButton = document.createElement('button');
-    renameButton.textContent = 'Rename';
-    renameButton.style.cssText = `
-      padding: 8px 16px;
-      border: 1px solid var(--zen-primary-color);
-      border-radius: 4px;
-      background: var(--zen-primary-color);
-      color: white;
-      cursor: pointer;
-      font-size: 13px;
-    `;
-    renameButton.addEventListener('mouseenter', () => {
-      renameButton.style.opacity = '0.8';
-    });
-    renameButton.addEventListener('mouseleave', () => {
-      renameButton.style.opacity = '1';
-    });
-    // Handle cancel
-    const closeDialog = () => {
-      overlay.remove();
-    };
-    cancelButton.addEventListener('click', closeDialog);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        closeDialog();
-      }
-    });
-    // Handle rename
-    const handleRename = async () => {
-      const newName = input.value.trim();
-      if (!newName) {
-        alert('Please enter a valid filename.');
-        input.focus();
-        return;
-      }
-      if (newName === podData.filename) {
-        closeDialog();
-        return;
-      }
-      try {
-        debugLog(`[Rename] Attempting to rename ${podData.filename} to ${newName}`);
-        await renamePodFile(podData, newName);
-        closeDialog();
-      } catch (error) {
-        debugLog(`[Rename] Error renaming file:`, error);
-        alert(`Error renaming file: ${error.message}`);
-      }
-    };
-    renameButton.addEventListener('click', handleRename);
-    // Handle Enter key
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        handleRename();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        closeDialog();
-      }
-    });
-    // Assemble dialog
-    buttonContainer.appendChild(cancelButton);
-    buttonContainer.appendChild(renameButton);
-    dialog.appendChild(title);
-    dialog.appendChild(currentName);
-    dialog.appendChild(input);
-    dialog.appendChild(buttonContainer);
-    overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
-    debugLog(`[Rename] Rename dialog created for: ${podData.filename}`);
-  }
 
   // --- Start inline rename editing ---
   function startInlineRename(podData) {
@@ -3402,7 +3241,7 @@
       font-size: 12px;
       font-weight: 500;
       font-family: inherit;
-      margin: 0;
+      margin-bottom: 2px;
       box-sizing: border-box;
       outline: none;
     `;
