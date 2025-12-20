@@ -947,8 +947,6 @@
           masterTooltipDOMElement.className = "details-tooltip master-tooltip";
           // Ensure tooltip uses relative positioning (not fixed) for proper toolbar integration
           masterTooltipDOMElement.style.position = 'relative';
-          masterTooltipDOMElement.style.willChange = 'transform, opacity';
-          masterTooltipDOMElement.style.transition = 'opacity 0.2s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)';
           // Most styles are now in CSS file, only dynamic styles remain inline
 
           masterTooltipDOMElement.innerHTML = `
@@ -977,8 +975,6 @@
           // Create the container for HORIZONTAL pods row
           podsRowContainerElement = document.createElement("div"); 
           podsRowContainerElement.id = "userchrome-pods-row-container"; 
-          podsRowContainerElement.style.transition = "height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)";
-          podsRowContainerElement.style.willChange = "height";
           // Basic styles are now in CSS file, only dynamic height will be set by layout manager
           downloadCardsContainer.appendChild(podsRowContainerElement);
 
@@ -2082,11 +2078,10 @@
                 cardData.podElement.style.width = `${podNominalWidth}px`;
                 cardData.podElement.style.marginRight = '0px';
                 cardData.podElement.style.boxSizing = 'border-box';
-                cardData.podElement.style.willChange = 'transform, opacity';
                 if (!cardData.podElement.style.transition) {
                     cardData.podElement.style.transition = 
-                        'opacity 0.25s ease-out, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), ' + 
-                        'z-index 0.2s ease-out';
+                        'opacity 0.4s ease-out, transform 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55), ' + 
+                        'z-index 0.3s ease-out';
                 }
                 debugLog(`[LayoutManager] Updated pod ${key} styling for absolute positioning.`);
             }
@@ -2225,13 +2220,12 @@
                  // Pod is focused and tooltip is currently hidden, animate tooltip IN.
                  // This relies on updateUIForFocusedDownload having set the initial opacity/transform if focus changed.
                  debugLog(`[LayoutManager_Jukebox_Tooltip] Focused pod ${key} is visible/animating, and tooltip is hidden. Animating tooltip IN.`);
-                 // Reduced delay for snappier response
                  setTimeout(() => { 
                     masterTooltipDOMElement.style.opacity = "1";
                     masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
                     masterTooltipDOMElement.style.pointerEvents = "auto"; // Enable interactions when visible
                     hideMediaControlsToolbar(); // Hide media controls when tooltip is shown
-                }, 50); 
+                }, 100); 
             }
         } else {
             // This pod should be hidden or moved to pile
@@ -3226,7 +3220,7 @@
     // Animation
     if (!wrapper.style.transform) wrapper.style.transform = 'scale(0)';
     if (window.gZenUIManager && window.gZenUIManager.motion) {
-        window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.3 });
+        window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.5 });
     } else {
         wrapper.style.transform = 'scale(1)';
     }
@@ -3395,7 +3389,7 @@
     
     // Animate in
     if (window.gZenUIManager && window.gZenUIManager.motion) {
-        window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.3 });
+        window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.5 });
     } else {
         wrapper.style.transform = 'scale(1)';
     }
