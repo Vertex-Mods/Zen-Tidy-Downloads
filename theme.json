@@ -5,9 +5,11 @@
   "homepage": "https://github.com/Vertex-Mods/Zen-Tidy-Downloads",
   "readme": "https://raw.githubusercontent.com/Vertex-Mods/Zen-Tidy-Downloads/refs/heads/main/README.md",
   "image": "https://github.com/Vertex-Mods/Zen-Tidy-Downloads/blob/main/image.png?raw=true",
-  "style": "https://raw.githubusercontent.com/Vertex-Mods/Zen-Tidy-Downloads/main/chrome.css",
+  "style": {
+    "chrome": "chrome.css"
+  },
   "js": true,
-  "preferences": "https://raw.githubusercontent.com/Vertex-Mods/Zen-Tidy-Downloads/main/preferences.json",
+  "preferences": "preferences.json",
   "author": "Vertex",
   "version": "3.0.0",
   "tags": [
