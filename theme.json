@@ -8,7 +8,18 @@
   "style": {
     "chrome": "chrome.css"
   },
-  "js": true,
+  "scripts": {
+    "tidy-downloads.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ]
+    },
+    "zen-stuff.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ]
+    }
+  },
   "preferences": "preferences.json",
   "author": "Vertex",
   "version": "3.0.0",
