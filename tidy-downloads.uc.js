@@ -95,6 +95,7 @@
     // extensions.downloads.stable_focus_mode - Prevent focus switching during multiple downloads (default: true)
     // extensions.downloads.progress_update_throttle_ms - Throttle delay for in-progress download updates (default: 500)
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
+    // zen.tidy-downloads.use-library-button - Use zen-library-button instead of downloads-button for hover detection (default: false)
 
     // Legacy constants for compatibility
     const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
@@ -882,6 +883,14 @@
       debugLog("Creating download manager UI elements...");
       
       try {
+        // Find the downloads/library button for hover detection
+        const downloadsButton = await findDownloadsButton();
+        console.log("[Tidy Downloads] Found button:", downloadsButton);
+        if (!downloadsButton) {
+          console.warn("[Tidy Downloads] Downloads button not found - hover detection may not work properly");
+          console.warn("Downloads button not found - hover detection may not work properly");
+        }
+        
         // Create container if it doesn't exist
         downloadCardsContainer = document.getElementById("userchrome-download-cards-container");
         if (!downloadCardsContainer) {
@@ -2801,6 +2810,93 @@
     } catch (e) {
       console.error("Error getting preference:", e);
       return defaultValue;
+    }
+  }
+
+  // Helper function to wait for an element to appear in the DOM
+  function waitForElement(elementId, timeout = 5000) {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      
+      const checkForElement = () => {
+        const element = document.getElementById(elementId);
+        if (element) {
+          console.log(`[Tidy Downloads] Element ${elementId} found after ${Date.now() - startTime}ms`);
+          resolve(element);
+          return;
+        }
+        
+        if (Date.now() - startTime >= timeout) {
+          console.log(`[Tidy Downloads] Timeout waiting for element ${elementId} after ${timeout}ms`);
+          resolve(null);
+          return;
+        }
+        
+        // Check again in 100ms
+        setTimeout(checkForElement, 100);
+      };
+      
+      checkForElement();
+    });
+  }
+
+  // Optimized function to find the downloads/library button
+  async function findDownloadsButton() {
+    try {
+      const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
+      console.log(`[Tidy Downloads] useLibraryButton preference: ${useLibraryButton}`);
+      
+      if (useLibraryButton) {
+        // Try zen-library-button with retry mechanism since it's custom and takes time to initialize
+        console.log(`[Tidy Downloads] Waiting for zen-library-button to initialize...`);
+        const libraryButton = await waitForElement('zen-library-button', 5000); // Wait up to 5 seconds
+        
+        if (libraryButton) {
+          console.log("[Tidy Downloads] ✅ Found zen-library-button for hover detection (after wait)");
+          debugLog("Found zen-library-button for hover detection");
+          return libraryButton;
+        }
+        console.log("[Tidy Downloads] ❌ zen-library-button not found after waiting, falling back to downloads button");
+        debugLog("zen-library-button not found after waiting, falling back to downloads button");
+      } else {
+        console.log("[Tidy Downloads] Using downloads button (library button disabled)");
+      }
+      
+      // Optimized selector order - most common first
+      const selectors = [
+        '#downloads-button',
+        '#downloads-indicator', 
+        '[data-l10n-id="downloads-button"]',
+        '.toolbarbutton-1[command="Tools:Downloads"]'
+      ];
+
+      for (const selector of selectors) {
+        const button = document.querySelector(selector);
+        if (button) {
+          console.log(`[Tidy Downloads] ✅ Found downloads button using selector: ${selector}`, button);
+          debugLog(`Found downloads button using selector: ${selector}`);
+          return button;
+        }
+      }
+
+      // Fallback: look for any element with downloads-related attributes
+      const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
+      for (const element of fallbackElements) {
+        if (element.getAttribute('command')?.includes('Downloads') ||
+            element.textContent?.toLowerCase().includes('download')) {
+          console.log("[Tidy Downloads] ✅ Found downloads button using fallback method", element);
+          debugLog("Found downloads button using fallback method", element);
+          return element;
+        }
+      }
+
+      console.warn("[Tidy Downloads] ❌ Downloads button not found after all attempts");
+      console.warn("Downloads button not found after all attempts");
+      return null;
+    } catch (error) {
+      console.error("[Tidy Downloads] Error finding downloads button:", error);
+      console.error("Error finding downloads button:", error);
+      return null;
     }
   }
 

@@ -32,6 +32,7 @@
   // Firefox preferences
   const PREFS = {
     alwaysShowPile: 'zen.stuff-pile.always-show', // Boolean: show pile always (hide with Alt key)
+    useLibraryButton: 'zen.tidy-downloads.use-library-button', // Boolean: use zen-library-button instead of downloads-button
   };
 
   // Centralized state management
@@ -372,6 +373,37 @@
       }
     }
   }
+
+  // Debug function to test preference (call from browser console)
+  window.testLibraryButtonPref = function() {
+    console.log("=== Testing Library Button Preference ===");
+    console.log(`Preference name: ${PREFS.useLibraryButton}`);
+    
+    try {
+      const value = Services.prefs.getBoolPref(PREFS.useLibraryButton, false);
+      console.log(`Current preference value: ${value}`);
+    } catch (e) {
+      console.log(`Error reading preference:`, e);
+    }
+    
+    const libraryBtn = document.getElementById('zen-library-button');
+    const downloadsBtn = document.getElementById('downloads-button');
+    console.log(`zen-library-button exists: ${!!libraryBtn}`);
+    console.log(`downloads-button exists: ${!!downloadsBtn}`);
+    console.log(`Current state.downloadButton:`, state.downloadButton);
+    
+    // Test waiting for zen-library-button
+    console.log("Testing waitForElement for zen-library-button...");
+    waitForElement('zen-library-button', 3000).then(element => {
+      console.log(`waitForElement result:`, element);
+    });
+    
+    // Test re-finding the button
+    console.log("Re-finding button...");
+    findDownloadButton().then(() => {
+      console.log(`After re-find, state.downloadButton:`, state.downloadButton);
+    }).catch(e => console.error("Error re-finding:", e));
+  };
 
   // Initialize the pile system with proper error handling
   async function init() {
@@ -740,43 +772,97 @@
     }
   }
 
-  // Find the Firefox downloads button with better error handling
-  async function findDownloadButton() {
-    const selectors = [
-      '#downloads-button',
-      '[data-l10n-id="downloads-button"]',
-      '#downloads-indicator',
-      '.toolbarbutton-1[command="Tools:Downloads"]'
-    ];
-
-    for (const selector of selectors) {
-      try {
-        state.downloadButton = document.querySelector(selector);
-        if (state.downloadButton) {
-          debugLog(`Found download button using selector: ${selector}`);
+  // Helper function to wait for an element to appear in the DOM
+  function waitForElement(elementId, timeout = 5000) {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      
+      const checkForElement = () => {
+        const element = document.getElementById(elementId);
+        if (element) {
+          console.log(`[Zen Stuff] Element ${elementId} found after ${Date.now() - startTime}ms`);
+          resolve(element);
           return;
+        }
+        
+        if (Date.now() - startTime >= timeout) {
+          console.log(`[Zen Stuff] Timeout waiting for element ${elementId} after ${timeout}ms`);
+          resolve(null);
+          return;
+        }
+        
+        // Check again in 100ms
+        setTimeout(checkForElement, 100);
+      };
+      
+      checkForElement();
+    });
+  }
+
+  // Find the Firefox downloads button with better error handling and retry for custom buttons
+  async function findDownloadButton() {
+    try {
+      const useLibraryButton = getUseLibraryButton();
+      console.log(`[Zen Stuff] useLibraryButton preference: ${useLibraryButton}`);
+      
+      if (useLibraryButton) {
+        // Try zen-library-button with retry mechanism since it's custom and takes time to initialize
+        console.log(`[Zen Stuff] Waiting for zen-library-button to initialize...`);
+        const libraryButton = await waitForElement('zen-library-button', 5000); // Wait up to 5 seconds
+        
+        if (libraryButton) {
+          console.log("[Zen Stuff] ✅ Found zen-library-button for hover detection (after wait)");
+          debugLog("Found zen-library-button for hover detection");
+          state.downloadButton = libraryButton;
+          return;
+        }
+        console.log("[Zen Stuff] ❌ zen-library-button not found after waiting, falling back to downloads button");
+        debugLog("zen-library-button not found after waiting, falling back to downloads button");
+      } else {
+        console.log("[Zen Stuff] Using downloads button (library button disabled)");
+      }
+      
+      // Optimized selector order - most common first
+      const selectors = [
+        '#downloads-button',
+        '#downloads-indicator',
+        '[data-l10n-id="downloads-button"]',
+        '.toolbarbutton-1[command="Tools:Downloads"]'
+      ];
+
+      for (const selector of selectors) {
+        try {
+          state.downloadButton = document.querySelector(selector);
+          if (state.downloadButton) {
+            console.log(`[Zen Stuff] ✅ Found download button using selector: ${selector}`, state.downloadButton);
+            debugLog(`Found download button using selector: ${selector}`);
+            return;
+          }
+        } catch (error) {
+          console.warn(`[DownloadButton] Error with selector ${selector}:`, error);
+        }
+      }
+
+      // Fallback: look for any element with downloads-related attributes
+      try {
+        const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
+        for (const element of fallbackElements) {
+          if (element.getAttribute('command')?.includes('Downloads') ||
+            element.textContent?.toLowerCase().includes('download')) {
+            state.downloadButton = element;
+            debugLog("Found download button using fallback method", element);
+            return;
+          }
         }
       } catch (error) {
-        console.warn(`[DownloadButton] Error with selector ${selector}:`, error);
+        console.warn('[DownloadButton] Error in fallback search:', error);
       }
-    }
 
-    // Fallback: look for any element with downloads-related attributes
-    try {
-      const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
-      for (const element of fallbackElements) {
-        if (element.getAttribute('command')?.includes('Downloads') ||
-          element.textContent?.toLowerCase().includes('download')) {
-          state.downloadButton = element;
-          debugLog("Found download button using fallback method", element);
-          return;
-        }
-      }
+      throw new Error("Download button not found after all attempts");
     } catch (error) {
-      console.warn('[DownloadButton] Error in fallback search:', error);
+      console.error('[DownloadButton] Error finding download button:', error);
+      throw error;
     }
-
-    throw new Error("Download button not found after all attempts");
   }
 
   // Create the pile container
@@ -2795,6 +2881,26 @@
     }
   }
 
+  // Get library button preference
+  function getUseLibraryButton() {
+    try {
+      const value = Services.prefs.getBoolPref(PREFS.useLibraryButton, false);
+      console.log(`[Zen Stuff] getUseLibraryButton() returning: ${value}`);
+      console.log(`[Zen Stuff] Preference name: ${PREFS.useLibraryButton}`);
+      
+      // Debug: Check what buttons are available
+      const libraryBtn = document.getElementById('zen-library-button');
+      const downloadsBtn = document.getElementById('downloads-button');
+      console.log(`[Zen Stuff] Available buttons - Library: ${!!libraryBtn}, Downloads: ${!!downloadsBtn}`);
+      
+      return value;
+    } catch (e) {
+      console.log(`[Zen Stuff] Error reading use-library-button preference, using default (false):`, e);
+      debugLog("Error reading use-library-button preference, using default (false):", e);
+      return false;
+    }
+  }
+
   // Setup compact mode observer to handle visibility changes
   function setupCompactModeObserver() {
     const mainWindow = document.getElementById('main-window');
@@ -2851,16 +2957,27 @@
     try {
       const prefObserver = {
         observe: function (subject, topic, data) {
-          if (topic === 'nsPref:changed' && data === PREFS.alwaysShowPile) {
-            const newValue = getAlwaysShowPile();
-            debugLog(`[Preferences] Always-show-pile preference changed to: ${newValue}`);
-            handleAlwaysShowPileChange(newValue);
+          if (topic === 'nsPref:changed') {
+            if (data === PREFS.alwaysShowPile) {
+              const newValue = getAlwaysShowPile();
+              debugLog(`[Preferences] Always-show-pile preference changed to: ${newValue}`);
+              handleAlwaysShowPileChange(newValue);
+            } else if (data === PREFS.useLibraryButton) {
+              const newValue = getUseLibraryButton();
+              console.log(`[Zen Stuff] Use-library-button preference changed to: ${newValue}`);
+              debugLog(`[Preferences] Use-library-button preference changed to: ${newValue}`);
+              // Re-find the download button with new preference (with retry for custom buttons)
+              findDownloadButton().catch(error => {
+                console.error('[Preferences] Error re-finding download button:', error);
+              });
+            }
           }
         }
       };
 
       Services.prefs.addObserver(PREFS.alwaysShowPile, prefObserver, false);
-      debugLog("[Preferences] Added observer for always-show-pile preference");
+      Services.prefs.addObserver(PREFS.useLibraryButton, prefObserver, false);
+      debugLog("[Preferences] Added observers for preferences");
 
       // Store observer for cleanup
       state.prefObserver = prefObserver;
@@ -3083,8 +3200,9 @@
       if (state.prefObserver) {
         try {
           Services.prefs.removeObserver(PREFS.alwaysShowPile, state.prefObserver);
+          Services.prefs.removeObserver(PREFS.useLibraryButton, state.prefObserver);
         } catch (error) {
-          console.warn('[Cleanup] Error removing preference observer:', error);
+          console.warn('[Cleanup] Error removing preference observers:', error);
         }
         state.prefObserver = null;
       }
