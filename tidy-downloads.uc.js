@@ -78,6 +78,53 @@
 
   // === MAIN SCRIPT FUNCTIONS ===
   function initializeMainScript() {
+    // CRITICAL: Patch downloads indicator methods immediately to prevent errors
+    // This must happen before any downloads can trigger the indicator
+    try {
+      // Early patching to prevent TypeError: can't access property "style", this._progressIcon is null
+      const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
+      if (indicator) {
+        console.log("[Tidy Downloads] Applying early downloads indicator patches to prevent errors");
+        
+        // Patch critical methods that can cause errors when _progressIcon is null
+        if (indicator._progressRaf && !indicator._progressRaf._patched) {
+          const originalProgressRaf = indicator._progressRaf;
+          indicator._progressRaf = function() {
+            try {
+              if (this._progressIcon && this._progressIcon.style) {
+                return originalProgressRaf.call(this);
+              }
+              return;
+            } catch (error) {
+              console.debug("[Tidy Downloads] Early _progressRaf error handled:", error.message);
+              return;
+            }
+          };
+          indicator._progressRaf._patched = true;
+        }
+        
+        if (indicator._maybeScheduleProgressUpdate && !indicator._maybeScheduleProgressUpdate._patched) {
+          const originalMaybeSchedule = indicator._maybeScheduleProgressUpdate;
+          indicator._maybeScheduleProgressUpdate = function() {
+            try {
+              if (this._progressIcon && this._progressIcon.style) {
+                return originalMaybeSchedule.call(this);
+              }
+              return;
+            } catch (error) {
+              console.debug("[Tidy Downloads] Early _maybeScheduleProgressUpdate error handled:", error.message);
+              return;
+            }
+          };
+          indicator._maybeScheduleProgressUpdate._patched = true;
+        }
+        
+        console.log("[Tidy Downloads] Early downloads indicator patches applied successfully");
+      }
+    } catch (earlyPatchError) {
+      console.warn("[Tidy Downloads] Early patching failed, will retry later:", earlyPatchError);
+    }
+    
     // --- Configuration via Firefox Preferences ---
     // Available preferences (set in about:config):
     // extensions.downloads.mistral_api_key - Your Mistral API key (required for AI renaming)
@@ -889,6 +936,16 @@
         if (!downloadsButton) {
           console.warn("[Tidy Downloads] Downloads button not found - hover detection may not work properly");
           console.warn("Downloads button not found - hover detection may not work properly");
+        } else {
+          // Set up additional animation targeting if using library button
+          const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
+          if (useLibraryButton && downloadsButton.id === 'zen-library-button') {
+            // Patch downloads indicator methods immediately to prevent errors
+            patchDownloadsIndicatorMethods();
+            
+            // Ensure animation system knows about the library button
+            setupLibraryButtonAnimationTarget(downloadsButton);
+          }
         }
         
         // Create container if it doesn't exist
@@ -2854,6 +2911,13 @@
         if (libraryButton) {
           console.log("[Tidy Downloads] ✅ Found zen-library-button for hover detection (after wait)");
           debugLog("Found zen-library-button for hover detection");
+          
+          // Patch downloads indicator methods immediately to prevent errors
+          patchDownloadsIndicatorMethods();
+          
+          // Set up animation target override for zen-library-button
+          setupLibraryButtonAnimationTarget(libraryButton);
+          
           return libraryButton;
         }
         console.log("[Tidy Downloads] ❌ zen-library-button not found after waiting, falling back to downloads button");
@@ -2898,6 +2962,549 @@
       console.error("Error finding downloads button:", error);
       return null;
     }
+  }
+
+  // Set up animation target override for zen-library-button
+  function setupLibraryButtonAnimationTarget(libraryButton) {
+    try {
+      // Override the browser's download animation target detection
+      // This ensures the download animation targets the library button instead of downloads button
+      const originalDetermineEndPosition = window.nsZenDownloadAnimationElement?.prototype?._determineEndPosition;
+      
+      if (window.nsZenDownloadAnimationElement?.prototype) {
+        window.nsZenDownloadAnimationElement.prototype._determineEndPosition = function() {
+          // Check if zen-library-button should be used
+          const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
+          const zenLibraryButton = document.getElementById("zen-library-button");
+          
+          if (useLibraryButton && zenLibraryButton && isElementVisible(zenLibraryButton)) {
+            // Use zen-library-button as target
+            const buttonRect = zenLibraryButton.getBoundingClientRect();
+            const endPosition = {
+              clientX: buttonRect.left + buttonRect.width / 2,
+              clientY: buttonRect.top + buttonRect.height / 2,
+            };
+            
+            console.log("[Tidy Downloads] Animation targeting zen-library-button", endPosition);
+            return { endPosition, isDownloadButtonVisible: true };
+          }
+          
+          // Fall back to original behavior
+          if (originalDetermineEndPosition) {
+            return originalDetermineEndPosition.call(this);
+          }
+          
+          // Fallback implementation
+          const downloadsButton = document.getElementById("downloads-button");
+          const isDownloadButtonVisible = downloadsButton && isElementVisible(downloadsButton);
+          let endPosition = { clientX: 0, clientY: 0 };
+          
+          if (isDownloadButtonVisible) {
+            const buttonRect = downloadsButton.getBoundingClientRect();
+            endPosition = {
+              clientX: buttonRect.left + buttonRect.width / 2,
+              clientY: buttonRect.top + buttonRect.height / 2,
+            };
+          } else {
+            const areTabsPositionedRight = Services.prefs.getBoolPref("zen.tabs.vertical.right-side");
+            const wrapper = document.getElementById("zen-main-app-wrapper");
+            const wrapperRect = wrapper.getBoundingClientRect();
+            endPosition = {
+              clientX: areTabsPositionedRight ? wrapperRect.right - 42 : wrapperRect.left + 42,
+              clientY: wrapperRect.bottom - 40,
+            };
+          }
+          
+          return { endPosition, isDownloadButtonVisible };
+        };
+        
+        console.log("[Tidy Downloads] Successfully overrode animation target for zen-library-button");
+      } else {
+        // Alternative approach: Monitor for animation elements and patch them
+        setupAnimationElementPatcher();
+      }
+      
+      // Additional approach: Create a MutationObserver to catch animation elements
+      setupAnimationObserver();
+      
+    } catch (error) {
+      console.error("[Tidy Downloads] Error setting up library button animation target:", error);
+    }
+  }
+
+  // Set up a patcher for animation elements that get created
+  function setupAnimationElementPatcher() {
+    // Watch for zen-download-animation elements being created
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.tagName === 'ZEN-DOWNLOAD-ANIMATION') {
+              patchAnimationElement(node);
+            }
+            // Also check child elements
+            const animationElements = node.querySelectorAll?.('zen-download-animation');
+            animationElements?.forEach(patchAnimationElement);
+          }
+        });
+      });
+    });
+    
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    
+    console.log("[Tidy Downloads] Set up animation element patcher");
+  }
+
+  // Patch an individual animation element
+  function patchAnimationElement(animationElement) {
+    try {
+      const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
+      if (!useLibraryButton) return;
+      
+      // Override the determineEndPosition method if it exists
+      if (animationElement.determineEndPosition) {
+        const originalMethod = animationElement.determineEndPosition;
+        animationElement.determineEndPosition = function() {
+          const zenLibraryButton = document.getElementById("zen-library-button");
+          
+          if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
+            const buttonRect = zenLibraryButton.getBoundingClientRect();
+            const endPosition = {
+              clientX: buttonRect.left + buttonRect.width / 2,
+              clientY: buttonRect.top + buttonRect.height / 2,
+            };
+            
+            console.log("[Tidy Downloads] Patched animation element to target zen-library-button");
+            return { endPosition, isDownloadButtonVisible: true };
+          }
+          
+          return originalMethod.call(this);
+        };
+      }
+      
+      // Also try to patch the private method if accessible
+      if (animationElement._determineEndPosition) {
+        const originalPrivateMethod = animationElement._determineEndPosition;
+        animationElement._determineEndPosition = function() {
+          const zenLibraryButton = document.getElementById("zen-library-button");
+          
+          if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
+            const buttonRect = zenLibraryButton.getBoundingClientRect();
+            const endPosition = {
+              clientX: buttonRect.left + buttonRect.width / 2,
+              clientY: buttonRect.top + buttonRect.height / 2,
+            };
+            
+            console.log("[Tidy Downloads] Patched private animation method to target zen-library-button");
+            return { endPosition, isDownloadButtonVisible: true };
+          }
+          
+          return originalPrivateMethod.call(this);
+        };
+      }
+    } catch (error) {
+      console.error("[Tidy Downloads] Error patching animation element:", error);
+    }
+  }
+
+  // Set up observer for animation elements
+  function setupAnimationObserver() {
+    // Also try to patch existing animation elements
+    const existingAnimations = document.querySelectorAll('zen-download-animation');
+    existingAnimations.forEach(patchAnimationElement);
+    
+    // Set up a more aggressive approach: temporarily alias the downloads button
+    const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
+    if (useLibraryButton) {
+      // Create a proxy downloads button that points to the library button
+      createDownloadsButtonProxy();
+    }
+  }
+
+  // Create a proxy downloads button element
+  function createDownloadsButtonProxy() {
+    try {
+      const zenLibraryButton = document.getElementById("zen-library-button");
+      const existingDownloadsButton = document.getElementById("downloads-button");
+      
+      if (zenLibraryButton && !existingDownloadsButton) {
+        // Create a complete proxy element with all necessary child elements for the downloads indicator
+        const proxy = document.createElement("toolbarbutton");
+        proxy.id = "downloads-button";
+        proxy.className = "toolbarbutton-1 chromeclass-toolbar-additional";
+        proxy.setAttribute("command", "Tools:Downloads");
+        proxy.setAttribute("tooltiptext", "Downloads");
+        
+        // Create the necessary child elements that the downloads indicator expects
+        // Structure: toolbarbutton > stack > [main-icon, progress-icon]
+        const stack = document.createElement("stack");
+        stack.className = "toolbarbutton-icon";
+        
+        // Create main icon (visible icon)
+        const mainIcon = document.createElement("image");
+        mainIcon.className = "toolbarbutton-icon";
+        mainIcon.setAttribute("src", "chrome://browser/skin/downloads/downloads.svg");
+        
+        // Create progress icon element (this is what _progressIcon should reference)
+        const progressIcon = document.createElement("vbox");
+        progressIcon.className = "toolbarbutton-icon";
+        progressIcon.id = "downloads-indicator-progress-icon";
+        progressIcon.style.cssText = "opacity: 0; pointer-events: none; position: relative;";
+        
+        // Create progress area with proper structure
+        const progressArea = document.createElement("vbox");
+        progressArea.className = "downloads-indicator-progress-area";
+        progressArea.style.cssText = "position: relative; overflow: hidden; width: 100%; height: 100%;";
+        
+        // Create progress inner element
+        const progressInner = document.createElement("vbox");
+        progressInner.className = "downloads-indicator-progress-inner";
+        progressInner.style.cssText = "background-color: #0a84ff; height: 100%; transition: transform 0.2s ease; transform: translateY(100%);";
+        
+        // Create notification dot (for completed downloads)
+        const notificationDot = document.createElement("box");
+        notificationDot.className = "downloads-indicator-notification";
+        notificationDot.style.cssText = "display: none; position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; background: #ff4444; border-radius: 50%; border: 1px solid white;";
+        
+        // Assemble the structure properly
+        progressArea.appendChild(progressInner);
+        progressIcon.appendChild(progressArea);
+        progressIcon.appendChild(notificationDot);
+        
+        stack.appendChild(mainIcon);
+        stack.appendChild(progressIcon);
+        proxy.appendChild(stack);
+        
+        // Position the proxy to match the library button exactly
+        proxy.style.cssText = `
+          position: absolute;
+          left: ${zenLibraryButton.offsetLeft}px;
+          top: ${zenLibraryButton.offsetTop}px;
+          width: ${zenLibraryButton.offsetWidth}px;
+          height: ${zenLibraryButton.offsetHeight}px;
+          pointer-events: none;
+          opacity: 0;
+          z-index: -1;
+          visibility: hidden;
+        `;
+        
+        // Insert the proxy near the library button
+        zenLibraryButton.parentNode.insertBefore(proxy, zenLibraryButton);
+        
+        // Update proxy position when library button moves or resizes
+        const updateProxyPosition = () => {
+          if (zenLibraryButton.isConnected && proxy.isConnected) {
+            proxy.style.left = `${zenLibraryButton.offsetLeft}px`;
+            proxy.style.top = `${zenLibraryButton.offsetTop}px`;
+            proxy.style.width = `${zenLibraryButton.offsetWidth}px`;
+            proxy.style.height = `${zenLibraryButton.offsetHeight}px`;
+          }
+        };
+        
+        // Set up observers for position updates (more efficient than intervals)
+        let resizeObserver, mutationObserver;
+        
+        try {
+          resizeObserver = new ResizeObserver(updateProxyPosition);
+          resizeObserver.observe(zenLibraryButton);
+          
+          mutationObserver = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+              if (mutation.type === 'attributes' && 
+                  (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
+                updateProxyPosition();
+              }
+            });
+          });
+          mutationObserver.observe(zenLibraryButton, { 
+            attributes: true, 
+            attributeFilter: ['style', 'class'] 
+          });
+        } catch (observerError) {
+          console.warn("[Tidy Downloads] Observer setup failed, using fallback interval:", observerError);
+          // Fallback to interval if observers fail
+          const positionInterval = setInterval(() => {
+            if (!proxy.isConnected) {
+              clearInterval(positionInterval);
+              return;
+            }
+            updateProxyPosition();
+          }, 200);
+        }
+        
+        // Clean up observers when elements are removed
+        const cleanupObservers = () => {
+          if (resizeObserver) resizeObserver.disconnect();
+          if (mutationObserver) mutationObserver.disconnect();
+        };
+        
+        // Store cleanup function for later use
+        proxy._cleanupObservers = cleanupObservers;
+        
+        // Set up the downloads indicator fix immediately
+        setupDownloadsIndicatorFix(proxy);
+        
+        console.log("[Tidy Downloads] Created complete downloads-button proxy with progress elements for zen-library-button");
+      }
+    } catch (error) {
+      console.error("[Tidy Downloads] Error creating downloads button proxy:", error);
+    }
+  }
+
+  // Fix the downloads indicator to work with the proxy button
+  function setupDownloadsIndicatorFix(proxyButton) {
+    try {
+      // Immediately patch methods to prevent errors, then set up proper references
+      patchDownloadsIndicatorMethods();
+      
+      // Wait for the downloads indicator to initialize
+      setTimeout(() => {
+        // Try to get the downloads indicator
+        const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
+        
+        if (indicator) {
+          // Point the indicator to our proxy elements
+          const progressIcon = proxyButton.querySelector("#downloads-indicator-progress-icon");
+          const progressArea = proxyButton.querySelector(".downloads-indicator-progress-area");
+          
+          if (progressIcon && progressArea) {
+            // Override the indicator's element references
+            Object.defineProperty(indicator, '_progressIcon', {
+              get: () => progressIcon,
+              configurable: true,
+              enumerable: true
+            });
+            
+            Object.defineProperty(indicator, '_progressArea', {
+              get: () => progressArea,
+              configurable: true,
+              enumerable: true
+            });
+            
+            // Also ensure the button reference points to our proxy
+            Object.defineProperty(indicator, 'indicator', {
+              get: () => proxyButton,
+              configurable: true,
+              enumerable: true
+            });
+            
+            console.log("[Tidy Downloads] Fixed downloads indicator references to use proxy elements");
+          }
+        }
+        
+      }, 500); // Reduced timeout for faster response
+      
+      // Also try again after a longer delay in case the indicator initializes late
+      setTimeout(() => {
+        const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
+        if (indicator && !indicator._progressIcon) {
+          const progressIcon = proxyButton.querySelector("#downloads-indicator-progress-icon");
+          if (progressIcon) {
+            Object.defineProperty(indicator, '_progressIcon', {
+              get: () => progressIcon,
+              configurable: true,
+              enumerable: true
+            });
+            console.log("[Tidy Downloads] Late fix applied for downloads indicator progress icon");
+          }
+        }
+      }, 2000);
+      
+    } catch (error) {
+      console.error("[Tidy Downloads] Error setting up downloads indicator fix:", error);
+    }
+  }
+
+  // Patch downloads indicator methods to handle missing elements gracefully
+  function patchDownloadsIndicatorMethods() {
+    try {
+      const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
+      
+      if (!indicator) {
+        console.debug("[Tidy Downloads] No downloads indicator found to patch");
+        return;
+      }
+      
+      // Patch _progressRaf method (from error stack trace)
+      if (indicator._progressRaf && !indicator._progressRaf._patched) {
+        const originalProgressRaf = indicator._progressRaf;
+        indicator._progressRaf = function() {
+          try {
+            // Check if _progressIcon exists and has style property before calling original method
+            if (this._progressIcon && this._progressIcon.style) {
+              return originalProgressRaf.call(this);
+            } else {
+              // Silently skip if elements don't exist
+              console.debug("[Tidy Downloads] Skipping _progressRaf - no progress icon available");
+              return;
+            }
+          } catch (error) {
+            console.debug("[Tidy Downloads] _progressRaf error handled:", error.message);
+            return;
+          }
+        };
+        indicator._progressRaf._patched = true;
+      }
+      
+      // Patch _maybeScheduleProgressUpdate method (from error stack trace)
+      if (indicator._maybeScheduleProgressUpdate && !indicator._maybeScheduleProgressUpdate._patched) {
+        const originalMaybeSchedule = indicator._maybeScheduleProgressUpdate;
+        indicator._maybeScheduleProgressUpdate = function() {
+          try {
+            if (this._progressIcon && this._progressIcon.style) {
+              return originalMaybeSchedule.call(this);
+            } else {
+              console.debug("[Tidy Downloads] Skipping _maybeScheduleProgressUpdate - no progress icon available");
+              return;
+            }
+          } catch (error) {
+            console.debug("[Tidy Downloads] _maybeScheduleProgressUpdate error handled:", error.message);
+            return;
+          }
+        };
+        indicator._maybeScheduleProgressUpdate._patched = true;
+      }
+      
+      // Patch set percentComplete method (from error stack trace)
+      const percentCompleteDescriptor = Object.getOwnPropertyDescriptor(indicator, 'percentComplete') || 
+                                       Object.getOwnPropertyDescriptor(Object.getPrototypeOf(indicator), 'percentComplete');
+      
+      if (percentCompleteDescriptor && percentCompleteDescriptor.set && !percentCompleteDescriptor.set._patched) {
+        const originalSetter = percentCompleteDescriptor.set;
+        Object.defineProperty(indicator, 'percentComplete', {
+          get: percentCompleteDescriptor.get,
+          set: function(value) {
+            try {
+              if (this._progressIcon && this._progressIcon.style) {
+                return originalSetter.call(this, value);
+              } else {
+                console.debug("[Tidy Downloads] Skipping percentComplete setter - no progress icon available");
+                return;
+              }
+            } catch (error) {
+              console.debug("[Tidy Downloads] percentComplete setter error handled:", error.message);
+              return;
+            }
+          },
+          configurable: true,
+          enumerable: true
+        });
+        // Mark as patched by adding property to the setter function
+        Object.defineProperty(indicator, '_percentCompletePatched', { value: true });
+      }
+      
+      // Patch _updateView method if it exists
+      if (indicator._updateView && !indicator._updateView._patched) {
+        const originalUpdateView = indicator._updateView;
+        indicator._updateView = function() {
+          try {
+            if (this._progressIcon && this._progressIcon.style) {
+              return originalUpdateView.call(this);
+            } else {
+              console.debug("[Tidy Downloads] Skipping _updateView - no progress icon available");
+              return;
+            }
+          } catch (error) {
+            console.debug("[Tidy Downloads] _updateView error handled:", error.message);
+            return;
+          }
+        };
+        indicator._updateView._patched = true;
+      }
+      
+      // Patch refreshView method if it exists
+      if (indicator.refreshView && !indicator.refreshView._patched) {
+        const originalRefreshView = indicator.refreshView;
+        indicator.refreshView = function() {
+          try {
+            if (this._progressIcon && this._progressIcon.style) {
+              return originalRefreshView.call(this);
+            } else {
+              console.debug("[Tidy Downloads] Skipping refreshView - no progress icon available");
+              return;
+            }
+          } catch (error) {
+            console.debug("[Tidy Downloads] refreshView error handled:", error.message);
+            return;
+          }
+        };
+        indicator.refreshView._patched = true;
+      }
+      
+      // Patch _ensureOperational method if it exists
+      if (indicator._ensureOperational && !indicator._ensureOperational._patched) {
+        const originalEnsureOperational = indicator._ensureOperational;
+        indicator._ensureOperational = function() {
+          try {
+            return originalEnsureOperational.call(this);
+          } catch (error) {
+            console.debug("[Tidy Downloads] _ensureOperational error handled:", error.message);
+            // Try to set up basic functionality even if original fails
+            if (!this._progressIcon) {
+              const proxyButton = document.getElementById("downloads-button");
+              if (proxyButton) {
+                const progressIcon = proxyButton.querySelector("#downloads-indicator-progress-icon");
+                if (progressIcon) {
+                  this._progressIcon = progressIcon;
+                  console.debug("[Tidy Downloads] Set up progress icon in _ensureOperational fallback");
+                }
+              }
+            }
+            return;
+          }
+        };
+        indicator._ensureOperational._patched = true;
+      }
+      
+      // Patch set hasDownloads method if it exists (from error stack trace)
+      const hasDownloadsDescriptor = Object.getOwnPropertyDescriptor(indicator, 'hasDownloads') || 
+                                    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(indicator), 'hasDownloads');
+      
+      if (hasDownloadsDescriptor && hasDownloadsDescriptor.set && !indicator._hasDownloadsPatched) {
+        const originalSetter = hasDownloadsDescriptor.set;
+        Object.defineProperty(indicator, 'hasDownloads', {
+          get: hasDownloadsDescriptor.get,
+          set: function(value) {
+            try {
+              return originalSetter.call(this, value);
+            } catch (error) {
+              console.debug("[Tidy Downloads] hasDownloads setter error handled:", error.message);
+              return;
+            }
+          },
+          configurable: true,
+          enumerable: true
+        });
+        // Mark as patched
+        Object.defineProperty(indicator, '_hasDownloadsPatched', { value: true });
+      }
+      
+      console.log("[Tidy Downloads] Comprehensively patched downloads indicator methods for error handling");
+    } catch (error) {
+      console.error("[Tidy Downloads] Error patching downloads indicator methods:", error);
+    }
+  }
+
+  // Helper function to check if element is visible (copied from animation code)
+  function isElementVisible(element) {
+    if (!element) {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    // Element must be in the viewport
+    // Is 1 and no 0 because if you pin the download button in the overflow menu
+    // the download button is in the viewport but in the position 0,0 so this
+    // avoid this case
+    if (rect.bottom < 1 ||
+        rect.right < 1 ||
+        rect.top > window.innerHeight ||
+        rect.left > window.innerWidth) {
+      return false;
+    }
+    return true;
   }
 
 
