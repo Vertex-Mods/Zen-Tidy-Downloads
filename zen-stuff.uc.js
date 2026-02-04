@@ -1001,14 +1001,6 @@
       state.downloadButton.addEventListener('mouseleave', handleDownloadButtonLeave);
     }
 
-    // Also listen for hover on the main download cards container area
-    const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-    if (mainDownloadContainer) {
-      mainDownloadContainer.addEventListener('mouseenter', handleDownloadButtonHover);
-      mainDownloadContainer.addEventListener('mouseleave', handleDownloadButtonLeave);
-      debugLog("Added hover listeners to main download cards container");
-    }
-
     // Dynamic sizer hover events (keep container open when cursor is inside)
     if (state.dynamicSizer) {
       state.dynamicSizer.addEventListener('mouseenter', handleDynamicSizerHover);
@@ -1709,8 +1701,7 @@
           // After clearing the flag, check if we should hide the pile
           // (if user is not hovering and not in always-show mode)
           if (!getAlwaysShowPile() && !shouldDisableHover()) {
-            const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-            const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
+            const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
             const isHoveringPile = state.pileContainer?.matches(':hover') || state.dynamicSizer?.matches(':hover');
             
             if (!isHoveringDownloadArea && !isHoveringPile) {
@@ -1833,9 +1824,6 @@
       return;
     }
 
-    // Apply mask to tabs wrapper immediately on hover
-    // Masking is now handled automatically by --zen-pile-height variable
-
     clearTimeout(state.hoverTimeout);
     state.hoverTimeout = setTimeout(() => {
       debugLog("[DownloadHover] Timeout triggered - calling showPile()");
@@ -1846,35 +1834,6 @@
   // Download button leave handler
   function handleDownloadButtonLeave() {
     debugLog("[DownloadHover] handleDownloadButtonLeave called");
-
-    // Show media controls toolbar again when leaving download button area (with delay)
-    clearTimeout(state.mediaControlsToolbarTimeout);
-
-    // Check if pile is currently visible/animating - add animation duration to delay
-    const isPileVisible = state.dynamicSizer && state.dynamicSizer.style.height !== '0px' && state.dynamicSizer.style.display !== 'none';
-    const delay = isPileVisible ? CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50 : CONFIG.hoverDebounceMs;
-
-    state.mediaControlsToolbarTimeout = setTimeout(() => {
-      const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-      if (mediaControlsToolbar) {
-        // Check if we're still hovering over the pile area
-        const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-        const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
-        const isHoveringPile = state.pileContainer?.matches(':hover') || state.dynamicSizer?.matches(':hover');
-
-        // Check if pile is still visible/animating
-        const pileStillVisible = state.dynamicSizer &&
-          state.dynamicSizer.style.height !== '0px' &&
-          state.dynamicSizer.style.display !== 'none';
-
-        // Only show toolbar if not hovering over download/pile area, context menu not visible, and pile is hidden
-        if (!isHoveringDownloadArea && !isHoveringPile && !isContextMenuVisible() && !pileStillVisible) {
-          mediaControlsToolbar.style.opacity = '1';
-          mediaControlsToolbar.style.pointerEvents = 'auto';
-          debugLog("[DownloadHover] Showed media controls toolbar");
-        }
-      }
-    }, delay);
 
     // In always-show mode, don't handle hover events
     if (getAlwaysShowPile()) {
@@ -1888,21 +1847,39 @@
 
     clearTimeout(state.hoverTimeout);
     state.hoverTimeout = setTimeout(() => {
-      const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-      const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
+      const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
 
       debugLog("[DownloadHover] Leave timeout - checking hover states", {
         isHoveringDownloadArea,
-        pileContainerHover: state.pileContainer.matches(':hover'),
-        dynamicSizerHover: state.dynamicSizer.matches(':hover')
+        pileContainerHover: state.pileContainer?.matches(':hover'),
+        dynamicSizerHover: state.dynamicSizer?.matches(':hover')
       });
 
-      // Only hide if cursor is not over download area AND not over pile components
-      if (!isHoveringDownloadArea && !state.pileContainer.matches(':hover') && !state.dynamicSizer.matches(':hover')) {
-        // Remove mask when leaving download button area
-        // Mask removed automatically when hidePile sets --zen-pile-height to 0
+      // Only hide if cursor is not over download button AND not over pile components
+      if (!isHoveringDownloadArea && !state.pileContainer?.matches(':hover') && !state.dynamicSizer?.matches(':hover')) {
         debugLog("[DownloadHover] Calling hidePile()");
         hidePile();
+        
+        // Show media controls toolbar again when leaving download button area (with delay)
+        clearTimeout(state.mediaControlsToolbarTimeout);
+        const delay = CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50;
+
+        state.mediaControlsToolbarTimeout = setTimeout(() => {
+          const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+          if (mediaControlsToolbar) {
+            // Double-check we're still not hovering
+            const stillNotHovering = !state.downloadButton?.matches(':hover') && 
+              !state.pileContainer?.matches(':hover') && 
+              !state.dynamicSizer?.matches(':hover');
+            const pileHidden = !state.dynamicSizer || state.dynamicSizer.style.height === '0px';
+
+            if (stillNotHovering && !isContextMenuVisible() && pileHidden) {
+              mediaControlsToolbar.style.opacity = '1';
+              mediaControlsToolbar.style.pointerEvents = 'auto';
+              debugLog("[DownloadHover] Showed media controls toolbar");
+            }
+          }
+        }, delay);
       }
     }, CONFIG.hoverDebounceMs);
   }
@@ -1911,63 +1888,31 @@
   function handleDynamicSizerHover() {
     debugLog("[SizerHover] handleDynamicSizerHover called");
 
-    // Hide media controls toolbar when hovering over sizer (only if there are pods)
+    // Keep media controls toolbar hidden while hovering over pile area
     if (state.dismissedPods.size > 0) {
       clearTimeout(state.mediaControlsToolbarTimeout);
       const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
       if (mediaControlsToolbar) {
         mediaControlsToolbar.style.opacity = '0';
         mediaControlsToolbar.style.pointerEvents = 'none';
-        debugLog("[SizerHover] Hid media controls toolbar");
+        debugLog("[SizerHover] Kept media controls toolbar hidden");
       }
     }
 
-    // Keep mask applied when hovering over pile
-    // Masking handled by --zen-pile-height
-
     if (getAlwaysShowPile()) return;
+    
     clearTimeout(state.hoverTimeout);
+    
+    // Keep pile visible while hovering over sizer
     if (state.dismissedPods.size > 0) {
-      showPile(); // Ensure pile stays open when hovering the sizer
-      // Always show buttons in single column mode
-      {
-        showPileBackground();
-      }
+      showPile();
+      showPileBackground();
     }
   }
 
   // Dynamic sizer leave handler
   function handleDynamicSizerLeave() {
     debugLog("[SizerHover] handleDynamicSizerLeave called");
-
-    // Show media controls toolbar again when leaving sizer area (with delay)
-    clearTimeout(state.mediaControlsToolbarTimeout);
-
-    // Check if pile is currently visible/animating - add animation duration to delay
-    const isPileVisible = state.dynamicSizer && state.dynamicSizer.style.height !== '0px' && state.dynamicSizer.style.display !== 'none';
-    const delay = isPileVisible ? CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50 : CONFIG.hoverDebounceMs;
-
-    state.mediaControlsToolbarTimeout = setTimeout(() => {
-      const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-      if (mediaControlsToolbar) {
-        // Check if we're still hovering over the download button or pile area
-        const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-        const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
-        const isHoveringPile = state.pileContainer?.matches(':hover') || state.dynamicSizer?.matches(':hover');
-
-        // Check if pile is still visible/animating
-        const pileStillVisible = state.dynamicSizer &&
-          state.dynamicSizer.style.height !== '0px' &&
-          state.dynamicSizer.style.display !== 'none';
-
-        // Only show toolbar if not hovering over download/pile area, context menu not visible, and pile is hidden
-        if (!isHoveringDownloadArea && !isHoveringPile && !isContextMenuVisible() && !pileStillVisible) {
-          mediaControlsToolbar.style.opacity = '1';
-          mediaControlsToolbar.style.pointerEvents = 'auto';
-          debugLog("[SizerHover] Showed media controls toolbar");
-        }
-      }
-    }, delay);
 
     clearTimeout(state.hoverTimeout);
 
@@ -1978,9 +1923,7 @@
       return;
     }
 
-    // No mode transitions needed
-
-    // In always-show mode, don't handle pile visibility, just transitions
+    // In always-show mode, don't handle pile visibility
     if (getAlwaysShowPile()) {
       debugLog("[SizerHover] Always-show mode - only handling grid transition");
       return;
@@ -1988,25 +1931,43 @@
 
     // Normal mode: handle pile hiding
     state.hoverTimeout = setTimeout(() => {
-      const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-      const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
+      const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
 
       debugLog("[SizerHover] Leave timeout - checking hover states", {
         isHoveringDownloadArea,
-        pileContainerHover: state.pileContainer.matches(':hover'),
+        pileContainerHover: state.pileContainer?.matches(':hover'),
         contextMenuVisible: isContextMenuVisible()
       });
 
-      // Only hide if not hovering download area AND not hovering pile container AND context menu not visible
-      if (!isHoveringDownloadArea && !state.pileContainer.matches(':hover')) {
+      // Only hide if not hovering download button AND not hovering pile container AND context menu not visible
+      if (!isHoveringDownloadArea && !state.pileContainer?.matches(':hover')) {
         if (isContextMenuVisible()) {
           debugLog("[SizerHover] Context menu visible at timeout - deferring pile close");
           state.pendingPileClose = true;
         } else {
-          // Remove mask when leaving pile area
-          // Mask removed automatically by hidePile
           debugLog("[SizerHover] Calling hidePile()");
           hidePile();
+          
+          // Show media controls toolbar when leaving pile area
+          clearTimeout(state.mediaControlsToolbarTimeout);
+          const delay = CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50;
+
+          state.mediaControlsToolbarTimeout = setTimeout(() => {
+            const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+            if (mediaControlsToolbar) {
+              // Double-check we're still not hovering
+              const stillNotHovering = !state.downloadButton?.matches(':hover') && 
+                !state.pileContainer?.matches(':hover') && 
+                !state.dynamicSizer?.matches(':hover');
+              const pileHidden = !state.dynamicSizer || state.dynamicSizer.style.height === '0px';
+
+              if (stillNotHovering && !isContextMenuVisible() && pileHidden) {
+                mediaControlsToolbar.style.opacity = '1';
+                mediaControlsToolbar.style.pointerEvents = 'auto';
+                debugLog("[SizerHover] Showed media controls toolbar");
+              }
+            }
+          }, delay);
         }
       }
     }, CONFIG.hoverDebounceMs);
@@ -2016,19 +1977,16 @@
   function handlePileHover() {
     debugLog("[PileHover] handlePileHover called");
 
-    // Hide media controls toolbar when hovering over pile (only if there are pods)
+    // Keep media controls toolbar hidden while hovering over pile
     if (state.dismissedPods.size > 0) {
       clearTimeout(state.mediaControlsToolbarTimeout);
       const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
       if (mediaControlsToolbar) {
         mediaControlsToolbar.style.opacity = '0';
         mediaControlsToolbar.style.pointerEvents = 'none';
-        debugLog("[PileHover] Hid media controls toolbar");
+        debugLog("[PileHover] Kept media controls toolbar hidden");
       }
     }
-
-    // Keep mask applied when hovering over pile
-    // Masking handled by --zen-pile-height
 
     clearTimeout(state.hoverTimeout);
     showPileBackground();
@@ -2037,35 +1995,6 @@
   // Pile leave handler (simplified)
   function handlePileLeave() {
     debugLog("[PileHover] handlePileLeave called");
-
-    // Show media controls toolbar again when leaving pile area (with delay)
-    clearTimeout(state.mediaControlsToolbarTimeout);
-
-    // Check if pile is currently visible/animating - add animation duration to delay
-    const isPileVisible = state.dynamicSizer && state.dynamicSizer.style.height !== '0px' && state.dynamicSizer.style.display !== 'none';
-    const delay = isPileVisible ? CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50 : CONFIG.hoverDebounceMs;
-
-    state.mediaControlsToolbarTimeout = setTimeout(() => {
-      const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-      if (mediaControlsToolbar) {
-        // Check if we're still hovering over the download button area
-        const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-        const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
-        const isHoveringPile = state.pileContainer?.matches(':hover') || state.dynamicSizer?.matches(':hover');
-
-        // Check if pile is still visible/animating
-        const pileStillVisible = state.dynamicSizer &&
-          state.dynamicSizer.style.height !== '0px' &&
-          state.dynamicSizer.style.display !== 'none';
-
-        // Only show toolbar if not hovering over download/pile area, context menu not visible, and pile is hidden
-        if (!isHoveringDownloadArea && !isHoveringPile && !isContextMenuVisible() && !pileStillVisible) {
-          mediaControlsToolbar.style.opacity = '1';
-          mediaControlsToolbar.style.pointerEvents = 'auto';
-          debugLog("[PileHover] Showed media controls toolbar");
-        }
-      }
-    }, delay);
 
     clearTimeout(state.hoverTimeout);
 
@@ -2083,17 +2012,35 @@
 
     // Normal mode: handle pile hiding
     state.hoverTimeout = setTimeout(() => {
-      const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-      const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
+      const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
 
-      if (!isHoveringDownloadArea && !state.dynamicSizer.matches(':hover')) {
+      if (!isHoveringDownloadArea && !state.dynamicSizer?.matches(':hover')) {
         if (isContextMenuVisible()) {
           state.pendingPileClose = true;
         } else {
-          // Remove mask when leaving pile area
-          // Mask removed automatically by hidePile
           debugLog("[PileHover] Calling hidePile()");
           hidePile();
+          
+          // Show media controls toolbar when leaving pile area
+          clearTimeout(state.mediaControlsToolbarTimeout);
+          const delay = CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50;
+
+          state.mediaControlsToolbarTimeout = setTimeout(() => {
+            const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+            if (mediaControlsToolbar) {
+              // Double-check we're still not hovering
+              const stillNotHovering = !state.downloadButton?.matches(':hover') && 
+                !state.pileContainer?.matches(':hover') && 
+                !state.dynamicSizer?.matches(':hover');
+              const pileHidden = !state.dynamicSizer || state.dynamicSizer.style.height === '0px';
+
+              if (stillNotHovering && !isContextMenuVisible() && pileHidden) {
+                mediaControlsToolbar.style.opacity = '1';
+                mediaControlsToolbar.style.pointerEvents = 'auto';
+                debugLog("[PileHover] Showed media controls toolbar");
+              }
+            }
+          }, delay);
         }
       }
     }, CONFIG.hoverDebounceMs);
@@ -2273,13 +2220,11 @@
       }
     });
 
-    // Reset mask height variable to -50px (to account for fade offset)
+    // Reset mask height variable to -50px (completely hide mask)
     document.documentElement.style.setProperty('--zen-pile-height', '-50px');
 
     // Restore workspace-arrowscrollbox::after when pile is hidden
     showWorkspaceScrollboxAfter();
-
-    // No mode transitions needed
 
     debugLog("Hiding dismissed downloads pile by collapsing sizer");
   }
@@ -3107,8 +3052,7 @@
         setTimeout(() => {
           const isHoveringPile = state.pileContainer?.matches(':hover');
           const isHoveringSizer = state.dynamicSizer?.matches(':hover');
-          const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-          const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
+          const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
           const isPileVisible = state.dynamicSizer && state.dynamicSizer.style.height !== '0px';
 
           if (!isHoveringPile && !isHoveringSizer && !isHoveringDownloadArea) {
@@ -3138,8 +3082,7 @@
                 // Check again if we're still not hovering and pile is hidden
                 const stillNotHovering = !state.pileContainer?.matches(':hover') &&
                   !state.dynamicSizer?.matches(':hover') &&
-                  !state.downloadButton?.matches(':hover') &&
-                  !mainDownloadContainer?.matches(':hover');
+                  !state.downloadButton?.matches(':hover');
                 const pileStillHidden = !state.dynamicSizer ||
                   state.dynamicSizer.style.height === '0px' ||
                   state.dynamicSizer.style.display === 'none';
@@ -3402,11 +3345,10 @@
       if (!getAlwaysShowPile() && !shouldDisableHover()) {
         // Small delay to allow DOM to update
         setTimeout(() => {
-          const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-          const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
+          const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
           const isHoveringPile = state.pileContainer?.matches(':hover') || state.dynamicSizer?.matches(':hover');
           
-          // Only hide if not hovering over download area or pile
+          // Only hide if not hovering over download button or pile
           if (!isHoveringDownloadArea && !isHoveringPile) {
             debugLog("[Rename] Editing finished, hiding pile (not hovering)");
             clearTimeout(state.hoverTimeout);

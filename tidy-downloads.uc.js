@@ -1553,6 +1553,62 @@
           });
         }
 
+        // Add drag-and-drop support for dragging to web pages
+        podElement.setAttribute('draggable', 'true');
+        podElement.addEventListener('dragstart', async (e) => {
+          // Only allow drag if we have a file path and file exists
+          if (!download.target?.path) {
+            e.preventDefault();
+            return;
+          }
+
+          try {
+            // SECURITY: Validate path before file operations
+            const pathValidation = SecurityUtils.validateFilePath(download.target.path, { strict: false });
+            if (!pathValidation.valid) {
+              debugLog('[DragDrop] Path validation failed:', pathValidation.error);
+              e.preventDefault();
+              return;
+            }
+
+            const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
+            file.initWithPath(download.target.path);
+            
+            if (!file.exists()) {
+              e.preventDefault();
+              return;
+            }
+
+            // Set the native file flavor for Firefox
+            if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === 'function') {
+              e.dataTransfer.mozSetDataAt('application/x-moz-file', file, 0);
+            }
+
+            // Set URI flavors for web pages
+            const fileUrl = file.path.startsWith('\\') ? 
+              'file:' + file.path.replace(/\\/g, '/') : 
+              'file:///' + file.path.replace(/\\/g, '/');
+            
+            if (fileUrl) {
+              e.dataTransfer.setData('text/uri-list', fileUrl);
+              e.dataTransfer.setData('text/plain', fileUrl);
+            }
+
+            // Optionally, set a download URL for HTML5 drop targets
+            if (download.source?.url) {
+              const contentType = download.contentType || getContentTypeFromFilename(safeFilename);
+              e.dataTransfer.setData('DownloadURL', `${contentType}:${safeFilename}:${download.source.url}`);
+            }
+
+            // Use the pod element as drag image
+            e.dataTransfer.setDragImage(podElement, 28, 28);
+            debugLog('[DragDrop] Started drag for:', safeFilename);
+          } catch (err) {
+            debugLog('[DragDrop] Error during dragstart:', err);
+            e.preventDefault();
+          }
+        });
+
         cardData = {
         podElement, // Renamed from cardElement
           download,
@@ -4842,6 +4898,52 @@ Instructions:
     const sizes = ["B", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(b) / Math.log(1024));
     return `${parseFloat((b / Math.pow(1024, i)).toFixed(d))} ${sizes[i]}`;
+  }
+
+  // Get content type from filename extension
+  function getContentTypeFromFilename(filename) {
+    if (!filename) return 'application/octet-stream';
+    
+    const ext = filename.toLowerCase().split('.').pop();
+    const mimeTypes = {
+      // Images
+      'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 
+      'gif': 'image/gif', 'webp': 'image/webp', 'bmp': 'image/bmp',
+      'svg': 'image/svg+xml', 'ico': 'image/x-icon',
+      
+      // Documents
+      'pdf': 'application/pdf', 'doc': 'application/msword',
+      'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'xls': 'application/vnd.ms-excel',
+      'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'ppt': 'application/vnd.ms-powerpoint',
+      'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      
+      // Text
+      'txt': 'text/plain', 'html': 'text/html', 'css': 'text/css',
+      'js': 'text/javascript', 'json': 'application/json',
+      'xml': 'text/xml', 'csv': 'text/csv',
+      
+      // Audio
+      'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'ogg': 'audio/ogg',
+      'flac': 'audio/flac', 'aac': 'audio/aac', 'm4a': 'audio/mp4',
+      
+      // Video
+      'mp4': 'video/mp4', 'avi': 'video/x-msvideo', 'mov': 'video/quicktime',
+      'wmv': 'video/x-ms-wmv', 'flv': 'video/x-flv', 'webm': 'video/webm',
+      'mkv': 'video/x-matroska',
+      
+      // Archives
+      'zip': 'application/zip', 'rar': 'application/x-rar-compressed',
+      '7z': 'application/x-7z-compressed', 'tar': 'application/x-tar',
+      'gz': 'application/gzip',
+      
+      // Executables
+      'exe': 'application/x-msdownload', 'msi': 'application/x-msi',
+      'deb': 'application/x-debian-package', 'rpm': 'application/x-rpm'
+    };
+    
+    return mimeTypes[ext] || 'application/octet-stream';
   }
 
   // Helper functions to hide/show media controls toolbar
