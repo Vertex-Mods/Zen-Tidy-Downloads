@@ -1440,7 +1440,11 @@
     row.setAttribute('draggable', 'true');
     row.addEventListener('dragstart', async (e) => {
       // Only allow drag if we have a file path
-      if (!podData.targetPath) return;
+      if (!podData.targetPath) {
+        e.preventDefault();
+        return;
+      }
+      
       // Ensure image (if present) is loaded before allowing drag
       const img = pod.querySelector('img');
       if (img && !img.complete) {
@@ -1449,14 +1453,25 @@
         debugLog('[DragDrop] Image not loaded, preventing drag for:', podData.filename);
         return;
       }
+      
       // Try to get the file instance
       try {
         const file = await FileSystem.createFileInstance(podData.targetPath);
-        if (!file.exists()) return;
-        // Set the native file flavor for Firefox
-        if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === 'function') {
-          e.dataTransfer.mozSetDataAt('application/x-moz-file', file, 0);
+        if (!file.exists()) {
+          e.preventDefault();
+          return;
         }
+        
+        // Set the native file flavor for Firefox - use try/catch to handle potential DOMException
+        try {
+          if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === 'function') {
+            e.dataTransfer.mozSetDataAt('application/x-moz-file', file, 0);
+          }
+        } catch (mozError) {
+          debugLog('[DragDrop] mozSetDataAt failed, continuing with other formats:', mozError);
+          // Continue with other data formats even if mozSetDataAt fails
+        }
+        
         // Set URI flavors for web pages
         const fileUrl = file && file.path ?
           (file.path.startsWith('\\') ? 'file:' + file.path.replace(/\\/g, '/') : 'file:///' + file.path.replace(/\\/g, '/'))
@@ -1465,15 +1480,18 @@
           e.dataTransfer.setData('text/uri-list', fileUrl);
           e.dataTransfer.setData('text/plain', fileUrl);
         }
+        
         // Optionally, set a download URL for HTML5 drop targets
         if (podData.sourceUrl) {
           e.dataTransfer.setData('DownloadURL', `${podData.contentType || 'application/octet-stream'}:${podData.filename}:${podData.sourceUrl}`);
         }
+        
         // Force reflow to ensure the pod is painted
         pod.offsetWidth;
         e.dataTransfer.setDragImage(pod, 22, 22);
       } catch (err) {
         debugLog('[DragDrop] Error during dragstart:', err);
+        e.preventDefault();
       }
     });
 
@@ -1903,10 +1921,11 @@
     
     clearTimeout(state.hoverTimeout);
     
-    // Keep pile visible while hovering over sizer
+    // Keep pile visible while hovering over sizer and maintain mask
     if (state.dismissedPods.size > 0) {
       showPile();
       showPileBackground();
+      debugLog("[SizerHover] Maintaining pile visibility and mask during sizer hover");
     }
   }
 
@@ -1989,7 +2008,15 @@
     }
 
     clearTimeout(state.hoverTimeout);
+    
+    // Ensure pile background and mask remain active during hover
     showPileBackground();
+    
+    // If pile is visible, ensure it stays visible during hover
+    if (state.dismissedPods.size > 0 && state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
+      // Keep the pile visible and maintain the mask
+      debugLog("[PileHover] Maintaining pile visibility and mask during hover");
+    }
   }
 
   // Pile leave handler (simplified)
@@ -2731,9 +2758,28 @@
     if (state.isTransitioning) {
       return;
     }
-    // Keep transparent - the mask on tabs wrapper handles the fade effect
+    
+    // Don't hide background if pile is currently visible - keep mask persistent
+    const isPileVisible = state.dynamicSizer.style.height !== '0px' && state.dismissedPods.size > 0;
+    if (isPileVisible) {
+      // Keep the background and mask active while pile is visible
+      debugLog("[HidePileBackground] Pile is visible - keeping mask persistent");
+      return;
+    }
+    
+    // Don't hide background if user is currently hovering over pile area
+    const isHoveringPileArea = state.pileContainer?.matches(':hover') || 
+                              state.dynamicSizer?.matches(':hover') ||
+                              state.downloadButton?.matches(':hover');
+    if (isHoveringPileArea) {
+      debugLog("[HidePileBackground] User hovering over pile area - keeping mask active");
+      return;
+    }
+    
+    // Only hide background when pile is actually hidden and no hover
     state.dynamicSizer.style.background = 'transparent';
     state.dynamicSizer.style.backgroundColor = 'transparent';
+    debugLog("[HidePileBackground] Background hidden - pile not visible and no hover");
   }
 
   // Hide arrowscrollbox.workspace-arrowscrollbox::after when pile is showing

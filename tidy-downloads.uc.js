@@ -1579,9 +1579,14 @@
               return;
             }
 
-            // Set the native file flavor for Firefox
-            if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === 'function') {
-              e.dataTransfer.mozSetDataAt('application/x-moz-file', file, 0);
+            // Set the native file flavor for Firefox - use try/catch to handle potential DOMException
+            try {
+              if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === 'function') {
+                e.dataTransfer.mozSetDataAt('application/x-moz-file', file, 0);
+              }
+            } catch (mozError) {
+              debugLog('[DragDrop] mozSetDataAt failed, continuing with other formats:', mozError);
+              // Continue with other data formats even if mozSetDataAt fails
             }
 
             // Set URI flavors for web pages
