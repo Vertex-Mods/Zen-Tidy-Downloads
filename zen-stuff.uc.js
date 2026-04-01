@@ -23,10 +23,11 @@
     !window.zenStuffPodElement?.createPodElementFactory ||
     !window.zenStuffPileLayout?.createPileLayoutApi ||
     !window.zenStuffContextFileOps?.createContextFileOpsApi ||
-    !window.zenStuffPileVisibility?.createPileVisibilityApi
+    !window.zenStuffPileVisibility?.createPileVisibilityApi ||
+    !window.zenStuffPileMaskRepair?.createMaskRepairApi
   ) {
     console.error(
-      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops, zen-stuff-pile-visibility)"
+      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops, zen-stuff-pile-visibility, zen-stuff-pile-mask-repair)"
     );
     return;
   }
@@ -170,6 +171,8 @@
   let fileOpsApi = null;
   /** @type {ReturnType<typeof window.zenStuffPileVisibility.createPileVisibilityApi>|null} */
   let pileVisibilityApi = null;
+  /** @type {ReturnType<typeof window.zenStuffPileMaskRepair.createMaskRepairApi>|null} */
+  let maskRepairApi = null;
 
   // Error handling utilities (validateFilePath, validatePodData: see tidy-downloads-utils.uc.js)
   class ErrorHandler {
@@ -572,7 +575,7 @@
     state,
     CONFIG,
     debugLog,
-    setupPileBackgroundHoverEvents,
+    setupPileBackgroundHoverEvents: () => maskRepairApi?.setupPileBackgroundHoverEvents?.(),
     setupCompactModeObserver
   });
 
@@ -592,18 +595,39 @@
     applyGridPosition,
     updateDownloadsButtonVisibility: () => updateDownloadsButtonVisibility(),
     updatePodTextColors: () => updatePodTextColors(),
-    showPileBackground: () => showPileBackground(),
-    hidePileBackground: () => hidePileBackground(),
-    hideWorkspaceScrollboxAfter: () => hideWorkspaceScrollboxAfter(),
-    showWorkspaceScrollboxAfter: () => showWorkspaceScrollboxAfter(),
-    schedulePileLayoutRepair: (source, delayMs) => schedulePileLayoutRepair(source, delayMs),
-    setupPileBackgroundHoverEvents: () => setupPileBackgroundHoverEvents(),
+    showPileBackground: () => maskRepairApi.showPileBackground(),
+    hidePileBackground: () => maskRepairApi.hidePileBackground(),
+    hideWorkspaceScrollboxAfter: () => maskRepairApi.hideWorkspaceScrollboxAfter(),
+    showWorkspaceScrollboxAfter: () => maskRepairApi.showWorkspaceScrollboxAfter(),
+    schedulePileLayoutRepair: (source, delayMs) => maskRepairApi.schedulePileLayoutRepair(source, delayMs),
+    setupPileBackgroundHoverEvents: () => maskRepairApi.setupPileBackgroundHoverEvents(),
     updatePointerEvents: () => updatePointerEvents(),
     updatePileContainerWidth: () => updatePileContainerWidth(),
     getAlwaysShowPile: () => getAlwaysShowPile(),
     shouldPileBeVisible: () => shouldPileBeVisible(),
     isContextMenuVisible: () => isContextMenuVisible()
   });
+
+  maskRepairApi = window.zenStuffPileMaskRepair.createMaskRepairApi({
+    state,
+    debugLog,
+    getVisibilityApi: () => pileVisibilityApi,
+    updatePointerEvents: () => updatePointerEvents(),
+    updatePileHeight: () => updatePileHeight(),
+    isContextMenuVisible: () => isContextMenuVisible(),
+    getAlwaysShowPile: () => getAlwaysShowPile(),
+    generateGridPosition,
+    applyGridPosition,
+    updatePodTextColors: () => updatePodTextColors()
+  });
+
+  function schedulePileLayoutRepair(source, delayMs = 80) {
+    return maskRepairApi.schedulePileLayoutRepair(source, delayMs);
+  }
+
+  function recalculateLayout() {
+    return maskRepairApi.recalculateLayout();
+  }
 
   // Setup event listeners
   function setupEventListeners() {
@@ -658,7 +682,7 @@
     document.addEventListener('request-pile-expand', () => {
       if (state.dismissedPods.size > 0) {
         showPile();
-        showPileBackground();
+        maskRepairApi.showPileBackground();
         schedulePileLayoutRepair("request-pile-expand", 60);
       }
     });
@@ -776,139 +800,6 @@
   // Hide the pile
   function hidePile() {
     return pileVisibilityApi.hidePile();
-  }
-
-  /*
-   * Pile visibility state machine (informal invariants):
-   * - collapsed: dynamicSizer height 0, --zen-pile-height typically -50px, bridge hidden
-   * - expanded:  sizer has row height, mask >= 0 (or 0 when geometry is tiny), pointer-events per always-show
-   * - always_visible: getAlwaysShowPile() && dismissedPods.size > 0 ⇒ should not stay collapsed (except compact+sidebar collapsed)
-   * - pending_close: pendingPileClose until popuphidden / leave timeout resolves
-   * Repair re-syncs mask to sizer and re-applies pointer-events when these drift (e.g. after sticky + pile-shown).
-   */
-
-  /**
-   * @returns {number}
-   */
-  function getPileMaskHeightPx() {
-    const raw = getComputedStyle(document.documentElement).getPropertyValue("--zen-pile-height").trim();
-    const n = parseFloat(raw);
-    return Number.isFinite(n) ? n : NaN;
-  }
-
-  /**
-   * @returns {number}
-   */
-  function readSizerContentHeightPx() {
-    const h = state.dynamicSizer?.style?.height;
-    if (!h || h === "0px") {
-      return 0;
-    }
-    const n = parseFloat(h);
-    return Number.isFinite(n) ? n : 0;
-  }
-
-  /**
-   * Fix desynced mask / sizer / pointer-events. Idempotent; logs when it changes something.
-   * @param {string} source
-   */
-  function enforcePileLayoutInvariants(source = "") {
-    if (!state.dynamicSizer) {
-      return;
-    }
-
-    const podCount = state.dismissedPods.size;
-    const sizerOpen = state.dynamicSizer.style.height !== "0px";
-    const maskH = getPileMaskHeightPx();
-    const sizerH = readSizerContentHeightPx();
-
-    if (podCount === 0) {
-      if (
-        sizerOpen &&
-        !state.recentlyRemoved &&
-        !state.isEditing &&
-        !isContextMenuVisible()
-      ) {
-        debugLog("[PileRepair] empty pile but sizer open → hidePile", { source });
-        hidePile();
-      }
-      return;
-    }
-
-    const isCompactMode = document.documentElement.getAttribute("zen-compact-mode") === "true";
-    const isSidebarExpanded = document.documentElement.getAttribute("zen-sidebar-expanded") === "true";
-    const compactBlocksPile = isCompactMode && !isSidebarExpanded;
-
-    if (getAlwaysShowPile() && !sizerOpen && !compactBlocksPile) {
-      debugLog("[PileRepair] always-show + pods but sizer collapsed → showPile", { source });
-      showPile();
-      updatePointerEvents();
-      return;
-    }
-
-    if (sizerOpen && !compactBlocksPile) {
-      const maskBadNegative = Number.isFinite(maskH) && maskH < 0;
-      const maskZeroButSizerTall = maskH === 0 && sizerH > 16;
-      if (maskBadNegative || maskZeroButSizerTall) {
-        debugLog("[PileRepair] sizer open but mask out of sync → updatePileHeight", {
-          source,
-          maskH,
-          sizerH
-        });
-        updatePileHeight();
-        updatePointerEvents();
-      }
-    }
-  }
-
-  /**
-   * Coalesce rapid calls; throttle how often we run a full enforce pass.
-   * @param {string} source
-   * @param {number} delayMs
-   */
-  function schedulePileLayoutRepair(source, delayMs = 80) {
-    clearTimeout(state.pileRepairDebounceId);
-    state.pileRepairDebounceId = setTimeout(() => {
-      state.pileRepairDebounceId = null;
-      const now = Date.now();
-      if (now - state.lastPileRepairAt < 350) {
-        return;
-      }
-      state.lastPileRepairAt = now;
-      try {
-        enforcePileLayoutInvariants(source);
-      } catch (e) {
-        debugLog("[PileRepair] enforce error:", e);
-      }
-    }, delayMs);
-  }
-
-  // Recalculate layout on window resize
-  function recalculateLayout() {
-    if (state.dismissedPods.size === 0) return;
-
-    // Regenerate grid positions
-    state.dismissedPods.forEach((_, podKey) => {
-      generateGridPosition(podKey);
-    });
-
-    // Recalculate position if pile is currently shown - parent container spans full width
-    if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
-      // Parent container spans full toolbar width
-      state.dynamicSizer.style.left = '0px';
-      state.dynamicSizer.style.right = '0px';
-      // Remove width when using left/right - it's automatically calculated
-
-      debugLog("Recalculated pile position on resize - full width container");
-    }
-
-    // Apply positions for all pods (always single column mode now)
-    state.dismissedPods.forEach((_, podKey) => {
-      generateGridPosition(podKey);
-      applyGridPosition(podKey, 0);
-    });
-
-    schedulePileLayoutRepair("resize", 0);
   }
 
   function initPileSidebarWidthSync() {
@@ -1126,128 +1017,9 @@
 
   // applyTabsWrapperMask and removeTabsWrapperMask function removed - logic replaced by CSS mask-image with --zen-pile-height variable
 
-  // Show pile background on hover
-  // dynamicSizer stays transparent in all modes so the mask on #zen-tabs-wrapper reveals the titlebar underneath
-  function showPileBackground() {
-    if (!state.dynamicSizer) return;
-
-    state.dynamicSizer.style.backgroundColor = 'transparent';
-    state.dynamicSizer.style.background = 'transparent';
-    state.dynamicSizer.style.backdropFilter = 'none';
-    state.dynamicSizer.style.webkitBackdropFilter = 'none';
-    updatePodTextColors();
-  }
-
-  // Hide pile background when not hovering
-  function hidePileBackground() {
-    if (!state.dynamicSizer) {
-      return;
-    }
-    if (state.isTransitioning) {
-      return;
-    }
-    
-    // Don't hide background if pile is currently visible - keep mask persistent
-    const isPileVisible = state.dynamicSizer.style.height !== '0px' && state.dismissedPods.size > 0;
-    if (isPileVisible) {
-      // Keep the background and mask active while pile is visible
-      debugLog("[HidePileBackground] Pile is visible - keeping mask persistent");
-      return;
-    }
-    
-    // Don't hide background if user is currently hovering over pile area
-    if (state.downloadButton?.matches(':hover') || isHoveringPileArea()) {
-      debugLog("[HidePileBackground] User hovering over pile area - keeping mask active");
-      return;
-    }
-    
-    // Only hide background when pile is actually hidden and no hover
-    state.dynamicSizer.style.background = 'transparent';
-    state.dynamicSizer.style.backgroundColor = 'transparent';
-    debugLog("[HidePileBackground] Background hidden - pile not visible and no hover");
-  }
-
-  // Hide arrowscrollbox.workspace-arrowscrollbox::after when pile is showing
-  function hideWorkspaceScrollboxAfter() {
-    if (state.workspaceScrollboxStyle) {
-      document.documentElement.style.setProperty('--zen-stuff-scrollbox-after-opacity', '0');
-      debugLog("Hidden arrowscrollbox.workspace-arrowscrollbox::after");
-    }
-  }
-
-  // Show arrowscrollbox.workspace-arrowscrollbox::after when pile is hidden
-  function showWorkspaceScrollboxAfter() {
-    if (state.workspaceScrollboxStyle) {
-      document.documentElement.style.setProperty('--zen-stuff-scrollbox-after-opacity', '1');
-      debugLog("Shown arrowscrollbox.workspace-arrowscrollbox::after");
-    }
-  }
-
   // Helper: is cursor over pile area (including bridge between button and pile)
   function isHoveringPileArea() {
     return pileVisibilityApi.isHoveringPileArea();
-  }
-
-  // Hover bridge enter - keeps pile visible when moving from download button to pile
-  function handleHoverBridgeEnter() {
-    debugLog("[HoverBridge] Entered - keeping pile visible");
-    clearTimeout(state.hoverTimeout);
-    if (state.dismissedPods.size > 0) {
-      showPile();
-      showPileBackground();
-    }
-  }
-
-  // Hover bridge leave - same logic as dynamicSizer leave
-  // Use a short delay so pile's mouseenter can fire first when moving bridge→pile (avoids premature hide)
-  function handleHoverBridgeLeave(event) {
-    debugLog("[HoverBridge] Left");
-    if (event?.relatedTarget && (state.pileContainer?.contains(event.relatedTarget) || state.dynamicSizer?.contains(event.relatedTarget))) {
-      debugLog("[HoverBridge] Moving into pile - not scheduling hide");
-      return;
-    }
-    // Delay before delegating so pile's mouseenter has time to fire when moving upward
-    const bridgeLeaveGraceMs = 120;
-    setTimeout(() => {
-      if (isHoveringPileArea() || state.downloadButton?.matches(':hover')) return;
-      handleDynamicSizerLeave(event);
-    }, bridgeLeaveGraceMs);
-  }
-
-  // Setup hover events for background/buttons (simplified - always single column mode)
-  function setupPileBackgroundHoverEvents() {
-    if (!state.dynamicSizer || !state.pileContainer) {
-      return;
-    }
-
-    // Remove existing hover events first
-    if (state.containerHoverEventsAttached) {
-      state.dynamicSizer.removeEventListener('mouseenter', handleDynamicSizerHover);
-      state.dynamicSizer.removeEventListener('mouseleave', handleDynamicSizerLeave);
-      state.containerHoverEventsAttached = false;
-    }
-
-    if (state.pileHoverEventsAttached) {
-      state.pileContainer.removeEventListener('mouseenter', handlePileHover);
-      state.pileContainer.removeEventListener('mouseleave', handlePileLeave);
-      state.pileHoverEventsAttached = false;
-    }
-
-    if (state.hoverBridge) {
-      state.hoverBridge.removeEventListener('mouseenter', handleHoverBridgeEnter);
-      state.hoverBridge.removeEventListener('mouseleave', handleHoverBridgeLeave);
-      state.hoverBridge.addEventListener('mouseenter', handleHoverBridgeEnter);
-      state.hoverBridge.addEventListener('mouseleave', handleHoverBridgeLeave);
-    }
-
-    // Attach both: dynamicSizer (overall area) and pileContainer (pile rows) so mask stays when hovering rows
-    state.dynamicSizer.addEventListener('mouseenter', handleDynamicSizerHover);
-    state.dynamicSizer.addEventListener('mouseleave', handleDynamicSizerLeave);
-    state.containerHoverEventsAttached = true;
-
-    state.pileContainer.addEventListener('mouseenter', handlePileHover);
-    state.pileContainer.addEventListener('mouseleave', handlePileLeave);
-    state.pileHoverEventsAttached = true;
   }
 
   // Alt key handlers for always-show mode

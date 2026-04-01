@@ -101,18 +101,22 @@
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 23
     },
-    "modules/zen-stuff/zen-stuff-context-fileops.uc.js": {
+    "modules/zen-stuff/zen-stuff-pile-mask-repair.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 24
     },
-    "zen-stuff.uc.js": {
+    "modules/zen-stuff/zen-stuff-context-fileops.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 25
+    },
+    "zen-stuff.uc.js": {
+      "include": ["chrome://browser/content/browser.xhtml"],
+      "loadOrder": 26
     }
   },
   "preferences": "preferences.json",
   "author": "Vertex",
-  "version": "3.7.2",
+  "version": "3.7.3",
   "tags": ["sine", "fx-autoconfig", "Downloads", "Tidy Pack"],
   "createdAt": "2025-05-24",
   "updatedAt": "2026-03-20",
