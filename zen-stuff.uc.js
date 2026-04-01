@@ -25,10 +25,11 @@
     !window.zenStuffContextFileOps?.createContextFileOpsApi ||
     !window.zenStuffPileVisibility?.createPileVisibilityApi ||
     !window.zenStuffPileMaskRepair?.createMaskRepairApi ||
-    !window.zenStuffPileThemeColors?.createPileThemeColorsApi
+    !window.zenStuffPileThemeColors?.createPileThemeColorsApi ||
+    !window.zenStuffPilePrefs?.createPilePrefsApi
   ) {
     console.error(
-      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops, zen-stuff-pile-visibility, zen-stuff-pile-theme-colors, zen-stuff-pile-mask-repair)"
+      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops, zen-stuff-pile-visibility, zen-stuff-pile-prefs, zen-stuff-pile-theme-colors, zen-stuff-pile-mask-repair)"
     );
     return;
   }
@@ -65,12 +66,6 @@
     containerAnimationDuration: 80, // container height/padding transition duration
     maxRetryAttempts: 10, // Maximum initialization retry attempts
     retryDelay: 500, // Delay between retry attempts
-  };
-
-  // Firefox preferences
-  const PREFS = {
-    alwaysShowPile: 'zen.stuff-pile.always-show', // Boolean: show pile always (hide with Alt key)
-    useLibraryButton: 'zen.tidy-downloads.use-library-button', // Boolean: use zen-library-button instead of downloads-button
   };
 
   // Centralized state management
@@ -174,6 +169,8 @@
   let pileVisibilityApi = null;
   /** @type {ReturnType<typeof window.zenStuffPileMaskRepair.createMaskRepairApi>|null} */
   let maskRepairApi = null;
+  /** @type {ReturnType<typeof window.zenStuffPilePrefs.createPilePrefsApi>|null} */
+  let pilePrefsApi = null;
 
   // Error handling utilities (validateFilePath, validatePodData: see tidy-downloads-utils.uc.js)
   class ErrorHandler {
@@ -399,10 +396,10 @@
   // Debug function to test preference (call from browser console)
   window.testLibraryButtonPref = function() {
     console.log("=== Testing Library Button Preference ===");
-    console.log(`Preference name: ${PREFS.useLibraryButton}`);
+    console.log(`Preference name: ${window.zenStuffPilePrefs.PREFS.useLibraryButton}`);
     
     try {
-      const value = Services.prefs.getBoolPref(PREFS.useLibraryButton, false);
+      const value = Services.prefs.getBoolPref(window.zenStuffPilePrefs.PREFS.useLibraryButton, false);
       console.log(`Current preference value: ${value}`);
     } catch (e) {
       console.log(`Error reading preference:`, e);
@@ -477,20 +474,8 @@
     }
   }
 
-  const sessionApi = window.zenStuffSession.createSessionApi({
-    debugLog,
-    validateFilePathOrThrow,
-    FileSystem,
-    state,
-    createPodElement,
-    generateGridPosition,
-    applyGridPosition,
-    updatePileVisibility,
-    updateDownloadsButtonVisibility,
-    getAlwaysShowPile,
-    shouldPileBeVisible,
-    showPile
-  });
+  /** @type {ReturnType<typeof window.zenStuffSession.createSessionApi>|null} */
+  let sessionApi = null;
 
   async function initSessionStore() {
     await sessionApi.initSessionStore();
@@ -577,7 +562,7 @@
     CONFIG,
     debugLog,
     setupPileBackgroundHoverEvents: () => maskRepairApi?.setupPileBackgroundHoverEvents?.(),
-    setupCompactModeObserver
+    setupCompactModeObserver: () => pilePrefsApi?.setupCompactModeObserver?.()
   });
 
   async function createPileContainer() {
@@ -599,7 +584,7 @@
     updatePodKeysInSession,
     generateGridPosition,
     applyGridPosition,
-    updateDownloadsButtonVisibility: () => updateDownloadsButtonVisibility(),
+    updateDownloadsButtonVisibility: () => pilePrefsApi.updateDownloadsButtonVisibility(),
     updatePodTextColors: () => themeColorsApi.updatePodTextColors(),
     showPileBackground: () => maskRepairApi.showPileBackground(),
     hidePileBackground: () => maskRepairApi.hidePileBackground(),
@@ -607,10 +592,10 @@
     showWorkspaceScrollboxAfter: () => maskRepairApi.showWorkspaceScrollboxAfter(),
     schedulePileLayoutRepair: (source, delayMs) => maskRepairApi.schedulePileLayoutRepair(source, delayMs),
     setupPileBackgroundHoverEvents: () => maskRepairApi.setupPileBackgroundHoverEvents(),
-    updatePointerEvents: () => updatePointerEvents(),
+    updatePointerEvents: () => pilePrefsApi.updatePointerEvents(),
     updatePileContainerWidth: () => updatePileContainerWidth(),
-    getAlwaysShowPile: () => getAlwaysShowPile(),
-    shouldPileBeVisible: () => shouldPileBeVisible(),
+    getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
+    shouldPileBeVisible: () => pilePrefsApi.shouldPileBeVisible(),
     isContextMenuVisible: () => isContextMenuVisible()
   });
 
@@ -618,13 +603,36 @@
     state,
     debugLog,
     getVisibilityApi: () => pileVisibilityApi,
-    updatePointerEvents: () => updatePointerEvents(),
+    updatePointerEvents: () => pilePrefsApi.updatePointerEvents(),
     updatePileHeight: () => updatePileHeight(),
     isContextMenuVisible: () => isContextMenuVisible(),
-    getAlwaysShowPile: () => getAlwaysShowPile(),
+    getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
     generateGridPosition,
     applyGridPosition,
     updatePodTextColors: () => themeColorsApi.updatePodTextColors()
+  });
+
+  pilePrefsApi = window.zenStuffPilePrefs.createPilePrefsApi({
+    state,
+    debugLog,
+    getShowPile: () => pileVisibilityApi.showPile(),
+    getHidePile: () => pileVisibilityApi.hidePile(),
+    findDownloadButton
+  });
+
+  sessionApi = window.zenStuffSession.createSessionApi({
+    debugLog,
+    validateFilePathOrThrow,
+    FileSystem,
+    state,
+    createPodElement,
+    generateGridPosition,
+    applyGridPosition,
+    updatePileVisibility,
+    updateDownloadsButtonVisibility: () => pilePrefsApi.updateDownloadsButtonVisibility(),
+    getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
+    shouldPileBeVisible: () => pilePrefsApi.shouldPileBeVisible(),
+    showPile
   });
 
   function schedulePileLayoutRepair(source, delayMs = 80) {
@@ -665,7 +673,7 @@
     document.addEventListener('keyup', handleKeyUp);
 
     // Preference change listener
-    setupPreferenceListener();
+    pilePrefsApi.setupPreferenceListener();
 
     // Window resize handler
     window.addEventListener('resize', debounce(recalculateLayout, 250));
@@ -726,9 +734,9 @@
     restoreDismissedPodsFromSession();
 
     // If always-show mode is enabled and we have pods, show the pile
-    if (getAlwaysShowPile() && existingPods.size > 0) {
+    if (pilePrefsApi.getAlwaysShowPile() && existingPods.size > 0) {
       setTimeout(() => {
-        if (shouldPileBeVisible()) {
+        if (pilePrefsApi.shouldPileBeVisible()) {
           showPile();
           debugLog("[AlwaysShow] Showing pile on startup - always-show mode enabled");
         }
@@ -808,19 +816,6 @@
     return pileVisibilityApi.hidePile();
   }
 
-  function initPileSidebarWidthSync() {
-    // This function is now unused - width is only read on-demand in showPile()
-    debugLog('[PileWidthSync] initPileSidebarWidthSync called but automatic sync is disabled to prevent feedback loops.');
-  }
-  // --- End Pile Container Width Synchronization Logic ---
-
-  // Update downloads button visibility - now handled by hover events
-  function updateDownloadsButtonVisibility() {
-    // Buttons are now controlled by hover events in showPileBackground/hidePileBackground
-    // This function is kept for compatibility but doesn't change visibility
-    debugLog(`[DownloadsButton] Button visibility managed by hover - ${state.dismissedPods.size} dismissed pods`);
-  }
-
   // Check if main download script has active pods to disable hover
   function shouldDisableHover() {
     return pileVisibilityApi.shouldDisableHover();
@@ -839,7 +834,7 @@
       state.isAltPressed = true;
       debugLog("[AlwaysShow] Alt key pressed");
 
-      if (getAlwaysShowPile() && state.dismissedPods.size > 0) {
+      if (pilePrefsApi.getAlwaysShowPile() && state.dismissedPods.size > 0) {
         // Hide pile when Alt is pressed in always-show mode
         hidePile();
       }
@@ -851,177 +846,10 @@
       state.isAltPressed = false;
       debugLog("[AlwaysShow] Alt key released");
 
-      if (getAlwaysShowPile() && state.dismissedPods.size > 0) {
+      if (pilePrefsApi.getAlwaysShowPile() && state.dismissedPods.size > 0) {
         // Show pile again when Alt is released in always-show mode
         showPile();
       }
-    }
-  }
-
-  // Check if pile should be visible based on always-show mode and Alt key state
-  function shouldPileBeVisible() {
-    if (state.dismissedPods.size === 0) return false;
-
-    if (getAlwaysShowPile()) {
-      // In always-show mode: visible unless Alt is pressed
-      return !state.isAltPressed;
-    } else {
-      // Normal hover mode: only visible when hovering
-      return false; // This will be overridden by hover handlers
-    }
-  }
-
-  // Get preference values with defaults
-  function getAlwaysShowPile() {
-    try {
-      // Changed default to false as requested
-      return Services.prefs.getBoolPref(PREFS.alwaysShowPile, false);
-    } catch (e) {
-      debugLog("Error reading always-show-pile preference, using default (false):", e);
-      return false;
-    }
-  }
-
-  // Get library button preference
-  function getUseLibraryButton() {
-    try {
-      const value = Services.prefs.getBoolPref(PREFS.useLibraryButton, false);
-      console.log(`[Zen Stuff] getUseLibraryButton() returning: ${value}`);
-      console.log(`[Zen Stuff] Preference name: ${PREFS.useLibraryButton}`);
-      
-      // Debug: Check what buttons are available
-      const libraryBtn = document.getElementById('zen-library-button');
-      const downloadsBtn = document.getElementById('downloads-button');
-      console.log(`[Zen Stuff] Available buttons - Library: ${!!libraryBtn}, Downloads: ${!!downloadsBtn}`);
-      
-      return value;
-    } catch (e) {
-      console.log(`[Zen Stuff] Error reading use-library-button preference, using default (false):`, e);
-      debugLog("Error reading use-library-button preference, using default (false):", e);
-      return false;
-    }
-  }
-
-  // Setup compact mode observer to handle visibility changes
-  function setupCompactModeObserver() {
-    const mainWindow = document.getElementById('main-window');
-    const zenMainAppWrapper = document.getElementById('zen-main-app-wrapper');
-    const targetElement = zenMainAppWrapper || document.documentElement;
-
-    if (!targetElement) {
-      debugLog("[CompactModeObserver] Target element not found, cannot set up observer");
-      return;
-    }
-
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'attributes') {
-          const attributeName = mutation.attributeName;
-          if (attributeName === 'zen-compact-mode' || attributeName === 'zen-sidebar-expanded') {
-            debugLog(`[CompactModeObserver] ${attributeName} changed, updating pile visibility`);
-            // Update pile visibility based on compact mode state
-            if (state.dynamicSizer && state.dismissedPods.size > 0) {
-              const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
-              const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
-
-              if (isCompactMode && !isSidebarExpanded) {
-                // Hide pile when sidebar is collapsed in compact mode
-                state.dynamicSizer.style.display = 'none';
-              } else if (shouldPileBeVisible()) {
-                // Show pile if it should be visible
-                showPile();
-              }
-            }
-          }
-        }
-      }
-    });
-
-    observer.observe(targetElement, {
-      attributes: true,
-      attributeFilter: ['zen-compact-mode', 'zen-sidebar-expanded']
-    });
-
-    // Also observe documentElement for zen-sidebar-expanded
-    if (targetElement !== document.documentElement) {
-      observer.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['zen-sidebar-expanded']
-      });
-    }
-
-    debugLog("[CompactModeObserver] Set up observer for compact mode changes");
-  }
-
-  // Setup preference change listener
-  function setupPreferenceListener() {
-    try {
-      const prefObserver = {
-        observe: function (subject, topic, data) {
-          if (topic === 'nsPref:changed') {
-            if (data === PREFS.alwaysShowPile) {
-              const newValue = getAlwaysShowPile();
-              debugLog(`[Preferences] Always-show-pile preference changed to: ${newValue}`);
-              handleAlwaysShowPileChange(newValue);
-            } else if (data === PREFS.useLibraryButton) {
-              const newValue = getUseLibraryButton();
-              console.log(`[Zen Stuff] Use-library-button preference changed to: ${newValue}`);
-              debugLog(`[Preferences] Use-library-button preference changed to: ${newValue}`);
-              // Re-find the download button with new preference (with retry for custom buttons)
-              findDownloadButton().catch(error => {
-                console.error('[Preferences] Error re-finding download button:', error);
-              });
-            }
-          }
-        }
-      };
-
-      Services.prefs.addObserver(PREFS.alwaysShowPile, prefObserver, false);
-      Services.prefs.addObserver(PREFS.useLibraryButton, prefObserver, false);
-      debugLog("[Preferences] Added observers for preferences");
-
-      // Store observer for cleanup
-      state.prefObserver = prefObserver;
-    } catch (e) {
-      debugLog("[Preferences] Error setting up preference observer:", e);
-    }
-  }
-
-  // Handle preference change
-  function handleAlwaysShowPileChange(newValue) {
-    debugLog(`[Preferences] Handling always-show-pile change to: ${newValue}`);
-
-    if (state.dismissedPods.size === 0) {
-      debugLog("[Preferences] No dismissed pods, nothing to do");
-      return;
-    }
-
-    if (newValue) {
-      // Switched to always-show mode
-      if (shouldPileBeVisible()) {
-        showPile();
-        debugLog("[Preferences] Switched to always-show mode - showing pile");
-      }
-    } else {
-      // Switched to hover mode
-      if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
-        // If pile is currently visible, hide it (it will show again on hover)
-        hidePile();
-        debugLog("[Preferences] Switched to hover mode - hiding pile");
-      }
-    }
-  }
-
-  // Update pointer-events based on current state
-  function updatePointerEvents() {
-    if (!state.dynamicSizer || !state.pileContainer) return;
-    const alwaysShow = getAlwaysShowPile();
-    if (alwaysShow) {
-      state.dynamicSizer.style.pointerEvents = 'none';
-      state.pileContainer.style.pointerEvents = 'auto';
-    } else {
-      state.dynamicSizer.style.pointerEvents = 'auto';
-      state.pileContainer.style.pointerEvents = 'auto';
     }
   }
 
@@ -1050,8 +878,8 @@
       // Remove preference observer
       if (state.prefObserver) {
         try {
-          Services.prefs.removeObserver(PREFS.alwaysShowPile, state.prefObserver);
-          Services.prefs.removeObserver(PREFS.useLibraryButton, state.prefObserver);
+          Services.prefs.removeObserver(window.zenStuffPilePrefs.PREFS.alwaysShowPile, state.prefObserver);
+          Services.prefs.removeObserver(window.zenStuffPilePrefs.PREFS.useLibraryButton, state.prefObserver);
         } catch (error) {
           console.warn('[Cleanup] Error removing preference observers:', error);
         }
@@ -1092,13 +920,13 @@
     applyGridPosition,
     hidePile,
     showPile,
-    getAlwaysShowPile,
+    getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
     shouldDisableHover,
     isHoveringPileArea,
     saveDismissedPodToSession,
     schedulePileLayoutRepair,
     updatePileVisibility,
-    updateDownloadsButtonVisibility
+    updateDownloadsButtonVisibility: () => pilePrefsApi.updateDownloadsButtonVisibility()
   });
 
   function isContextMenuVisible() {
