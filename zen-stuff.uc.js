@@ -22,10 +22,11 @@
     !window.zenStuffPileDom?.createPileDomApi ||
     !window.zenStuffPodElement?.createPodElementFactory ||
     !window.zenStuffPileLayout?.createPileLayoutApi ||
-    !window.zenStuffContextFileOps?.createContextFileOpsApi
+    !window.zenStuffContextFileOps?.createContextFileOpsApi ||
+    !window.zenStuffPileVisibility?.createPileVisibilityApi
   ) {
     console.error(
-      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops)"
+      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops, zen-stuff-pile-visibility)"
     );
     return;
   }
@@ -167,6 +168,8 @@
 
   /** @type {ReturnType<typeof window.zenStuffContextFileOps.createContextFileOpsApi>|null} */
   let fileOpsApi = null;
+  /** @type {ReturnType<typeof window.zenStuffPileVisibility.createPileVisibilityApi>|null} */
+  let pileVisibilityApi = null;
 
   // Error handling utilities (validateFilePath, validatePodData: see tidy-downloads-utils.uc.js)
   class ErrorHandler {
@@ -577,6 +580,31 @@
     await pileDomApi.createPileContainer();
   }
 
+  pileVisibilityApi = window.zenStuffPileVisibility.createPileVisibilityApi({
+    state,
+    CONFIG,
+    debugLog,
+    createPodElement,
+    saveDismissedPodToSession,
+    removeDismissedPodFromSession,
+    updatePodKeysInSession,
+    generateGridPosition,
+    applyGridPosition,
+    updateDownloadsButtonVisibility: () => updateDownloadsButtonVisibility(),
+    updatePodTextColors: () => updatePodTextColors(),
+    showPileBackground: () => showPileBackground(),
+    hidePileBackground: () => hidePileBackground(),
+    hideWorkspaceScrollboxAfter: () => hideWorkspaceScrollboxAfter(),
+    showWorkspaceScrollboxAfter: () => showWorkspaceScrollboxAfter(),
+    schedulePileLayoutRepair: (source, delayMs) => schedulePileLayoutRepair(source, delayMs),
+    setupPileBackgroundHoverEvents: () => setupPileBackgroundHoverEvents(),
+    updatePointerEvents: () => updatePointerEvents(),
+    updatePileContainerWidth: () => updatePileContainerWidth(),
+    getAlwaysShowPile: () => getAlwaysShowPile(),
+    shouldPileBeVisible: () => shouldPileBeVisible(),
+    isContextMenuVisible: () => isContextMenuVisible()
+  });
+
   // Setup event listeners
   function setupEventListeners() {
     // Listen for pod dismissals from main script
@@ -680,215 +708,22 @@
 
   // Add a pod to the pile
   function addPodToPile(podData, animate = true) {
-    if (!podData || !podData.key) {
-      debugLog("Invalid pod data for pile addition");
-      return;
-    }
-
-    // Limit to 4 most recent pods
-    if (state.dismissedPods.size >= 4) {
-      const oldestKey = Array.from(state.dismissedPods.keys())[0];
-      removePodFromPile(oldestKey);
-    }
-
-    // Store pod data
-    state.dismissedPods.set(podData.key, podData);
-
-    // Save to SessionStore for persistence
-    saveDismissedPodToSession(podData);
-
-    // Update the list of pod keys in SessionStore
-    updatePodKeysInSession();
-
-    // Create DOM element
-    const podElement = createPodElement(podData);
-    state.podElements.set(podData.key, podElement);
-    state.pileContainer.appendChild(podElement);
-
-    // Generate position for single column layout
-    generateGridPosition(podData.key);
-
-    // Update downloads button visibility
-    updateDownloadsButtonVisibility();
-
-    // Single owner for first-pod layout/animation: showPile().
-    // Avoid pre-applying final transforms before showPile runs, or the initial entry
-    // transition can be consumed on cold start.
-    if (shouldPileBeVisible()) {
-      showPile();
-      // Update text colors after showing pile
-      setTimeout(() => {
-        updatePodTextColors();
-      }, 50);
-    } else {
-      // Keep internal layout state in sync when pile should remain hidden.
-      updatePileVisibility(animate);
-    }
-
-    schedulePileLayoutRepair("add-pod", 120);
-
-    debugLog(`Added pod to pile: ${podData.filename}`);
+    return pileVisibilityApi.addPodToPile(podData, animate);
   }
 
   // Remove a pod from the pile
   function removePodFromPile(podKey) {
-    const podElement = state.podElements.get(podKey);
-    const wasVisible = state.dynamicSizer && state.dynamicSizer.style.height !== '0px';
-    
-    if (podElement) {
-      // Set lower z-index and disable pointer events to prevent overlap during animation
-      podElement.style.zIndex = '0';
-      podElement.style.pointerEvents = 'none';
-      
-      // Animate out using transform and opacity only
-      requestAnimationFrame(() => {
-        podElement.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
-        
-        // Preserve current position but scale down
-        const position = state.gridPositions.get(podKey);
-        if (position) {
-             const rowHeight = 48;
-             const rowSpacing = 6;
-             const baseBottomOffset = 8;
-             const bottomOffset = baseBottomOffset + (position.row * (rowHeight + rowSpacing));
-             podElement.style.transform = `translate3d(0, -${bottomOffset}px, 0) scale(0.8)`;
-        } else {
-             podElement.style.transform = 'scale(0.8)';
-        }
-        
-        podElement.style.opacity = '0';
-      });
-
-      setTimeout(() => {
-        if (podElement.parentNode) {
-          podElement.parentNode.removeChild(podElement);
-        }
-      }, CONFIG.animationDuration);
-    }
-
-    state.dismissedPods.delete(podKey);
-    state.podElements.delete(podKey);
-    state.pilePositions.delete(podKey);
-    state.gridPositions.delete(podKey);
-
-    // Remove from SessionStore
-    removeDismissedPodFromSession(podKey);
-
-    // Update the list of pod keys in SessionStore
-    updatePodKeysInSession();
-
-    // Clear any pending hide timeout to prevent pile from hiding too quickly after removal
-    if (state.hoverTimeout) {
-      clearTimeout(state.hoverTimeout);
-      state.hoverTimeout = null;
-    }
-
-    // Set flag to prevent pile from hiding immediately after removal
-    state.recentlyRemoved = true;
-
-    // Recalculate grid positions for remaining pods
-    state.dismissedPods.forEach((_, key) => generateGridPosition(key));
-
-    // If pile was visible, animate remaining pods to new positions
-    // Wait for removal animation to fully complete before repositioning to avoid overlap
-    if (wasVisible && state.dismissedPods.size > 0) {
-      // Ensure pile stays visible during and after removal animation
-      showPile();
-      
-      const removalDelay = CONFIG.animationDuration + 50;
-      setTimeout(() => {
-        updatePileVisibility(true); // Pass true to indicate we should animate
-        // Update downloads button visibility
-        updateDownloadsButtonVisibility();
-        
-        // Clear the flag after repositioning animation completes + grace period
-        setTimeout(() => {
-          state.recentlyRemoved = false;
-          debugLog("[RemovePod] Cleared recentlyRemoved flag - pile can now hide normally");
-          
-          // After clearing the flag, check if we should hide the pile
-          // (if user is not hovering and not in always-show mode)
-          if (!getAlwaysShowPile() && !shouldDisableHover()) {
-            const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
-            const isHoveringPile = isHoveringPileArea();
-
-            if (!isHoveringDownloadArea && !isHoveringPile) {
-              // Start the hide timeout
-              clearTimeout(state.hoverTimeout);
-              state.hoverTimeout = setTimeout(() => {
-                hidePile();
-              }, CONFIG.hoverDebounceMs);
-            }
-          }
-        }, removalDelay); // Wait for repositioning animation
-      }, removalDelay); // Wait for full fade-out
-    } else {
-      // updatePileVisibility will handle sizer height if needed
-      updatePileVisibility(); // This will now call showPile/hidePile which adjust sizer
-      // Update downloads button visibility
-      updateDownloadsButtonVisibility();
-      // Clear the flag since pile is now empty
-      state.recentlyRemoved = false;
-    }
+    return pileVisibilityApi.removePodFromPile(podKey);
   }
 
   // Update pile visibility based on pod count
   function updatePileVisibility(shouldAnimate = false) {
-    if (state.dismissedPods.size === 0) {
-      // If pile becomes empty, hide it (will set sizer height to 0)
-      if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
-        hidePile();
-      }
-    } else {
-      // Show only the 4 most recent pods
-      const allPods = Array.from(state.dismissedPods.keys());
-      const recentPods = allPods.slice(-4); // Get last 4 pods (most recent)
-
-      // Regenerate positions for all pods
-      allPods.forEach(podKey => {
-        generateGridPosition(podKey);
-        // If animating (e.g., after removal), animate remaining pods to new positions
-        applyGridPosition(podKey, 0, shouldAnimate);
-      });
-
-      // If pile is currently visible, recalculate height dynamically
-      if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
-        updatePileHeight();
-      }
-    }
+    return pileVisibilityApi.updatePileVisibility(shouldAnimate);
   }
 
   // Update pile height dynamically based on current pod count (max 4)
   function updatePileHeight() {
-    if (!state.dynamicSizer || state.dismissedPods.size === 0) return;
-
-    const rowHeight = 48; // Height of each row (pod + text)
-    const rowSpacing = 6; // Spacing between rows
-
-    // Always show max 4 pods
-    const podsToShow = Math.min(state.dismissedPods.size, 4);
-
-    // Calculate height: (rows * row height) + spacing between rows + space below first pod
-    // The baseBottomOffset in positioning creates the space, so we add it to height to accommodate it
-    const baseBottomOffset = 8; // Space under first pod row (matches applyGridPosition)
-    const totalRowHeight = (podsToShow * rowHeight) + ((podsToShow - 1) * rowSpacing);
-    const gridHeight = totalRowHeight + baseBottomOffset;
-
-    debugLog("Updating pile height dynamically", {
-      totalPods: state.dismissedPods.size,
-      podsToShow,
-      oldHeight: state.dynamicSizer.style.height,
-      newHeight: `${gridHeight}px`
-    });
-
-    state.dynamicSizer.style.height = `${gridHeight}px`;
-
-    // Update the mask height variable on document root for #zen-tabs-wrapper mask
-    // Subtract media toolbar height when visible so the mask accounts for its space
-    const mediaToolbar = document.getElementById('zen-media-controls-toolbar');
-    const mediaToolbarHeight = mediaToolbar?.getBoundingClientRect().height ?? 0;
-    const pileMaskHeight = Math.max(0, gridHeight - (mediaToolbarHeight > 0 ? mediaToolbarHeight : 0));
-    document.documentElement.style.setProperty('--zen-pile-height', `${pileMaskHeight}px`);
+    return pileVisibilityApi.updatePileHeight();
   }
 
   // Update pile position relative to download button
@@ -905,430 +740,42 @@
 
   // Download button hover handler
   function handleDownloadButtonHover() {
-    debugLog("[DownloadHover] handleDownloadButtonHover called", {
-      dismissedPodsSize: state.dismissedPods.size,
-      shouldDisableHover: shouldDisableHover(),
-      alwaysShowMode: getAlwaysShowPile()
-    });
-
-    if (state.dismissedPods.size === 0) return;
-
-    // In always-show mode, don't handle hover events
-    if (getAlwaysShowPile()) {
-      debugLog("[DownloadHover] Always-show mode enabled - ignoring hover");
-      return;
-    }
-
-    // Check if main download script has active pods and disable hover if so
-    if (shouldDisableHover()) {
-      debugLog("[HoverDisabled] Pile hover disabled - main download script has active pods");
-      return;
-    }
-
-    clearTimeout(state.hoverTimeout);
-    state.hoverTimeout = setTimeout(() => {
-      debugLog("[DownloadHover] Timeout triggered - calling showPile()");
-      showPile();
-      schedulePileLayoutRepair("download-hover", 50);
-    }, CONFIG.hoverDebounceMs);
+    return pileVisibilityApi.handleDownloadButtonHover();
   }
 
   // Download button leave handler
   function handleDownloadButtonLeave() {
-    debugLog("[DownloadHover] handleDownloadButtonLeave called");
-
-    // In always-show mode, don't handle hover events
-    if (getAlwaysShowPile()) {
-      debugLog("[DownloadHover] Always-show mode enabled - ignoring leave");
-      return;
-    }
-
-    if (shouldDisableHover()) {
-      return; // Don't process leave events if hover is disabled
-    }
-
-    if (isContextMenuVisible()) {
-      debugLog("[DownloadHover] Context menu visible - deferring pile close");
-      state.pendingPileClose = true;
-      return;
-    }
-
-    clearTimeout(state.hoverTimeout);
-    state.hoverTimeout = setTimeout(() => {
-      const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
-
-      debugLog("[DownloadHover] Leave timeout - checking hover states", {
-        isHoveringDownloadArea,
-        pileContainerHover: state.pileContainer?.matches(':hover'),
-        dynamicSizerHover: state.dynamicSizer?.matches(':hover')
-      });
-
-      // Only hide if cursor is not over download button AND not over pile/bridge
-      if (!isHoveringDownloadArea && !isHoveringPileArea()) {
-        if (isContextMenuVisible()) {
-          debugLog("[DownloadHover] Context menu visible at timeout - deferring pile close");
-          state.pendingPileClose = true;
-        } else {
-          debugLog("[DownloadHover] Calling hidePile()");
-          hidePile();
-        }
-      }
-    }, CONFIG.hoverDebounceMs);
+    return pileVisibilityApi.handleDownloadButtonLeave();
   }
 
-  // Dynamic sizer hover handler  
+  // Dynamic sizer hover handler
   function handleDynamicSizerHover() {
-    debugLog("[SizerHover] handleDynamicSizerHover called");
-
-    if (getAlwaysShowPile()) return;
-    
-    clearTimeout(state.hoverTimeout);
-    
-    // Keep pile visible while hovering over sizer and maintain mask
-    if (state.dismissedPods.size > 0) {
-      showPile();
-      showPileBackground();
-      schedulePileLayoutRepair("sizer-hover", 40);
-      debugLog("[SizerHover] Maintaining pile visibility and mask during sizer hover");
-    }
+    return pileVisibilityApi.handleDynamicSizerHover();
   }
 
   // Dynamic sizer leave handler
   function handleDynamicSizerLeave(event) {
-    debugLog("[SizerHover] handleDynamicSizerLeave called");
-
-    clearTimeout(state.hoverTimeout);
-
-    // If moving into pile content (e.g. from sizer edge to a row), don't schedule hide
-    if (event?.relatedTarget && state.pileContainer?.contains(event.relatedTarget)) {
-      debugLog("[SizerHover] Moving into pile - not scheduling hide");
-      return;
-    }
-
-    // Don't do anything if context menu is visible
-    if (isContextMenuVisible()) {
-      debugLog("[SizerHover] Context menu visible - deferring pile close");
-      state.pendingPileClose = true;
-      return;
-    }
-
-    // In always-show mode, don't handle pile visibility
-    if (getAlwaysShowPile()) {
-      debugLog("[SizerHover] Always-show mode - only handling grid transition");
-      return;
-    }
-
-    // Normal mode: handle pile hiding
-    state.hoverTimeout = setTimeout(() => {
-      const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
-      const isHoveringPile = isHoveringPileArea();
-
-      debugLog("[SizerHover] Leave timeout - checking hover states", {
-        isHoveringDownloadArea,
-        pileAreaHover: isHoveringPile,
-        contextMenuVisible: isContextMenuVisible()
-      });
-
-      // Only hide if not hovering download button AND not hovering pile/bridge AND context menu not visible
-      if (!isHoveringDownloadArea && !isHoveringPile) {
-        if (isContextMenuVisible()) {
-          debugLog("[SizerHover] Context menu visible at timeout - deferring pile close");
-          state.pendingPileClose = true;
-        } else {
-          debugLog("[SizerHover] Calling hidePile()");
-          hidePile();
-        }
-      }
-    }, CONFIG.hoverDebounceMs);
+    return pileVisibilityApi.handleDynamicSizerLeave(event);
   }
 
   // Pile hover handler (simplified - no mode transitions)
   function handlePileHover() {
-    debugLog("[PileHover] handlePileHover called");
-
-    clearTimeout(state.hoverTimeout);
-    
-    // Ensure pile background and mask remain active during hover
-    showPileBackground();
-    
-    // If pile is visible, ensure it stays visible during hover
-    if (state.dismissedPods.size > 0 && state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
-      schedulePileLayoutRepair("pile-hover", 40);
-      debugLog("[PileHover] Maintaining pile visibility and mask during hover");
-    }
+    return pileVisibilityApi.handlePileHover();
   }
 
   // Pile leave handler (simplified)
   function handlePileLeave(event) {
-    debugLog("[PileHover] handlePileLeave called");
-
-    clearTimeout(state.hoverTimeout);
-
-    // If moving within pile area (e.g. between rows), don't schedule hide
-    if (event?.relatedTarget && state.dynamicSizer?.contains(event.relatedTarget)) {
-      debugLog("[PileHover] Moving within pile area - not scheduling hide");
-      return;
-    }
-
-    // Don't do anything if context menu is visible
-    if (isContextMenuVisible()) {
-      debugLog("[PileHover] Context menu visible - deferring pile close");
-      state.pendingPileClose = true;
-      return;
-    }
-
-    // In always-show mode, don't hide the pile
-    if (getAlwaysShowPile()) {
-      return;
-    }
-
-    // Normal mode: handle pile hiding
-    state.hoverTimeout = setTimeout(() => {
-      const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
-
-      if (!isHoveringDownloadArea && !isHoveringPileArea()) {
-        if (isContextMenuVisible()) {
-          state.pendingPileClose = true;
-        } else {
-          debugLog("[PileHover] Calling hidePile()");
-          hidePile();
-        }
-      }
-    }, CONFIG.hoverDebounceMs);
+    return pileVisibilityApi.handlePileLeave(event);
   }
 
   // Show the pile
   function showPile() {
-    debugLog("[ShowPile] showPile called", {
-      dismissedPodsSize: state.dismissedPods.size,
-      currentHeight: state.dynamicSizer?.style.height,
-      // Removed isGridMode
-      alwaysShowMode: getAlwaysShowPile()
-    });
-
-    if (state.dismissedPods.size === 0 || !state.dynamicSizer) return;
-
-    // Check if pile is currently visible to prevent double animation
-    const wasVisible = state.dynamicSizer.style.height !== '0px';
-
-    // Check compact mode state - hide pile if sidebar is collapsed (similar to media controls)
-    const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
-    const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
-
-    if (isCompactMode && !isSidebarExpanded) {
-      // In compact mode with collapsed sidebar, hide the pile (like media controls)
-      debugLog("[ShowPile] Compact mode with collapsed sidebar - hiding pile");
-      state.dynamicSizer.style.display = 'none';
-      return;
-    }
-
-    // Show the pile
-    state.dynamicSizer.style.display = 'flex';
-
-    // Ensure width is set before calculating positions
-    if (typeof updatePileContainerWidth === 'function') {
-      updatePileContainerWidth();
-    }
-
-    // Parent container spans full toolbar width
-    state.dynamicSizer.style.left = '0px';
-    state.dynamicSizer.style.right = '0px';
-    // Remove width when using left/right - it's automatically calculated
-
-    debugLog("Positioned pile for full-width container", {
-      position: state.dynamicSizer.style.position,
-      left: state.dynamicSizer.style.left,
-      right: state.dynamicSizer.style.right
-    });
-
-    // Set pointer-events based on mode and state
-    updatePointerEvents();
-
-    state.dynamicSizer.style.paddingBottom = '0px'; // No padding - space comes from baseBottomOffset
-    state.dynamicSizer.style.paddingLeft = `0px`; // No left padding for full-width rows
-
-    // Calculate dynamic height for 4 most recent pods
-    const totalPods = state.dismissedPods.size;
-    const podsToShow = Math.min(totalPods, 4); // Always max 4 pods
-
-    const rowHeight = 48; // Height of each row (pod + text)
-    const rowSpacing = 6; // Spacing between rows
-
-    // Calculate height: (rows * row height) + spacing between rows + space below first pod
-    // The baseBottomOffset in positioning creates the space, so we add it to height to accommodate it
-    const baseBottomOffset = 8; // Space under first pod row (matches applyGridPosition)
-    const totalRowHeight = (podsToShow * rowHeight) + ((podsToShow - 1) * rowSpacing);
-    const gridHeight = totalRowHeight + baseBottomOffset;
-
-    debugLog("Dynamic height calculation (4 most recent)", {
-      totalPods,
-      podsToShow,
-      calculatedHeight: gridHeight
-    });
-
-    state.dynamicSizer.style.height = `${gridHeight}px`;
-
-    // Show hover bridge to cover gap between download button and pile
-    if (state.hoverBridge) {
-      state.hoverBridge.style.display = 'block';
-    }
-
-    // Update mask height variable for #zen-tabs-wrapper mask
-    // Subtract media toolbar height when visible so the mask accounts for its space
-    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-    const mediaToolbarHeight = mediaControlsToolbar?.getBoundingClientRect().height ?? 0;
-    const pileMaskHeight = Math.max(0, gridHeight - (mediaToolbarHeight > 0 ? mediaToolbarHeight : 0));
-    document.documentElement.style.setProperty('--zen-pile-height', `${pileMaskHeight}px`);
-
-    // Apply mask on media controls toolbar for seamless blend when pile expands
-    if (mediaControlsToolbar) {
-      mediaControlsToolbar.classList.add('zen-pile-expanded');
-    }
-
-    // Set background to ensure backdrop-filter is properly rendered
-    showPileBackground();
-
-    // Mask is applied in hover handlers, not here
-
-    // Hide workspace-arrowscrollbox::after when pile is showing
-    hideWorkspaceScrollboxAfter();
-
-    // Update positions for all pods (show only 4 most recent)
-    const recentPods = Array.from(state.dismissedPods.keys()).slice(-4);
-
-    if (!wasVisible) {
-      // Reset pods to hidden state
-      recentPods.forEach(podKey => {
-        const el = state.podElements.get(podKey);
-        if (el) {
-          el.style.transition = 'none';
-          el.style.opacity = '0';
-          el.style.transform = 'translateY(20px)';
-        }
-      });
-
-      // Force reflow so reset state is applied before we set transitions
-      if (state.dynamicSizer) state.dynamicSizer.offsetHeight;
-
-      // Use CSS transition-delay for stagger (all transitions start same frame, predictable order)
-      // Order: oldest (index 0) first, newest (index 3) last
-      recentPods.forEach((podKey, index) => {
-        const el = state.podElements.get(podKey);
-        if (el) {
-          const delayMs = index * CONFIG.gridAnimationDelay;
-          el.style.transition = `opacity ${CONFIG.animationDuration}ms ease ${delayMs}ms, transform ${CONFIG.animationDuration}ms ease ${delayMs}ms`;
-        }
-      });
-
-      // Batch all position updates in single frame for consistent animation start
-      recentPods.forEach(podKey => generateGridPosition(podKey));
-      requestAnimationFrame(() => {
-        recentPods.forEach(podKey => applyGridPosition(podKey, 0, false, true));
-      });
-    } else {
-      // Already visible: update positions without stagger
-      recentPods.forEach((podKey) => {
-        generateGridPosition(podKey);
-        applyGridPosition(podKey, 0);
-      });
-    }
-
-    // Ensure hover events are properly set up for the current mode
-    // This is important after the pile was hidden and is being shown again
-    setTimeout(() => {
-      setupPileBackgroundHoverEvents();
-      debugLog("[ShowPile] Hover events re-setup after pile shown");
-    }, 50); // Small delay to ensure DOM is updated
-
-    // Notify tidy-downloads that the pile is showing so it can remove sticky pods from the pods row
-    document.dispatchEvent(new CustomEvent('pile-shown', { bubbles: true }));
-
-    debugLog("Showing pile with single column layout", {
-      totalPods,
-      podsToShow,
-      dynamicHeight: gridHeight
-    });
-
-    schedulePileLayoutRepair("show-pile", 30);
+    return pileVisibilityApi.showPile();
   }
 
   // Hide the pile
   function hidePile() {
-    debugLog("[HidePile] hidePile called", {
-      currentHeight: state.dynamicSizer?.style.height,
-      isEditing: state.isEditing,
-      recentlyRemoved: state.recentlyRemoved
-    });
-
-    // Don't hide pile if user is editing a filename
-    if (state.isEditing) {
-      debugLog("[HidePile] Pile kept visible - editing in progress");
-      return;
-    }
-
-    // Don't hide pile if a pod was recently removed (give user time to see the result)
-    if (state.recentlyRemoved) {
-      debugLog("[HidePile] Pile kept visible - recent removal in progress");
-      return;
-    }
-
-    // Don't hide while pile row context menu is open (or opening); matches sizer/pile leave behavior
-    if (isContextMenuVisible()) {
-      debugLog("[HidePile] Pile kept visible - context menu active");
-      state.pendingPileClose = true;
-      return;
-    }
-
-    if (!state.dynamicSizer) return;
-
-    state.dynamicSizer.style.pointerEvents = 'none';
-    state.dynamicSizer.style.height = '0px';
-
-    if (state.hoverBridge) {
-      state.hoverBridge.style.display = 'none';
-    }
-    state.dynamicSizer.style.paddingBottom = '0px'; // Remove padding when hiding
-    state.dynamicSizer.style.paddingLeft = '0px'; // Remove left padding when hiding
-
-    // Don't hide display in compact mode - let the observer handle it
-    // Only hide display if not in compact mode with collapsed sidebar
-    const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
-    const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
-    if (!(isCompactMode && !isSidebarExpanded)) {
-      state.dynamicSizer.style.display = 'flex'; // Keep flex but collapsed
-    }
-
-    // Hide background and buttons when hiding pile
-    hidePileBackground();
-
-    // Fade out pods when hiding
-    state.dismissedPods.forEach((_, podKey) => {
-      const el = state.podElements.get(podKey);
-      if (el) {
-        el.style.opacity = '0';
-        el.style.transform = 'translateY(20px)';
-      }
-    });
-
-    // Reset mask height variable to -50px (completely hide mask)
-    document.documentElement.style.setProperty('--zen-pile-height', '-50px');
-
-    // Remove mask from media controls toolbar when pile collapses
-    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-    if (mediaControlsToolbar) {
-      setTimeout(() => {
-        mediaControlsToolbar.classList.remove('zen-pile-expanded');
-      }, CONFIG.containerAnimationDuration);
-    }
-
-    // Restore workspace-arrowscrollbox::after when pile is hidden
-    showWorkspaceScrollboxAfter();
-
-    debugLog("Hiding dismissed downloads pile by collapsing sizer");
-
-    document.dispatchEvent(
-      new CustomEvent("pile-hidden", { bubbles: true, detail: { reason: "collapsed" } })
-    );
+    return pileVisibilityApi.hidePile();
   }
 
   /*
@@ -1479,24 +926,7 @@
 
   // Check if main download script has active pods to disable hover
   function shouldDisableHover() {
-    try {
-      // Check for visible download pods within the dedicated container.
-      // Sticky pods (.zen-tidy-sticky-pod) are already in the pile and should NOT disable hover -
-      // we want the pile to open so the sticky pod can animate out.
-      const podsRowContainer = document.getElementById('userchrome-pods-row-container');
-      if (podsRowContainer) {
-        const activePods = podsRowContainer.querySelectorAll('.download-pod:not(.zen-tidy-sticky-pod)');
-        if (activePods.length > 0) {
-          debugLog(`[HoverCheck] Found ${activePods.length} active (non-sticky) pods - disabling pile hover`);
-          return true;
-        }
-      }
-
-      return false;
-    } catch (error) {
-      debugLog(`[HoverCheck] Error checking main script state:`, error);
-      return false;
-    }
+    return pileVisibilityApi.shouldDisableHover();
   }
 
   // Parse RGB/RGBA from CSS color string - returns { r, g, b, a } or null
@@ -1755,9 +1185,7 @@
 
   // Helper: is cursor over pile area (including bridge between button and pile)
   function isHoveringPileArea() {
-    return state.pileContainer?.matches(':hover') ||
-           state.dynamicSizer?.matches(':hover') ||
-           state.hoverBridge?.matches(':hover');
+    return pileVisibilityApi.isHoveringPileArea();
   }
 
   // Hover bridge enter - keeps pile visible when moving from download button to pile
