@@ -18,6 +18,10 @@
     return;
   }
   if (
+    !window.zenStuffCore?.PileState ||
+    !window.zenStuffCore?.ErrorHandler ||
+    !window.zenStuffCore?.createFileSystemApi ||
+    !window.zenStuffCore?.createEventManagerApi ||
     !window.zenStuffSession?.createSessionApi ||
     !window.zenStuffPileDom?.createPileDomApi ||
     !window.zenStuffPodElement?.createPodElementFactory ||
@@ -29,7 +33,7 @@
     !window.zenStuffPilePrefs?.createPilePrefsApi
   ) {
     console.error(
-      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops, zen-stuff-pile-visibility, zen-stuff-pile-prefs, zen-stuff-pile-theme-colors, zen-stuff-pile-mask-repair)"
+      "[Zen Stuff] Required modules missing (zen-stuff-core, zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops, zen-stuff-pile-visibility, zen-stuff-pile-prefs, zen-stuff-pile-theme-colors, zen-stuff-pile-mask-repair)"
     );
     return;
   }
@@ -51,6 +55,8 @@
     filenameEndsWithExtensionFromSet
   } = Utils;
 
+  const { PileState, ErrorHandler, createFileSystemApi, createEventManagerApi } = window.zenStuffCore;
+
   // Configuration
   const CONFIG = {
     maxPileSize: 20, // Maximum pods to keep in pile
@@ -68,100 +74,9 @@
     retryDelay: 500, // Delay between retry attempts
   };
 
-  // Centralized state management
-  class PileState {
-    constructor() {
-      this.downloadButton = null;
-      this.pileContainer = null;
-      this.dynamicSizer = null;
-      this.hoverBridge = null;
-      // Removed isGridMode - always single column mode
-      this.hoverTimeout = null;
-      this.dismissedPods = new Map(); // podKey -> podData
-      this.podElements = new Map(); // podKey -> DOM element
-      this.pilePositions = new Map(); // podKey -> {x, y, rotation, zIndex}
-      this.gridPositions = new Map(); // podKey -> {x, y, row, col}
-      this.isInitialized = false;
-      this.isTransitioning = false;
-      this.isAltPressed = false;
-      this.currentZenSidebarWidthForPile = '';
-      this.retryCount = 0;
-      this.eventListeners = new Map(); // Track event listeners for cleanup
-      this.prefObserver = null;
-      // --- add pendingPileClose flag ---
-      this.pendingPileClose = false;
-      // --- add gridScrollIndex for grid windowing ---
-      this.gridScrollIndex = 0;
-      // --- add visibleGridOrder for carousel ---
-      this.visibleGridOrder = [];
-      // --- add carouselStartIndex for >6 pods ---
-      this.carouselStartIndex = 0;
-      // --- add isGridAnimating flag ---
-      this.isGridAnimating = false;
-      // --- add workspaceScrollboxStyle for controlling ::after opacity ---
-      this.workspaceScrollboxStyle = null;
-      // --- add isEditing flag to prevent pile from hiding during rename ---
-      this.isEditing = false;
-      // --- add recentlyRemoved flag to prevent pile from hiding immediately after removal ---
-      this.recentlyRemoved = false;
-      // --- add mediaToolbarMaskRemovalTimeout for delayed mask removal on pile collapse ---
-      this.mediaToolbarMaskRemovalTimeout = null;
-      // --- true from row contextmenu until popuphidden (covers gap before menupopup.state === 'open') ---
-      this.pileContextMenuActive = false;
-      // --- sticky / mask layout repair (coalesced) ---
-      this.pileRepairDebounceId = null;
-      this.lastPileRepairAt = 0;
-      this.pileLayoutRepairIntervalId = null;
-    }
-
-    // Safe getters with validation
-    getPodData(key) {
-      return this.dismissedPods.get(key) || null;
-    }
-
-    getPodElement(key) {
-      return this.podElements.get(key) || null;
-    }
-
-    getPilePosition(key) {
-      return this.pilePositions.get(key) || null;
-    }
-
-    getGridPosition(key) {
-      return this.gridPositions.get(key) || null;
-    }
-
-    // Safe setters with validation
-    setPodData(key, data) {
-      if (key && data) {
-        this.dismissedPods.set(key, data);
-      }
-    }
-
-    setPodElement(key, element) {
-      if (key && element) {
-        this.podElements.set(key, element);
-      }
-    }
-
-    // Cleanup methods
-    removePod(key) {
-      this.dismissedPods.delete(key);
-      this.podElements.delete(key);
-      this.pilePositions.delete(key);
-      this.gridPositions.delete(key);
-    }
-
-    clearAll() {
-      this.dismissedPods.clear();
-      this.podElements.clear();
-      this.pilePositions.clear();
-      this.gridPositions.clear();
-    }
-  }
-
-  // Global state instance
   const state = new PileState();
+  const FileSystem = createFileSystemApi({ validateFilePathOrThrow });
+  const EventManager = createEventManagerApi({ state });
 
   /** @type {ReturnType<typeof window.zenStuffContextFileOps.createContextFileOpsApi>|null} */
   let fileOpsApi = null;
@@ -171,28 +86,6 @@
   let maskRepairApi = null;
   /** @type {ReturnType<typeof window.zenStuffPilePrefs.createPilePrefsApi>|null} */
   let pilePrefsApi = null;
-
-  // Error handling utilities (validateFilePath, validatePodData: see tidy-downloads-utils.uc.js)
-  class ErrorHandler {
-    static handleError(error, context, fallback = null) {
-      console.error(`[Dismissed Pile] Error in ${context}:`, error);
-      return fallback;
-    }
-
-    static async withRetry(operation, maxAttempts = 3, delay = 1000) {
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          return await operation();
-        } catch (error) {
-          if (attempt === maxAttempts) {
-            throw error;
-          }
-          console.warn(`[Dismissed Pile] Attempt ${attempt} failed, retrying in ${delay}ms:`, error);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-  }
 
   // Text-file preview toggle for dismissed pods (disabled by default). Images always get previews.
   let zenStuffFilePreviewEnabled = false;
@@ -204,142 +97,6 @@
   } catch (e) {
     // Fallback to disabled if prefs are unavailable
     zenStuffFilePreviewEnabled = false;
-  }
-
-  // File system utilities with proper error handling
-  class FileSystem {
-    static async createFileInstance(path) {
-      try {
-        const validatedPath = validateFilePathOrThrow(path);
-        const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
-        file.initWithPath(validatedPath);
-        return file;
-      } catch (error) {
-        throw new Error(`Failed to create file instance: ${error.message}`);
-      }
-    }
-
-    static async fileExists(path) {
-      try {
-        const file = await this.createFileInstance(path);
-        return file.exists();
-      } catch (error) {
-        console.warn(`[FileSystem] Error checking file existence: ${error.message}`);
-        return false;
-      }
-    }
-
-    static async getParentDirectory(path) {
-      try {
-        const file = await this.createFileInstance(path);
-        return file.parent;
-      } catch (error) {
-        throw new Error(`Failed to get parent directory: ${error.message}`);
-      }
-    }
-
-    // Auto-increment filename if duplicate exists
-    static async getAvailableFilename(parentDir, baseName, ext) {
-      let candidate = baseName + ext;
-      let counter = 1;
-      let file = parentDir.clone();
-      file.append(candidate);
-      while (file.exists()) {
-        candidate = `${baseName} (${counter})${ext}`;
-        file = parentDir.clone();
-        file.append(candidate);
-        counter++;
-      }
-      return candidate;
-    }
-
-    static async renameFile(oldPath, newFilename) {
-      try {
-        const oldFile = await this.createFileInstance(oldPath);
-        if (!oldFile.exists()) {
-          throw new Error('Source file does not exist');
-        }
-
-        const parentDir = oldFile.parent;
-        // Split newFilename into base and extension
-        const dotIdx = newFilename.lastIndexOf('.');
-        let baseName = newFilename;
-        let ext = '';
-        if (dotIdx > 0) {
-          baseName = newFilename.substring(0, dotIdx);
-          ext = newFilename.substring(dotIdx);
-        }
-        // Find available filename
-        const availableName = await this.getAvailableFilename(parentDir, baseName, ext);
-        const newFile = parentDir.clone();
-        newFile.append(availableName);
-        oldFile.moveTo(parentDir, availableName);
-        return newFile.path;
-      } catch (error) {
-        throw new Error(`Failed to rename file: ${error.message}`);
-      }
-    }
-
-    static async deleteFile(path) {
-      try {
-        const file = await this.createFileInstance(path);
-        if (file.exists()) {
-          file.remove(false); // false = don't move to trash
-          return true;
-        }
-        return false;
-      } catch (error) {
-        throw new Error(`Failed to delete file: ${error.message}`);
-      }
-    }
-  }
-
-  // Event management with cleanup
-  class EventManager {
-    static addEventListener(element, event, handler, options = {}) {
-      if (!element || !handler) {
-        console.warn('[EventManager] Invalid element or handler for event listener');
-        return;
-      }
-
-      element.addEventListener(event, handler, options);
-
-      // Track for cleanup
-      const key = `${element.id || 'unknown'}-${event}`;
-      if (!state.eventListeners.has(key)) {
-        state.eventListeners.set(key, []);
-      }
-      state.eventListeners.get(key).push({ element, event, handler, options });
-    }
-
-    static removeEventListener(element, event, handler) {
-      if (!element || !handler) return;
-
-      element.removeEventListener(event, handler);
-
-      // Remove from tracking
-      const key = `${element.id || 'unknown'}-${event}`;
-      const listeners = state.eventListeners.get(key);
-      if (listeners) {
-        const index = listeners.findIndex(l => l.handler === handler);
-        if (index !== -1) {
-          listeners.splice(index, 1);
-        }
-      }
-    }
-
-    static cleanupAll() {
-      for (const [key, listeners] of state.eventListeners) {
-        for (const { element, event, handler } of listeners) {
-          try {
-            element.removeEventListener(event, handler);
-          } catch (error) {
-            console.warn(`[EventManager] Error removing event listener: ${error.message}`);
-          }
-        }
-      }
-      state.eventListeners.clear();
-    }
   }
 
   // Debug logging with conditional output

@@ -81,50 +81,54 @@
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 18
     },
-    "modules/zen-stuff/zen-stuff-session.uc.js": {
+    "modules/zen-stuff/zen-stuff-core.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 19
     },
-    "modules/zen-stuff/zen-stuff-pile-dom.uc.js": {
+    "modules/zen-stuff/zen-stuff-session.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 20
     },
-    "modules/zen-stuff/zen-stuff-pod-element.uc.js": {
+    "modules/zen-stuff/zen-stuff-pile-dom.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 21
     },
-    "modules/zen-stuff/zen-stuff-pile-layout.uc.js": {
+    "modules/zen-stuff/zen-stuff-pod-element.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 22
     },
-    "modules/zen-stuff/zen-stuff-pile-visibility.uc.js": {
+    "modules/zen-stuff/zen-stuff-pile-layout.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 23
     },
-    "modules/zen-stuff/zen-stuff-pile-prefs.uc.js": {
+    "modules/zen-stuff/zen-stuff-pile-visibility.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 24
     },
-    "modules/zen-stuff/zen-stuff-pile-theme-colors.uc.js": {
+    "modules/zen-stuff/zen-stuff-pile-prefs.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 25
     },
-    "modules/zen-stuff/zen-stuff-pile-mask-repair.uc.js": {
+    "modules/zen-stuff/zen-stuff-pile-theme-colors.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 26
     },
-    "modules/zen-stuff/zen-stuff-context-fileops.uc.js": {
+    "modules/zen-stuff/zen-stuff-pile-mask-repair.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 27
     },
-    "zen-stuff.uc.js": {
+    "modules/zen-stuff/zen-stuff-context-fileops.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 28
+    },
+    "zen-stuff.uc.js": {
+      "include": ["chrome://browser/content/browser.xhtml"],
+      "loadOrder": 29
     }
   },
   "preferences": "preferences.json",
   "author": "Vertex",
-  "version": "3.7.5",
+  "version": "3.7.6",
   "tags": ["sine", "fx-autoconfig", "Downloads", "Tidy Pack"],
   "createdAt": "2025-05-24",
   "updatedAt": "2026-03-20",
