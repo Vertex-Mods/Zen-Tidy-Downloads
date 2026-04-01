@@ -81,28 +81,64 @@
       ],
       "loadOrder": 12
     },
-    "modules/tidy-downloads-public-api.uc.js": {
+    "modules/tidy-downloads-compact-visibility.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 13
     },
-    "tidy-downloads.uc.js": {
+    "modules/tidy-downloads-card-lifecycle.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 14
     },
-    "zen-stuff.uc.js": {
+    "modules/tidy-downloads-download-ui.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 15
+    },
+    "modules/tidy-downloads-downloads-listener.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 16
+    },
+    "modules/tidy-downloads-public-api.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 17
+    },
+    "tidy-downloads.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 18
+    },
+    "modules/zen-stuff-session.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 19
+    },
+    "modules/zen-stuff-pile-dom.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 20
+    },
+    "zen-stuff.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 21
     }
   },
   "preferences": "preferences.json",
   "author": "Vertex",
-  "version": "3.4.0",
+  "version": "3.6.0",
   "tags": [
     "sine",
     "fx-autoconfig",

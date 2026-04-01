@@ -17,6 +17,10 @@
     console.error("[Zen Stuff] zenTidyDownloadsUtils not loaded - ensure tidy-downloads-utils.uc.js loads first (check @loadOrder in headers)");
     return;
   }
+  if (!window.zenStuffSession?.createSessionApi || !window.zenStuffPileDom?.createPileDomApi) {
+    console.error("[Zen Stuff] Required modules missing (zen-stuff-session / zen-stuff-pile-dom)");
+    return;
+  }
 
   // Single-flight: avoid duplicate pile registration if this script is evaluated twice.
   if (window.__zenStuffPileBundleExecuted) {
@@ -417,333 +421,39 @@
     }
   }
 
-  // Initialize SessionStore and wait for it to be ready
+  const sessionApi = window.zenStuffSession.createSessionApi({
+    debugLog,
+    validateFilePathOrThrow,
+    FileSystem,
+    state,
+    createPodElement,
+    generateGridPosition,
+    applyGridPosition,
+    updatePileVisibility,
+    updateDownloadsButtonVisibility,
+    getAlwaysShowPile,
+    shouldPileBeVisible,
+    showPile
+  });
+
   async function initSessionStore() {
-    if (!window.SessionStore) {
-      console.warn("[Dismissed Pile] SessionStore not available, retrying...");
-      await new Promise(resolve => setTimeout(resolve, 200));
-      return initSessionStore();
-    }
-
-    try {
-      if (window.SessionStore.promiseInitialized) {
-        await window.SessionStore.promiseInitialized;
-      }
-      debugLog("[SessionStore] SessionStore initialized and ready");
-    } catch (error) {
-      console.error("[Dismissed Pile] Error initializing SessionStore:", error);
-    }
+    await sessionApi.initSessionStore();
   }
 
-  // Save dismissed pod to SessionStore
   function saveDismissedPodToSession(podData) {
-    try {
-      if (!window.SessionStore) {
-        console.warn("[Dismissed Pile] SessionStore not available for saving");
-        return;
-      }
-
-      // Serialize pod data (exclude DOM elements and functions)
-      const serializedData = {
-        key: podData.key,
-        filename: podData.filename,
-        originalFilename: podData.originalFilename,
-        fileSize: podData.fileSize,
-        contentType: podData.contentType,
-        targetPath: podData.targetPath,
-        downloadId: podData.downloadId,
-        sourceUrl: podData.sourceUrl,
-        startTime: podData.startTime,
-        endTime: podData.endTime,
-        dismissTime: podData.dismissTime,
-        wasRenamed: podData.wasRenamed,
-        previewData: podData.previewData,
-        dominantColor: podData.dominantColor
-      };
-
-      SessionStore.setCustomWindowValue(
-        window,
-        `zen-stuff-pod-${podData.key}`,
-        JSON.stringify(serializedData)
-      );
-
-      debugLog(`[SessionStore] Saved pod to session: ${podData.key}`);
-    } catch (error) {
-      console.error("[Dismissed Pile] Error saving pod to SessionStore:", error);
-    }
+    sessionApi.saveDismissedPodToSession(podData);
   }
 
-  // Remove dismissed pod from SessionStore
   function removeDismissedPodFromSession(podKey) {
-    try {
-      if (!window.SessionStore) {
-        console.warn("[Dismissed Pile] SessionStore not available for removal");
-        return;
-      }
-
-      SessionStore.deleteCustomWindowValue(window, `zen-stuff-pod-${podKey}`);
-      debugLog(`[SessionStore] Removed pod from session: ${podKey}`);
-    } catch (error) {
-      console.error("[Dismissed Pile] Error removing pod from SessionStore:", error);
-    }
+    sessionApi.removeDismissedPodFromSession(podKey);
   }
 
-  // Restore dismissed pods from SessionStore
   async function restoreDismissedPodsFromSession() {
-    try {
-      if (!window.SessionStore) {
-        console.warn("[Dismissed Pile] SessionStore not available for restoration");
-        return;
-      }
-
-      // Get the list of pod keys from SessionStore
-      const podKeysJson = SessionStore.getCustomWindowValue(window, 'zen-stuff-pod-keys');
-      if (!podKeysJson) {
-        debugLog("[SessionStore] No saved pod keys found");
-        return;
-      }
-
-      // SECURITY FIX: Add error handling for JSON.parse
-      let podKeys;
-      try {
-        podKeys = JSON.parse(podKeysJson);
-      } catch (error) {
-        console.error("[SessionStore] Error parsing pod keys JSON:", error);
-        debugLog("[SessionStore] Invalid pod keys JSON, skipping restoration");
-        return;
-      }
-
-      // Validate podKeys is an array
-      if (!Array.isArray(podKeys)) {
-        console.error("[SessionStore] Pod keys is not an array:", typeof podKeys);
-        debugLog("[SessionStore] Pod keys is not an array, skipping restoration");
-        return;
-      }
-
-      let restoredCount = 0;
-      const restorationPromises = [];
-
-      for (const podKey of podKeys) {
-        const restorationPromise = (async () => {
-          try {
-            const podDataJson = SessionStore.getCustomWindowValue(window, `zen-stuff-pod-${podKey}`);
-            if (podDataJson) {
-              // SECURITY: Comprehensive data validation for SessionStore
-              let podData;
-              try {
-                podData = JSON.parse(podDataJson);
-              } catch (error) {
-                console.error(`[SessionStore] Error parsing pod data JSON for key ${podKey}:`, error);
-                debugLog(`[SessionStore] Invalid pod data JSON for ${podKey}, skipping`);
-                return;
-              }
-
-              // SECURITY: Validate pod data structure and content
-              if (!podData || typeof podData !== 'object') {
-                console.error(`[SessionStore] Invalid pod data type for key ${podKey}:`, typeof podData);
-                debugLog(`[SessionStore] Pod data is not an object for ${podKey}, skipping`);
-                return;
-              }
-
-              // Validate required fields
-              const requiredFields = ['key', 'filename', 'targetPath'];
-              const missingFields = requiredFields.filter(field => !podData[field]);
-              if (missingFields.length > 0) {
-                console.error(`[SessionStore] Missing required fields for ${podKey}:`, missingFields);
-                debugLog(`[SessionStore] Pod data missing required fields: ${missingFields.join(', ')}, skipping`);
-                return;
-              }
-
-              // Validate field types
-              if (typeof podData.key !== 'string' || podData.key.length === 0) {
-                console.error(`[SessionStore] Invalid key field for ${podKey}`);
-                return;
-              }
-              if (typeof podData.filename !== 'string' || podData.filename.length === 0) {
-                console.error(`[SessionStore] Invalid filename field for ${podKey}`);
-                return;
-              }
-              if (typeof podData.targetPath !== 'string' || podData.targetPath.length === 0) {
-                console.error(`[SessionStore] Invalid targetPath field for ${podKey}`);
-                return;
-              }
-
-              // SECURITY: Validate path before using it
-              try {
-                validateFilePathOrThrow(podData.targetPath);
-              } catch (pathError) {
-                console.error(`[SessionStore] Invalid path in stored data for ${podKey}:`, pathError.message);
-                debugLog(`[SessionStore] Path validation failed for ${podKey}, skipping`);
-                return;
-              }
-
-              // Validate numeric fields if present
-              if (podData.fileSize !== undefined && (typeof podData.fileSize !== 'number' || podData.fileSize < 0)) {
-                console.warn(`[SessionStore] Invalid fileSize for ${podKey}, resetting to 0`);
-                podData.fileSize = 0;
-              }
-
-              // Validate previewData structure if present
-              if (podData.previewData !== null && podData.previewData !== undefined) {
-                if (typeof podData.previewData !== 'object') {
-                  console.warn(`[SessionStore] Invalid previewData type for ${podKey}, clearing`);
-                  podData.previewData = null;
-                } else if (podData.previewData.type === 'image' && !podData.previewData.src) {
-                  console.warn(`[SessionStore] Image previewData missing src for ${podKey}, clearing`);
-                  podData.previewData = null;
-                }
-              }
-
-              // Verify the file still exists before restoring
-              let actualPath = podData.targetPath;
-              let exists = await FileSystem.fileExists(actualPath);
-
-              console.log(`[SessionStore] Checking file existence for ${podData.filename}: saved path=${podData.targetPath}, exists=${exists}`);
-
-              // If file doesn't exist at saved path, try to find it with current filename
-              if (!exists && podData.filename) {
-                try {
-                  const parentDir = await FileSystem.getParentDirectory(podData.targetPath);
-                  console.log(`[SessionStore] Parent directory exists: ${parentDir && parentDir.exists()}`);
-
-                  if (parentDir && parentDir.exists()) {
-                    const newFile = parentDir.clone();
-                    newFile.append(podData.filename);
-                    const newPath = newFile.path;
-                    const newExists = newFile.exists();
-
-                    console.log(`[SessionStore] Trying new path: ${newPath}, exists=${newExists}`);
-
-                    if (newExists) {
-                      actualPath = newPath;
-                      exists = true;
-                      podData.targetPath = actualPath; // Update the saved path
-                      console.log(`[SessionStore] Found file with updated path: ${podData.filename} -> ${actualPath}`);
-
-                      // Also save the updated path back to SessionStore
-                      saveDismissedPodToSession(podData);
-                    } else {
-                      console.log(`[SessionStore] File not found with current filename: ${podData.filename}`);
-                    }
-                  }
-                } catch (error) {
-                  console.warn(`[SessionStore] Error checking for file with current filename:`, error);
-                }
-              }
-
-              if (exists) {
-                console.log(`[SessionStore] File exists, checking if image regeneration needed. ContentType: "${podData.contentType}", filename: ${podData.filename}`);
-
-                // Always regenerate image preview for image files to ensure correct path
-                const hasImageContentType = podData.contentType && podData.contentType !== "null" && podData.contentType.startsWith('image/');
-                const hasImageExtension = podData.filename && /\.(jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i.test(podData.filename);
-                const isImage = hasImageContentType || hasImageExtension;
-
-                console.log(`[SessionStore] Image detection - contentType: "${podData.contentType}", hasImageContentType: ${hasImageContentType}, hasImageExtension: ${hasImageExtension}, isImage: ${isImage}`);
-
-                if (isImage) {
-                  console.log(`[SessionStore] Starting image preview regeneration for: ${podData.filename}`);
-                  try {
-                    const file = await FileSystem.createFileInstance(actualPath);
-
-                    // Try multiple approaches to create a working image URL
-                    let fileUrl;
-
-                    // Method 1: Use Services.io.newFileURI (most reliable)
-                    if (Services.io && Services.io.newFileURI) {
-                      try {
-                        fileUrl = Services.io.newFileURI(file).spec;
-                        console.log(`[SessionStore] Created file URL using Services.io: ${fileUrl}`);
-                      } catch (ioError) {
-                        console.warn(`[SessionStore] Services.io.newFileURI failed:`, ioError);
-                      }
-                    }
-
-                    // Method 2: Manual file URL construction (fallback)
-                    if (!fileUrl) {
-                      const path = actualPath.replace(/\\/g, '/');
-                      fileUrl = 'file:///' + (path.startsWith('/') ? path.substring(1) : path);
-                      console.log(`[SessionStore] Created file URL manually: ${fileUrl}`);
-                    }
-
-                    podData.previewData = {
-                      type: 'image',
-                      src: fileUrl
-                    };
-                    console.log(`[SessionStore] Regenerated image preview for: ${podData.filename}, URL: ${fileUrl}`);
-                  } catch (error) {
-                    console.error(`[SessionStore] Error regenerating image preview for ${podData.filename}:`, error);
-                    // Fall back to icon if image preview fails
-                    podData.previewData = null;
-                  }
-                }
-
-                // Don't call addPodToPile as it would save again, just restore the state
-                state.dismissedPods.set(podData.key, podData);
-
-                // Create DOM element
-                const podElement = createPodElement(podData);
-                state.podElements.set(podData.key, podElement);
-                state.pileContainer.appendChild(podElement);
-
-                // Generate position for single column layout
-                generateGridPosition(podData.key);
-                applyGridPosition(podData.key, 0);
-
-                restoredCount++;
-                debugLog(`[SessionStore] Restored pod: ${podData.filename}`);
-              } else {
-                // File no longer exists, remove from session
-                removeDismissedPodFromSession(podKey);
-                debugLog(`[SessionStore] File no longer exists, skipping: ${podData.filename}`);
-              }
-            }
-          } catch (error) {
-            console.error(`[Dismissed Pile] Error restoring pod ${podKey}:`, error);
-          }
-        })();
-
-        restorationPromises.push(restorationPromise);
-      }
-
-      // Wait for all restorations to complete
-      await Promise.all(restorationPromises);
-
-      if (restoredCount > 0) {
-        // Update the pod keys list to remove any that failed to restore
-        updatePodKeysInSession();
-
-        updatePileVisibility();
-        updateDownloadsButtonVisibility();
-
-        // Show pile if in always-show mode
-        if (getAlwaysShowPile() && shouldPileBeVisible()) {
-          setTimeout(() => showPile(), 100);
-        }
-      }
-
-      debugLog(`[SessionStore] Restored ${restoredCount} pods from session`);
-    } catch (error) {
-      console.error("[Dismissed Pile] Error restoring pods from SessionStore:", error);
-    }
+    await sessionApi.restoreDismissedPodsFromSession();
   }
 
-  // Update the list of pod keys in SessionStore
   function updatePodKeysInSession() {
-    try {
-      if (!window.SessionStore) return;
-
-      const podKeys = Array.from(state.dismissedPods.keys());
-      SessionStore.setCustomWindowValue(
-        window,
-        'zen-stuff-pod-keys',
-        JSON.stringify(podKeys)
-      );
-
-      debugLog(`[SessionStore] Updated pod keys list: ${podKeys.length} pods`);
-    } catch (error) {
-      console.error("[Dismissed Pile] Error updating pod keys in SessionStore:", error);
-    }
+    sessionApi.updatePodKeysInSession();
   }
 
   // Find the Firefox downloads button with better error handling and retry for custom buttons
@@ -806,159 +516,16 @@
     }
   }
 
-  // Create the pile container
+  const pileDomApi = window.zenStuffPileDom.createPileDomApi({
+    state,
+    CONFIG,
+    debugLog,
+    setupPileBackgroundHoverEvents,
+    setupCompactModeObserver
+  });
+
   async function createPileContainer() {
-    if (!state.downloadButton) throw new Error("Download button not available");
-
-    // Check for existing elements (sizer and hover bridge are siblings — removing sizer alone orphans the bridge)
-    let existingSizer = document.getElementById("zen-dismissed-pile-dynamic-sizer");
-    if (existingSizer) {
-      debugLog("Found existing dynamic sizer, removing it first");
-      existingSizer.remove();
-    }
-    let existingBridge = document.getElementById("zen-dismissed-pile-hover-bridge");
-    while (existingBridge) {
-      debugLog("Found existing hover bridge, removing it first");
-      existingBridge.remove();
-      existingBridge = document.getElementById("zen-dismissed-pile-hover-bridge");
-    }
-    state.hoverBridge = null;
-
-    // Create the dynamic sizer element
-    state.dynamicSizer = document.createElement("div");
-    state.dynamicSizer.id = "zen-dismissed-pile-dynamic-sizer";
-
-    // Check if we're in compact mode to determine positioning
-    const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
-    const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
-
-    // Use absolute positioning when integrated into toolbar structure (like media controls)
-    // This allows it to integrate properly with compact mode
-    const positionType = (isCompactMode && !isSidebarExpanded) ? 'absolute' : 'absolute';
-
-    state.dynamicSizer.style.cssText = `
-      position: ${positionType};
-      overflow: hidden;
-      height: 0px;
-      bottom: 35px;
-      left: 0px;
-      right: 0px;
-      background: transparent;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-      box-sizing: border-box;
-      transition: height ${CONFIG.containerAnimationDuration}ms ease, padding-bottom ${CONFIG.containerAnimationDuration}ms ease, padding-left ${CONFIG.containerAnimationDuration}ms ease, background 0.2s ease;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      justify-content: flex-end;
-      padding-bottom: 0px;
-      padding-left: 0px;
-      z-index: 4;
-    `;
-
-    state.pileContainer = document.createElement("div");
-    state.pileContainer.id = "zen-dismissed-pile-container";
-    state.pileContainer.className = "zen-dismissed-pile";
-
-    state.pileContainer.style.cssText = `
-      position: relative;
-      z-index: 1;
-      width: 100%;
-      height: 100%;
-      box-sizing: border-box;
-      padding-left: 5px;
-      padding-right: 5px;
-    `;
-
-    // Buttons removed - no longer needed
-
-    // Append pileContainer to dynamicSizer
-    state.dynamicSizer.appendChild(state.pileContainer);
-
-    // Create hover bridge to cover the gap between download button and pile (prevents pile from hiding when cursor is in that zone)
-    state.hoverBridge = document.createElement("div");
-    state.hoverBridge.id = "zen-dismissed-pile-hover-bridge";
-    state.hoverBridge.style.cssText = `
-      position: absolute;
-      bottom: 20px;
-      left: 0;
-      right: 0;
-      height: 28px;
-      z-index: 3;
-      pointer-events: auto;
-      display: none;
-      -moz-window-dragging: no-drag;
-    `;
-
-    // Setup hover events for background/buttons
-    setupPileBackgroundHoverEvents();
-
-    // Insert into browser DOM structure after media controls toolbar for better integration
-    // Similar to how notifications attach after the media controls toolbar
-    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-    const zenMainAppWrapper = document.getElementById('zen-main-app-wrapper');
-
-    if (mediaControlsToolbar && mediaControlsToolbar.parentNode) {
-      // Insert bridge first (fills gap below pile), then dynamicSizer
-      const parent = mediaControlsToolbar.parentNode;
-      parent.insertBefore(state.hoverBridge, mediaControlsToolbar.nextSibling);
-      parent.insertBefore(state.dynamicSizer, state.hoverBridge.nextSibling);
-
-      // Ensure parent has position: relative for absolute positioning to work correctly
-      const parentStyle = window.getComputedStyle(parent);
-      if (parentStyle.position === 'static') {
-        parent.style.position = 'relative';
-        debugLog("Set parent container to position: relative for absolute positioning");
-      }
-
-      debugLog("Inserted dismissed pile container after zen-media-controls-toolbar");
-    } else if (zenMainAppWrapper) {
-      // Fallback: insert into zen-main-app-wrapper
-      zenMainAppWrapper.appendChild(state.hoverBridge);
-      zenMainAppWrapper.appendChild(state.dynamicSizer);
-      debugLog("Inserted dismissed pile container into zen-main-app-wrapper (fallback)");
-    } else {
-      // Final fallback: append to document.body
-      document.body.appendChild(state.hoverBridge);
-      document.body.appendChild(state.dynamicSizer);
-      debugLog("Inserted dismissed pile container into document.body (final fallback)");
-    }
-
-    // Set up observer for compact mode changes
-    setupCompactModeObserver();
-
-    // Create style element for controlling workspace-arrowscrollbox::after opacity
-    if (!state.workspaceScrollboxStyle) {
-      state.workspaceScrollboxStyle = document.createElement('style');
-      state.workspaceScrollboxStyle.id = 'zen-stuff-workspace-scrollbox-style';
-      state.workspaceScrollboxStyle.textContent = `
-        arrowscrollbox.workspace-arrowscrollbox::after {
-          opacity: var(--zen-stuff-scrollbox-after-opacity, 1) !important;
-        }
-
-        @property --zen-pile-height {
-          syntax: "<length>";
-          inherits: true;
-          initial-value: -50px;
-        }
-
-        #zen-tabs-wrapper {
-          mask-image: linear-gradient(to top, transparent var(--zen-pile-height), black calc(var(--zen-pile-height) + 50px)) !important;
-          transition: --zen-pile-height 100ms ease !important;
-        }
-
-        #zen-media-controls-toolbar.zen-pile-expanded {
-          mask-image: linear-gradient(to top, transparent 50px, black 150px) !important;
-          -webkit-mask-image: linear-gradient(to top, transparent 50px, black 150px) !important;
-          mask-size: 100% 100%;
-          -webkit-mask-size: 100% 100%;
-          transition: mask-image 80ms ease, -webkit-mask-image 80ms ease;
-        }
-      `;
-      document.head.appendChild(state.workspaceScrollboxStyle);
-      debugLog("Created arrowscrollbox.workspace-arrowscrollbox::after style control");
-    }
+    await pileDomApi.createPileContainer();
   }
 
   // Setup event listeners

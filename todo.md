@@ -31,7 +31,7 @@ Aim: main file only **wires** modules, holds minimal closures, and keeps **one**
 
 ### A.1 — Inventory & guardrails
 
-- [ ] Document in a short comment block (top of `initializeMainScript` or README): **dependency order**, what `tryInit` requires, and what zen-stuff relies on (`window.zenTidyDownloads`).
+- [x] Document in a short comment block (top of `initializeMainScript` or README): **dependency order**, what `tryInit` requires, and what zen-stuff relies on (`window.zenTidyDownloads`).
 - [ ] Grep for **closure-heavy** helpers still in main: `capturePodDataForDismissal`, `fireCustomEvent`, `getDownloadKey`, `getSafeFilename`, `initDownloadManager` internals, download listener, Mistral init block.
 - [ ] Decide **naming convention** for new modules: `modules/tidy-downloads-<area>.uc.js` (match existing).
 
@@ -39,37 +39,37 @@ Aim: main file only **wires** modules, holds minimal closures, and keeps **one**
 
 `initDownloadManager` today includes: container insert, tooltip markup, pods row, compact observer hook, pile-shown listener, master close/undo handlers, tooltip-layout init, sync init, wheel listener, pods init, **DownloadsAdapter** listener, startup “recent downloads” scan, Mistral preview init, etc.
 
-- [ ] Create **`modules/tidy-downloads-download-ui.uc.js`** (or split into **shell** + **listeners** if too large):
-  - [ ] **DOM creation / rehydration** — `#userchrome-download-cards-container`, `.master-tooltip` inner HTML, `#userchrome-pods-row-container`, parent insert + `position: relative` fallback
-  - [ ] **Event binding** that is purely UI — master close, master undo (calling existing `undoRename` / `removeCard` via ctx)
+- [x] Create **`modules/tidy-downloads-download-ui.uc.js`** (or split into **shell** + **listeners** if too large):
+  - [x] **DOM creation / rehydration** — `#userchrome-download-cards-container`, `.master-tooltip` inner HTML, `#userchrome-pods-row-container`, parent insert + `position: relative` fallback
+  - [x] **Event binding** that is purely UI — master close, master undo (calling existing `undoRename` / `removeCard` via ctx)
   - [ ] **Registration order** — after DOM exists: `zenTidyDownloadsTooltipLayout.init`, `zenTidyDownloadsSync.init`, wheel on pods row, `zenTidyDownloadsPods.init`
   - [ ] Return an object: `{ getDownloadCardsContainer, getMasterTooltip, getPodsRow, ... }` or mutate ctx refs passed in — pick one style and stick to it
 - [ ] **Main** becomes: `const downloadUi = window.zenTidyDownloadsDownloadUi.init(ctx)` (or equivalent) + assign `throttledCreateOrUpdateCard` from pods API
 
 ### A.3 — Extract **downloads lifecycle / listeners**
 
-- [ ] Move **`DownloadsAdapter.createDownloadViewListener`** wiring + **`onCompletedState` / `onRemoved`** (and any related helpers) into **`modules/tidy-downloads-downloads-listener.uc.js`** OR fold into A.2 if small
+- [x] Move **`DownloadsAdapter.createDownloadViewListener`** wiring + **`onCompletedState` / `onRemoved`** (and any related helpers) into **`modules/tidy-downloads-downloads-listener.uc.js`** OR fold into A.2 if small
 - [ ] Ensure **single** place registers the listener and **single** place removes it (if ever needed for teardown)
 
 ### A.4 — Extract **card removal + autohide + sticky** pipeline
 
 These are tightly coupled to store + DOM + pile events:
 
-- [ ] **`removeCard`** — animation, `dismissedPodsData`, `fireCustomEvent('pod-dismissed')`, focus handoff, `updateUIForFocusedDownload`, container hide when empty
-- [ ] **`scheduleCardRemoval`**, **`performAutohideSequence`**, **`makePodSticky`**
-- [ ] **`clearStickyPod`**, **`clearAllStickyPods`**, **`clearStickyPodsOnly`**
-- [ ] Candidate module: **`modules/tidy-downloads-card-lifecycle.uc.js`** exporting `createCardLifecycle({ store, deps })` with methods assigned back to names main/pods already call
+- [x] **`removeCard`** — animation, `dismissedPodsData`, `fireCustomEvent('pod-dismissed')`, focus handoff, `updateUIForFocusedDownload`, container hide when empty
+- [x] **`scheduleCardRemoval`**, **`performAutohideSequence`**, **`makePodSticky`**
+- [x] **`clearStickyPod`**, **`clearAllStickyPods`**, **`clearStickyPodsOnly`**
+- [x] Candidate module: **`modules/tidy-downloads-card-lifecycle.uc.js`** exporting `createCardLifecycle({ store, deps })` with methods assigned back to names main/pods already call
 - [ ] Resolve **ordering**: pods module references `scheduleCardRemoval` — use **forward refs** / `ctx.getScheduleCardRemoval()` pattern if needed (same as `tidyDeps` / `tooltipLayoutRef`)
 
 ### A.5 — Extract **compact mode + container visibility**
 
-- [ ] **`setupCompactModeObserver`**
-- [ ] **`updateDownloadCardsVisibility`**
+- [x] **`setupCompactModeObserver`**
+- [x] **`updateDownloadCardsVisibility`**
 - [ ] Either merge into download-ui module or **`modules/tidy-downloads-compact-visibility.uc.js`** if you want a tiny focused file
 
 ### A.6 — Extract **helpers** still in main
 
-- [ ] **`capturePodDataForDismissal`** — could live next to card-lifecycle or in a small **`modules/tidy-downloads-dismiss-capture.uc.js`**
+- [x] **`capturePodDataForDismissal`** — could live next to card-lifecycle or in a small **`modules/tidy-downloads-dismiss-capture.uc.js`**
 - [ ] **`fireCustomEvent`** — either keep in main (single dispatcher) or move to **utils** / **public-api companion** if you want zero duplication with other modules
 - [ ] **`getDownloadKey`**, **`getSafeFilename`** — consider **utils** (key generation is generic) vs **downloads-key.uc.js** if Firefox-specific quirks grow
 
@@ -89,8 +89,8 @@ Target shape (conceptual):
 
 ### A.9 — Hardening after Tidy split
 
-- [ ] **`tryInit`**: add checks for any **new** `window.zenTidyDownloads*` globals (mirror pods / public-api pattern)
-- [ ] **`theme.json` / user `mods.json`**: bump **`loadOrder`** for every new script **before** `tidy-downloads.uc.js`
+- [x] **`tryInit`**: add checks for any **new** `window.zenTidyDownloads*` globals (mirror pods / public-api pattern)
+- [x] **`theme.json` / user `mods.json`**: bump **`loadOrder`** for every new script **before** `tidy-downloads.uc.js`
 - [ ] **Smoke test** after each extraction: complete download, error download, dismiss, pile restore, sticky autohide, wheel focus, AI rename, undo, compact mode
 
 ---
@@ -107,12 +107,12 @@ Principle: **one vertical slice per PR**; keep behavior identical; prefer **`mod
 
 ### B.1 — **Session / persistence** module
 
-- [ ] `initSessionStore`, `saveDismissedPodToSession`, `removeDismissedPodFromSession`, `restoreDismissedPodsFromSession`, `updatePodKeysInSession`
+- [x] `initSessionStore`, `saveDismissedPodToSession`, `removeDismissedPodFromSession`, `restoreDismissedPodsFromSession`, `updatePodKeysInSession`
 - [ ] File: **`modules/zen-stuff-session.uc.js`** exporting `createSessionApi({ debugLog, SessionStore: window.SessionStore, ... })`
 
 ### B.2 — **Pile DOM factory** (container + bridge + sizer)
 
-- [ ] `createPileContainer` (dynamic sizer, hover bridge, mask injection, insertion points)
+- [x] `createPileContainer` (dynamic sizer, hover bridge, mask injection, insertion points)
 - [ ] File: **`modules/zen-stuff-pile-dom.uc.js`**
 
 ### B.3 — **Dismissed pod element** (row UI)
@@ -161,16 +161,16 @@ Principle: **one vertical slice per PR**; keep behavior identical; prefer **`mod
 
 ### B.11 — **theme.json / mods.json**
 
-- [ ] For each new `zen-stuff` module: add entry with **`loadOrder`** strictly **before** `zen-stuff.uc.js`, **after** `tidy-downloads.uc.js` (pile depends on `window.zenTidyDownloads`)
+- [x] For each new `zen-stuff` module: add entry with **`loadOrder`** strictly **before** `zen-stuff.uc.js`, **after** `tidy-downloads.uc.js` (pile depends on `window.zenTidyDownloads`)
 - [ ] Document order in README
 
 ---
 
 ## Phase C — Documentation & release
 
-- [ ] **README**: architecture diagram or bullet tree (Tidy modules vs zen-stuff modules), **`mods.json`** reminder, required scripts list
+- [x] **README**: architecture diagram or bullet tree (Tidy modules vs zen-stuff modules), **`mods.json`** reminder, required scripts list
 - [ ] **preferences.json** / about:config keys: single table if split across files
-- [ ] **Version bump** in `theme.json` when adding scripts (consumers must copy all new files)
+- [x] **Version bump** in `theme.json` when adding scripts (consumers must copy all new files)
 - [ ] **Changelog** entry per phase (even if informal)
 
 ---
