@@ -17,8 +17,15 @@
     console.error("[Zen Stuff] zenTidyDownloadsUtils not loaded - ensure tidy-downloads-utils.uc.js loads first (check @loadOrder in headers)");
     return;
   }
-  if (!window.zenStuffSession?.createSessionApi || !window.zenStuffPileDom?.createPileDomApi) {
-    console.error("[Zen Stuff] Required modules missing (zen-stuff-session / zen-stuff-pile-dom)");
+  if (
+    !window.zenStuffSession?.createSessionApi ||
+    !window.zenStuffPileDom?.createPileDomApi ||
+    !window.zenStuffPodElement?.createPodElementFactory ||
+    !window.zenStuffPileLayout?.createPileLayoutApi
+  ) {
+    console.error(
+      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout)"
+    );
     return;
   }
 
@@ -33,7 +40,6 @@
     validatePodData,
     formatBytes,
     waitForElement,
-    IMAGE_EXTENSIONS,
     TEXT_EXTENSIONS,
     SYSTEM_ICON_EXTENSIONS,
     readTextFilePreview,
@@ -338,6 +344,43 @@
         console.log(`[Dismissed Pile] ${message}`);
       }
     }
+  }
+
+  const {
+    generatePilePosition,
+    generateGridPosition,
+    applyPilePosition,
+    applyGridPosition,
+    debounce,
+    updatePileContainerWidth
+  } = window.zenStuffPileLayout.createPileLayoutApi({ state, CONFIG, debugLog });
+
+  /** @type {{ createPodElement: function }|null} */
+  let zenStuffPodElementImpl = null;
+  function createPodElement(podData) {
+    if (!zenStuffPodElementImpl) {
+      zenStuffPodElementImpl = window.zenStuffPodElement.createPodElementFactory({
+        formatBytes,
+        readTextFilePreview,
+        filenameEndsWithExtensionFromSet,
+        TEXT_EXTENSIONS,
+        SYSTEM_ICON_EXTENSIONS,
+        getZenStuffFilePreviewEnabled: () => zenStuffFilePreviewEnabled,
+        debugLog,
+        FileSystem,
+        setPileContextMenuActive: (v) => {
+          state.pileContextMenuActive = v;
+        },
+        openPodFile,
+        showPodFileInExplorer,
+        ensurePodContextMenu,
+        getPodContextMenu: () => podContextMenu,
+        setPodContextMenuPodData: (d) => {
+          podContextMenuPodData = d;
+        }
+      });
+    }
+    return zenStuffPodElementImpl.createPodElement(podData);
   }
 
   // Debug function to test preference (call from browser console)
@@ -659,511 +702,26 @@
     // Generate position for single column layout
     generateGridPosition(podData.key);
 
-    // Apply position immediately (no messy pile mode)
-    applyGridPosition(podData.key, animate ? 0 : 0);
-
-    // Update pile visibility
-    updatePileVisibility();
-
     // Update downloads button visibility
     updateDownloadsButtonVisibility();
 
-    // Show the pile immediately when a pod is added
+    // Single owner for first-pod layout/animation: showPile().
+    // Avoid pre-applying final transforms before showPile runs, or the initial entry
+    // transition can be consumed on cold start.
     if (shouldPileBeVisible()) {
       showPile();
       // Update text colors after showing pile
       setTimeout(() => {
         updatePodTextColors();
       }, 50);
+    } else {
+      // Keep internal layout state in sync when pile should remain hidden.
+      updatePileVisibility(animate);
     }
 
     schedulePileLayoutRepair("add-pod", 120);
 
     debugLog(`Added pod to pile: ${podData.filename}`);
-  }
-
-  // Create a DOM element for a dismissed pod
-  function createPodElement(podData) {
-    // Create row container that spans full width
-    const row = document.createElement("div");
-    row.className = "dismissed-pod-row";
-    row.dataset.podKey = podData.key;
-    row.title = `${podData.filename}\nClick: Open file\nMiddle-click: Show in file explorer\nRight-click: Context menu`;
-
-    row.style.cssText = `
-      position: absolute;
-      width: 100%;
-      height: 48px;
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      gap: 10px;
-      padding: 0 8px;
-      box-sizing: border-box;
-      cursor: pointer;
-      transition: opacity 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
-      will-change: transform, opacity;
-      left: 0;
-      right: 0;
-      border-radius: 6px;
-    `;
-
-    // Add hover background color
-    row.addEventListener('mouseenter', () => {
-      row.style.backgroundColor = 'rgba(255, 255, 255, 0.08)';
-    });
-
-    row.addEventListener('mouseleave', () => {
-      row.style.backgroundColor = 'transparent';
-    });
-
-    // Create pod thumbnail (left side)
-    const pod = document.createElement("div");
-    pod.className = "dismissed-pod";
-    pod.style.cssText = `
-      width: 36px;
-      height: 36px;
-      min-width: 36px;
-      border-radius: 6px;
-      overflow: hidden;
-      flex-shrink: 0;
-    `;
-
-    // Create preview content
-    const preview = document.createElement("div");
-    preview.className = "dismissed-pod-preview";
-    preview.style.cssText = `
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: transparent; /* Changed from #2a2a2a to transparent */
-      color: white;
-      font-size: 16px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    `;
-
-    const isImageFile = (filename, contentType) =>
-      !!(contentType && contentType.startsWith("image/")) ||
-      filenameEndsWithExtensionFromSet(filename, IMAGE_EXTENSIONS);
-
-    const isTextFile = (filename, contentType) =>
-      !!(contentType && contentType.startsWith("text/")) ||
-      filenameEndsWithExtensionFromSet(filename, TEXT_EXTENSIONS);
-
-    const isSystemIconFile = (filename, contentType) => {
-      if (contentType && (contentType.startsWith("video/") || contentType.startsWith("audio/") || contentType.includes("pdf"))) {
-        return true;
-      }
-      return filenameEndsWithExtensionFromSet(filename, SYSTEM_ICON_EXTENSIONS);
-    };
-
-    // Set preview content
-    // Priority: Image -> Text -> System Icon -> Generic Icon
-    
-    const renderPreview = async () => {
-        // 1. Image (always show when available - not gated by pref)
-        if (podData.previewData && podData.previewData.type === 'image' && podData.previewData.src) {
-             const img = document.createElement("img");
-            img.src = podData.previewData.src;
-            img.style.cssText = `
-              width: 100%;
-              height: 100%;
-              object-fit: cover;
-            `;
-            img.onload = () => {
-              // Image loaded
-            };
-            img.onerror = (e) => {
-              // Fallback
-              const icon = getFileIcon(podData.contentType);
-              renderIcon(icon);
-            };
-            preview.appendChild(img);
-            return;
-        }
-        
-        // 2. Text File (if path available - disabled by default via pref)
-        if (podData.targetPath && isTextFile(podData.filename, podData.contentType)) {
-             if (zenStuffFilePreviewEnabled) {
-                  const textContent = await readTextFilePreview(podData.targetPath);
-                  if (textContent) {
-                      preview.innerHTML = "";
-                      const textDiv = document.createElement("div");
-                      textDiv.style.cssText = `
-                          width: 100%;
-                          height: 100%;
-                          padding: 4px;
-                          box-sizing: border-box;
-                          font-family: monospace;
-                          font-size: 5px; 
-                          line-height: 1.1;
-                          overflow: hidden;
-                          white-space: pre-wrap;
-                          color: rgba(255,255,255,0.8);
-                          background: rgba(0,0,0,0.2);
-                          text-align: left;
-                          word-break: break-all;
-                      `;
-                      textDiv.textContent = textContent;
-                      preview.appendChild(textDiv);
-                      return;
-                  }
-             }
-             // No preview - use system icon for text files
-             const fileUrl = "file:///" + podData.targetPath.replace(/\\/g, "/");
-             const iconUrl = `moz-icon://${fileUrl}?size=32`;
-             const img = document.createElement("img");
-             img.src = iconUrl;
-             img.style.cssText = `width: 100%; height: 100%; object-fit: cover;`;
-             img.onerror = () => {
-                 const icon = getFileIcon(podData.contentType);
-                 renderIcon(icon);
-             };
-             preview.innerHTML = "";
-             preview.appendChild(img);
-             return;
-        }
-
-        // 3. System Icon (for .exe, video, pdf, etc.)
-        if (podData.targetPath && isSystemIconFile(podData.filename, podData.contentType)) {
-            const fileUrl = "file:///" + podData.targetPath.replace(/\\/g, "/");
-            const iconUrl = `moz-icon://${fileUrl}?size=32`;
-            
-            const img = document.createElement("img");
-            img.src = iconUrl;
-            img.style.cssText = `
-              width: 100%;
-              height: 100%;
-              object-fit: cover; /* Make it fill the container like images */
-            `;
-            
-            // If system icon fails, fallback to generic
-            img.onerror = () => {
-                const icon = getFileIcon(podData.contentType);
-                renderIcon(icon);
-            };
-            
-            preview.innerHTML = "";
-            preview.appendChild(img);
-            return;
-        }
-
-        // 4. Fallback to Generic Icon
-        const icon = getFileIcon(podData.contentType);
-        renderIcon(icon);
-    };
-    
-    const renderIcon = (iconChar) => {
-        const iconSpan = document.createElement("span");
-        iconSpan.style.fontSize = "24px";
-        iconSpan.textContent = iconChar;
-        preview.innerHTML = "";
-        preview.appendChild(iconSpan);
-    };
-
-    renderPreview();
-
-    pod.appendChild(preview);
-    row.appendChild(pod);
-
-    // Create text container (right side)
-    const textContainer = document.createElement("div");
-    textContainer.className = "dismissed-pod-text";
-    textContainer.style.cssText = `
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
-      height: 100%;
-    `;
-
-    // Create filename element (editable inline)
-    const filename = document.createElement("div");
-    filename.className = "dismissed-pod-filename";
-    
-    // Ensure filename matches the actual file on disk if possible, handling OS auto-renaming (e.g., "file(1).jpg")
-    let displayFilename = podData.filename || "Untitled";
-    if (podData.targetPath) {
-      try {
-        // Extract the filename from the full path to ensure it matches the actual file on disk
-        // This catches cases where the OS renamed the file (e.g. adding (1)) but podData.filename was stale
-        const pathSeparator = podData.targetPath.includes('\\') ? '\\' : '/';
-        const actualFilename = podData.targetPath.split(pathSeparator).pop();
-        if (actualFilename && actualFilename !== displayFilename) {
-            displayFilename = actualFilename;
-        }
-      } catch (e) {
-        // Fallback to existing filename if parsing fails
-      }
-    }
-    
-    filename.textContent = displayFilename;
-    filename.style.cssText = `
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--zen-text-color, #e0e0e0);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      margin-bottom: 2px;
-      cursor: pointer;
-      user-select: text;
-    `;
-    
-    // Store reference to filename element for inline editing via context menu
-    // Inline editing is only triggered from context menu, not double-click
-
-    // Create file size element
-    const fileSize = document.createElement("div");
-    fileSize.className = "dismissed-pod-filesize";
-    const sizeBytes = podData.fileSize || 0;
-    fileSize.textContent = formatBytes(sizeBytes);
-    fileSize.style.cssText = `
-      font-size: 10px;
-      color: var(--zen-text-color-deemphasized, #a0a0a0);
-      white-space: nowrap;
-    `;
-
-    textContainer.appendChild(filename);
-    textContainer.appendChild(fileSize);
-    row.appendChild(textContainer);
-
-    // Add click handler for opening in file explorer
-    row.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      debugLog(`Attempting to open file: ${podData.key}`);
-      openPodFile(podData);
-    });
-
-    // Add middle-click handler for showing in file explorer
-    row.addEventListener('mousedown', (e) => {
-      if (e.button === 1) { // Middle mouse button
-        e.preventDefault();
-        e.stopPropagation();
-        debugLog(`Attempting to show file in explorer: ${podData.key}`);
-        showPodFileInExplorer(podData);
-      }
-    });
-
-    // Add right-click handler - use native menupopup
-    row.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      state.pileContextMenuActive = true;
-      ensurePodContextMenu();
-      podContextMenuPodData = podData;
-      // Open at mouse position
-      if (typeof podContextMenu.openPopupAtScreen === 'function') {
-        podContextMenu.openPopupAtScreen(e.screenX, e.screenY, true);
-      } else {
-        // fallback: open at pod
-        podContextMenu.openPopup(row, 'after_start', 0, 0, true, false, e);
-      }
-    });
-
-    // Add drag-and-drop support for dragging to web pages
-    row.setAttribute('draggable', 'true');
-    row.addEventListener('dragstart', async (e) => {
-      // Only allow drag if we have a file path
-      if (!podData.targetPath) {
-        e.preventDefault();
-        return;
-      }
-      
-      // Ensure image (if present) is loaded before allowing drag
-      const img = pod.querySelector('img');
-      if (img && !img.complete) {
-        // Optionally, prevent drag or use a fallback icon
-        e.preventDefault();
-        debugLog('[DragDrop] Image not loaded, preventing drag for:', podData.filename);
-        return;
-      }
-      
-      // Try to get the file instance
-      try {
-        const file = await FileSystem.createFileInstance(podData.targetPath);
-        if (!file.exists()) {
-          e.preventDefault();
-          return;
-        }
-        
-        // Set the native file flavor for Firefox - use try/catch to handle potential DOMException
-        try {
-          if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === 'function') {
-            e.dataTransfer.mozSetDataAt('application/x-moz-file', file, 0);
-          }
-        } catch (mozError) {
-          debugLog('[DragDrop] mozSetDataAt failed, continuing with other formats:', mozError);
-          // Continue with other data formats even if mozSetDataAt fails
-        }
-        
-        // Set URI flavors for web pages
-        const fileUrl = file && file.path ?
-          (file.path.startsWith('\\') ? 'file:' + file.path.replace(/\\/g, '/') : 'file:///' + file.path.replace(/\\/g, '/'))
-          : '';
-        if (fileUrl) {
-          e.dataTransfer.setData('text/uri-list', fileUrl);
-          e.dataTransfer.setData('text/plain', fileUrl);
-        }
-        
-        // Optionally, set a download URL for HTML5 drop targets
-        if (podData.sourceUrl) {
-          e.dataTransfer.setData('DownloadURL', `${podData.contentType || 'application/octet-stream'}:${podData.filename}:${podData.sourceUrl}`);
-        }
-        
-        // Force reflow to ensure the pod is painted
-        pod.offsetWidth;
-        e.dataTransfer.setDragImage(pod, 22, 22);
-      } catch (err) {
-        debugLog('[DragDrop] Error during dragstart:', err);
-        e.preventDefault();
-      }
-    });
-
-    return row;
-  }
-
-  // Get file icon based on content type
-  function getFileIcon(contentType) {
-    if (!contentType) return "📄";
-
-    if (contentType.includes("image/")) return "🖼️";
-    if (contentType.includes("video/")) return "🎬";
-    if (contentType.includes("audio/")) return "🎵";
-    if (contentType.includes("text/")) return "📝";
-    if (contentType.includes("application/pdf")) return "📕";
-    if (contentType.includes("application/zip") || contentType.includes("application/x-rar")) return "🗜️";
-    if (contentType.includes("application/")) return "📦";
-
-    return "📄";
-  }
-
-  // Generate random pile position for a pod
-  function generatePilePosition(podKey) {
-    const angle = (Math.random() - 0.5) * CONFIG.pileRotationRange * 2;
-    const offsetX = (Math.random() - 0.5) * CONFIG.pileOffsetRange * 2;
-    const offsetY = (Math.random() - 0.5) * CONFIG.pileOffsetRange * 2;
-
-    // Newer pods should have higher z-index to appear on top
-    // Get the order of this pod in the dismissedPods map (newer = higher index)
-    const pods = Array.from(state.dismissedPods.keys());
-    const podIndex = pods.indexOf(podKey);
-    const zIndex = podIndex + 1; // Start from 1, newer pods get higher z-index
-
-    state.pilePositions.set(podKey, {
-      x: offsetX,
-      y: offsetY,
-      rotation: angle,
-      zIndex: zIndex
-    });
-
-    debugLog(`Generated pile position for ${podKey}:`, {
-      index: podIndex,
-      zIndex,
-      angle,
-      offsetX,
-      offsetY
-    });
-  }
-
-  // Generate position for a pod (single column layout, bottom-up, 4 most recent)
-  function generateGridPosition(podKey) {
-    // Get the 4 most recent pods (newest last in the map)
-    const allPods = Array.from(state.dismissedPods.keys());
-    const recentPods = allPods.slice(-4); // Get last 4 pods (most recent)
-    const index = recentPods.indexOf(podKey);
-
-    if (index === -1) {
-      // This pod is not in the 4 most recent, don't position it
-      return;
-    }
-
-    // Single column layout - newest at bottom (row 0), older pods stack upward.
-    // Invert the index: newest (last in recentPods array) gets row 0 (bottom),
-    // oldest (first in recentPods array) gets the highest row.
-    const x = 0;
-    const rowIndex = (recentPods.length - 1) - index; // 0 = bottom (newest)
-
-    state.gridPositions.set(podKey, { x, y: 0, row: rowIndex, col: 0 });
-
-    debugLog(`Single column position (bottom-up) for ${podKey}:`, {
-      index,
-      rowIndex,
-      x,
-      totalRecent: recentPods.length
-    });
-  }
-
-  // Apply pile position to a pod
-  function applyPilePosition(podKey, animate = true) {
-    const podElement = state.podElements.get(podKey);
-    const position = state.pilePositions.get(podKey);
-    if (!podElement || !position) return;
-
-    const transform = `translate3d(${position.x}px, ${position.y}px, 0) rotate(${position.rotation}deg)`;
-
-    if (!animate) {
-      podElement.style.transition = 'none';
-    }
-
-    podElement.style.transform = transform;
-    podElement.style.zIndex = position.zIndex;
-
-    if (!animate) {
-      // Re-enable transitions after position is set
-      requestAnimationFrame(() => {
-        podElement.style.transition = `transform ${CONFIG.animationDuration}ms cubic-bezier(0.4, 0, 0.2, 1)`;
-      });
-    }
-  }
-
-  // Apply position to a pod (simple single column, no rotation)
-  // preserveTransition: when true, don't overwrite transition (caller set transition-delay for stagger)
-  function applyGridPosition(podKey, delay = 0, shouldAnimate = false, preserveTransition = false) {
-    const podElement = state.podElements.get(podKey);
-    const position = state.gridPositions.get(podKey);
-    if (!podElement || !position) {
-      // If no position, hide the pod (it's not in the 4 most recent)
-      if (podElement) {
-        podElement.style.display = 'none';
-      }
-      return;
-    }
-
-    const update = () => {
-      // Set transition if animation is needed (skip when caller uses transition-delay for stagger)
-      if (shouldAnimate && !preserveTransition) {
-        podElement.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
-      }
-      // Use bottom positioning for bottom-up layout
-      const rowHeight = 48;
-      const rowSpacing = 6;
-      const baseBottomOffset = 8; // Small base offset for first row
-      const bottomOffset = baseBottomOffset + (position.row * (rowHeight + rowSpacing));
-      
-      podElement.style.bottom = '0px';
-      podElement.style.left = '0';
-      podElement.style.right = '0';
-      podElement.style.top = 'auto';
-      // Use translateY to move up (negative value)
-      podElement.style.transform = `translate3d(0, -${bottomOffset}px, 0)`;
-      podElement.style.display = 'flex'; // Ensure flex layout is maintained
-      podElement.style.zIndex = '1';
-      podElement.style.opacity = '1';
-    };
-
-    if (preserveTransition) {
-      // Caller batches updates in single frame; apply immediately
-      update();
-    } else if (delay > 0) {
-      setTimeout(() => requestAnimationFrame(update), delay);
-    } else {
-      requestAnimationFrame(update);
-    }
   }
 
   // Remove a pod from the pile
@@ -1898,53 +1456,6 @@
     });
 
     schedulePileLayoutRepair("resize", 0);
-  }
-
-  // Utility: Debounce function
-  function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-      const later = () => {
-        clearTimeout(timeout);
-        func(...args);
-      };
-      clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
-    };
-  }
-
-  // --- Pile Container Width Synchronization Logic ---
-  function updatePileContainerWidth() {
-    if (!state.dynamicSizer) {
-      debugLog('[PileWidthSync] dynamicSizer not found. Cannot set width.');
-      return;
-    }
-
-    const navigatorToolbox = document.getElementById('navigator-toolbox');
-    let newWidth = '';
-
-    if (navigatorToolbox) {
-      const value = getComputedStyle(navigatorToolbox).getPropertyValue('--zen-sidebar-width').trim();
-      if (value && value !== "0px" && value !== "") {
-        newWidth = value;
-        debugLog('[PileWidthSync] Using --zen-sidebar-width from #navigator-toolbox:', newWidth);
-      }
-    }
-
-    if (!newWidth) {
-      const sidebarBox = document.getElementById('sidebar-box');
-      if (sidebarBox && sidebarBox.clientWidth > 0) {
-        newWidth = `${sidebarBox.clientWidth}px`;
-        debugLog('[PileWidthSync] Using #sidebar-box.clientWidth as fallback:', newWidth);
-      } else {
-        newWidth = '300px'; // Last resort default
-        debugLog('[PileWidthSync] Using default width (300px) as final fallback.');
-      }
-    }
-
-    // Update the global variable (store raw width, we'll subtract padding when applying)
-    state.currentZenSidebarWidthForPile = newWidth;
-    debugLog('[PileWidthSync] Stored sidebar width:', newWidth);
   }
 
   function initPileSidebarWidthSync() {

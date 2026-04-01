@@ -48,6 +48,7 @@
       } = ctx;
 
       const { activeDownloadCards, focusedKeyRef, orderedPodKeys, renamedFiles } = store;
+      let pendingZeroWidthLayoutRetry = false;
 
       function managePodVisibilityAndAnimations() {
             const masterTooltipDOMElement = getMasterTooltip();
@@ -131,8 +132,18 @@
             if (podsRowContainerElement.style.height === '0px') {
                 podsRowContainerElement.style.height = '56px';
             }
+            if (!pendingZeroWidthLayoutRetry) {
+                pendingZeroWidthLayoutRetry = true;
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        pendingZeroWidthLayoutRetry = false;
+                        managePodVisibilityAndAnimations();
+                    });
+                });
+            }
             return;
         }
+        pendingZeroWidthLayoutRetry = false;
 
         let visiblePodsLayoutData = []; // Stores {key, x, zIndex, isFocused}
         const focusedIndexInOrdered = orderedPodKeys.indexOf(focusedKeyRef.current);
@@ -260,14 +271,27 @@
                         // branch above would skip; replay a proper entrance (same motion as pile rotation).
                         cardData.needsStickyEntranceReveal = false;
                         const entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
+                        if (!podElement.style.transition) {
+                            podElement.style.transition =
+                                "opacity 0.4s ease-out, transform 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55), z-index 0.3s ease-out";
+                        }
+                        podElement.style.willChange = "opacity, transform";
                         podElement.style.transform = entranceTransform;
                         podElement.style.opacity = "0";
+                        // Force the entrance frame to commit before we animate to final state.
+                        // Without this, first-startup completion can batch styles and skip the transition.
+                        void podElement.offsetWidth;
                         debugLog(`[LayoutManager_StickyEntrance] Pod ${key}: Completion entrance from ${entranceTransform}`);
                         requestAnimationFrame(() => {
                             requestAnimationFrame(() => {
                                 podElement.style.opacity = targetOpacity;
                                 podElement.style.transform = targetTransform;
                                 debugLog(`[LayoutManager_StickyEntrance] Pod ${key}: Animating to ${targetTransform}`);
+                                setTimeout(() => {
+                                    if (podElement && podElement.isConnected) {
+                                        podElement.style.willChange = "";
+                                    }
+                                }, 500);
                             });
                         });
                     } else {
