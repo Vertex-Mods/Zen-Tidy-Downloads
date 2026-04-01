@@ -303,9 +303,8 @@
         svg.appendChild(indeterminateGroup);
         root.appendChild(svg);
 
-        // Same structure as Zen arc (see zen-download-arc-animation.css + ZenDownloadAnimation.mjs):
-        // inner toolbar disc + .zen-download-arc-animation-icon (mask + primary fill). Full Zen stylesheet
-        // cannot be linked here — its :host { position:fixed; inset:0 } would break this widget — so we inject scoped copies.
+        // Same structure as Zen arc (see zen-download-arc-animation.css + ZenDownloadAnimation.mjs).
+        // Scoped widget styles + zen-tidy-pie-spin keyframes live in chrome.css (#zen-tidy-download-pie-host).
         zenInnerCircleEl = document.createElement("div");
         zenInnerCircleEl.className = "zen-download-arc-animation-inner-circle";
         zenInnerCircleEl.style.cssText =
@@ -323,43 +322,6 @@
         }
         zenInnerCircleEl.appendChild(zenIconEl);
         root.appendChild(zenInnerCircleEl);
-
-        if (!document.getElementById("zen-tidy-pie-zen-arc-styles")) {
-          const zst = document.createElement("style");
-          zst.id = "zen-tidy-pie-zen-arc-styles";
-          zst.textContent = [
-            "#zen-tidy-download-pie-host.zen-tidy-pie-host .zen-download-arc-animation-inner-circle {",
-            "  position: relative;",
-            "  z-index: 0;",
-            "  width: 100%;",
-            "  height: 100%;",
-            "  border-radius: 50%;",
-            "  background-color: var(--toolbar-color, rgba(200,200,200,0.35));",
-            "  flex-shrink: 0;",
-            "}",
-            "#zen-tidy-download-pie-host.zen-tidy-pie-host .zen-download-arc-animation-icon {",
-            "  position: absolute;",
-            "  top: 0;",
-            "  left: 0;",
-            "  width: 100%;",
-            "  height: 100%;",
-            "  background-color: var(--zen-primary-color, #0a84ff);",
-            '  -webkit-mask: url("chrome://browser/content/zen-images/downloads/download.svg") no-repeat center;',
-            "  -webkit-mask-size: 70%;",
-            '  mask: url("chrome://browser/content/zen-images/downloads/download.svg") no-repeat center;',
-            "  mask-size: 70%;",
-            "}"
-          ].join("\n");
-          document.head.appendChild(zst);
-        }
-
-        if (!document.getElementById("zen-tidy-pie-spin-style")) {
-          const st = document.createElement("style");
-          st.id = "zen-tidy-pie-spin-style";
-          st.textContent =
-            "@keyframes zen-tidy-pie-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }";
-          document.head.appendChild(st);
-        }
 
         document.body.appendChild(root);
       }

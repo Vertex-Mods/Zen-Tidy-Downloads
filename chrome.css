@@ -373,3 +373,117 @@
   width: 6px;
   height: 6px;
 }
+
+/* --- Zen Stuff: dismissed-pile fly animations (from zen-stuff.uc.js) --- */
+.zen-flyin-right {
+  animation: zen-flyin-right 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.zen-flyin-left {
+  animation: zen-flyin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.zen-flyout-right {
+  animation: zen-flyout-right 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.zen-flyout-left {
+  animation: zen-flyout-left 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes zen-flyin-right {
+  from {
+    transform: translateX(60px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes zen-flyin-left {
+  from {
+    transform: translateX(-60px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes zen-flyout-right {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateX(60px);
+  }
+}
+
+@keyframes zen-flyout-left {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateX(-60px);
+  }
+}
+
+/* --- Zen Stuff: pile mask + tabs wrapper (from zen-stuff-pile-dom) --- */
+arrowscrollbox.workspace-arrowscrollbox::after {
+  opacity: var(--zen-stuff-scrollbox-after-opacity, 1) !important;
+}
+
+@property --zen-pile-height {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: -50px;
+}
+
+#zen-tabs-wrapper {
+  mask-image: linear-gradient(
+    to top,
+    transparent var(--zen-pile-height),
+    black calc(var(--zen-pile-height) + 50px)
+  ) !important;
+  transition: --zen-pile-height 100ms ease !important;
+}
+
+#zen-media-controls-toolbar.zen-pile-expanded {
+  mask-image: linear-gradient(to top, transparent 50px, black 150px) !important;
+  -webkit-mask-image: linear-gradient(to top, transparent 50px, black 150px) !important;
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+  transition: mask-image 80ms ease, -webkit-mask-image 80ms ease;
+}
+
+/* --- Tidy Downloads: library pie arc (scoped; from tidy-downloads-library-pie) --- */
+#zen-tidy-download-pie-host.zen-tidy-pie-host .zen-download-arc-animation-inner-circle {
+  position: relative;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background-color: var(--toolbar-color, rgba(200, 200, 200, 0.35));
+  flex-shrink: 0;
+}
+
+#zen-tidy-download-pie-host.zen-tidy-pie-host .zen-download-arc-animation-icon {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--zen-primary-color, #0a84ff);
+  -webkit-mask: url("chrome://browser/content/zen-images/downloads/download.svg") no-repeat center;
+  -webkit-mask-size: 70%;
+  mask: url("chrome://browser/content/zen-images/downloads/download.svg") no-repeat center;
+  mask-size: 70%;
+}
+
+@keyframes zen-tidy-pie-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

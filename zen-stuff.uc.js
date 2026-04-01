@@ -706,40 +706,6 @@
 
   debugLog("Dismissed downloads pile script loaded");
 
-  /* Add CSS for flyout/flyin animations */
-  const zenFlyAnimStyle = document.createElement('style');
-  zenFlyAnimStyle.textContent = `
-  .zen-flyin-right {
-    animation: zen-flyin-right 0.4s cubic-bezier(0.4,0,0.2,1) both;
-  }
-  .zen-flyin-left {
-    animation: zen-flyin-left 0.4s cubic-bezier(0.4,0,0.2,1) both;
-  }
-  .zen-flyout-right {
-    animation: zen-flyout-right 0.4s cubic-bezier(0.4,0,0.2,1) both;
-  }
-  .zen-flyout-left {
-    animation: zen-flyout-left 0.4s cubic-bezier(0.4,0,0.2,1) both;
-  }
-  @keyframes zen-flyin-right {
-    from { transform: translateX(60px); }
-    to   { transform: none; }
-  }
-  @keyframes zen-flyin-left {
-    from { transform: translateX(-60px); }
-    to   { transform: none; }
-  }
-  @keyframes zen-flyout-right {
-    from { transform: none; }
-    to   { transform: translateX(60px); }
-  }
-  @keyframes zen-flyout-left {
-    from { transform: none; }
-    to   { transform: translateX(-60px); }
-  }
-  `;
-  document.head.appendChild(zenFlyAnimStyle);
-
   // Store previous grid positions for each pod
   if (!state._prevGridPositions) state._prevGridPositions = new Map();
 })();

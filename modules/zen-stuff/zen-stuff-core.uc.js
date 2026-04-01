@@ -34,7 +34,6 @@
       this.visibleGridOrder = [];
       this.carouselStartIndex = 0;
       this.isGridAnimating = false;
-      this.workspaceScrollboxStyle = null;
       this.isEditing = false;
       this.recentlyRemoved = false;
       this.mediaToolbarMaskRemovalTimeout = null;

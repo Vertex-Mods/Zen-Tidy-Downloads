@@ -209,17 +209,13 @@
       }
 
       function hideWorkspaceScrollboxAfter() {
-        if (state.workspaceScrollboxStyle) {
-          document.documentElement.style.setProperty("--zen-stuff-scrollbox-after-opacity", "0");
-          debugLog("Hidden arrowscrollbox.workspace-arrowscrollbox::after");
-        }
+        document.documentElement.style.setProperty("--zen-stuff-scrollbox-after-opacity", "0");
+        debugLog("Hidden arrowscrollbox.workspace-arrowscrollbox::after");
       }
 
       function showWorkspaceScrollboxAfter() {
-        if (state.workspaceScrollboxStyle) {
-          document.documentElement.style.setProperty("--zen-stuff-scrollbox-after-opacity", "1");
-          debugLog("Shown arrowscrollbox.workspace-arrowscrollbox::after");
-        }
+        document.documentElement.style.setProperty("--zen-stuff-scrollbox-after-opacity", "1");
+        debugLog("Shown arrowscrollbox.workspace-arrowscrollbox::after");
       }
 
       function handleHoverBridgeEnter() {
