@@ -24,10 +24,11 @@
     !window.zenStuffPileLayout?.createPileLayoutApi ||
     !window.zenStuffContextFileOps?.createContextFileOpsApi ||
     !window.zenStuffPileVisibility?.createPileVisibilityApi ||
-    !window.zenStuffPileMaskRepair?.createMaskRepairApi
+    !window.zenStuffPileMaskRepair?.createMaskRepairApi ||
+    !window.zenStuffPileThemeColors?.createPileThemeColorsApi
   ) {
     console.error(
-      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops, zen-stuff-pile-visibility, zen-stuff-pile-mask-repair)"
+      "[Zen Stuff] Required modules missing (zen-stuff-session, zen-stuff-pile-dom, zen-stuff-pod-element, zen-stuff-pile-layout, zen-stuff-context-fileops, zen-stuff-pile-visibility, zen-stuff-pile-theme-colors, zen-stuff-pile-mask-repair)"
     );
     return;
   }
@@ -583,6 +584,11 @@
     await pileDomApi.createPileContainer();
   }
 
+  const themeColorsApi = window.zenStuffPileThemeColors.createPileThemeColorsApi({
+    state,
+    debugLog
+  });
+
   pileVisibilityApi = window.zenStuffPileVisibility.createPileVisibilityApi({
     state,
     CONFIG,
@@ -594,7 +600,7 @@
     generateGridPosition,
     applyGridPosition,
     updateDownloadsButtonVisibility: () => updateDownloadsButtonVisibility(),
-    updatePodTextColors: () => updatePodTextColors(),
+    updatePodTextColors: () => themeColorsApi.updatePodTextColors(),
     showPileBackground: () => maskRepairApi.showPileBackground(),
     hidePileBackground: () => maskRepairApi.hidePileBackground(),
     hideWorkspaceScrollboxAfter: () => maskRepairApi.hideWorkspaceScrollboxAfter(),
@@ -618,7 +624,7 @@
     getAlwaysShowPile: () => getAlwaysShowPile(),
     generateGridPosition,
     applyGridPosition,
-    updatePodTextColors: () => updatePodTextColors()
+    updatePodTextColors: () => themeColorsApi.updatePodTextColors()
   });
 
   function schedulePileLayoutRepair(source, delayMs = 80) {
@@ -818,201 +824,6 @@
   // Check if main download script has active pods to disable hover
   function shouldDisableHover() {
     return pileVisibilityApi.shouldDisableHover();
-  }
-
-  // Parse RGB/RGBA from CSS color string - returns { r, g, b, a } or null
-  function parseRGB(colorStr) {
-    if (!colorStr || typeof colorStr !== 'string') return null;
-    if (colorStr.startsWith('rgba(')) {
-      const match = colorStr.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-      if (match) {
-        return {
-          r: parseInt(match[1]),
-          g: parseInt(match[2]),
-          b: parseInt(match[3]),
-          a: parseFloat(match[4])
-        };
-      }
-    } else if (colorStr.startsWith('rgb(')) {
-      const match = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-      if (match) {
-        return {
-          r: parseInt(match[1]),
-          g: parseInt(match[2]),
-          b: parseInt(match[3]),
-          a: 1
-        };
-      }
-    }
-    return null;
-  }
-
-  // Compute the blended background color that matches Zen's lightening effect
-  function computeBlendedBackgroundColor() {
-    // Check if we're in compact mode - use toolbar background color directly
-    const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
-    const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
-
-    if (isCompactMode && isSidebarExpanded) {
-      // In compact mode with expanded sidebar, use toolbar background color (includes light tint)
-      const navigatorToolbox = document.getElementById('navigator-toolbox');
-      if (navigatorToolbox) {
-        const toolbarBg = window.getComputedStyle(navigatorToolbox).getPropertyValue('--zen-main-browser-background-toolbar').trim();
-        if (toolbarBg) {
-          // Try to get the computed color value
-          const testEl = document.createElement('div');
-          testEl.style.backgroundColor = toolbarBg || 'var(--zen-main-browser-background-toolbar)';
-          testEl.style.position = 'absolute';
-          testEl.style.visibility = 'hidden';
-          document.body.appendChild(testEl);
-          const computedColor = window.getComputedStyle(testEl).backgroundColor;
-          document.body.removeChild(testEl);
-
-          if (computedColor && computedColor !== 'transparent' && computedColor !== 'rgba(0, 0, 0, 0)') {
-            debugLog('[BackgroundColor] Using toolbar background color for compact mode:', computedColor);
-            // Ensure fully opaque - convert rgba to rgb if needed
-            if (computedColor.startsWith('rgba(')) {
-              const match = computedColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*[\d.]+\)/);
-              if (match) {
-                return `rgb(${match[1]}, ${match[2]}, ${match[3]})`;
-              }
-            }
-            return computedColor;
-          }
-
-          // If computed color isn't available, return the CSS variable
-          return toolbarBg || 'var(--zen-main-browser-background-toolbar)';
-        }
-      }
-    }
-
-    // For non-compact mode or collapsed sidebar, use the blended color calculation
-    // Get base background color
-    const navigatorToolbox = document.getElementById('navigator-toolbox');
-    let baseColor = null;
-    if (navigatorToolbox) {
-      const baseComputed = window.getComputedStyle(navigatorToolbox);
-      const baseResolved = baseComputed.getPropertyValue('--zen-main-browser-background').trim();
-
-      // If it's a gradient, we can't easily blend, so return the variable
-      if (baseResolved.includes('gradient') || baseResolved.includes('linear') || baseResolved.includes('radial')) {
-        return 'var(--zen-main-browser-background)';
-      }
-
-      // Try to get the actual computed color
-      const testEl = document.createElement('div');
-      testEl.style.backgroundColor = 'var(--zen-main-browser-background)';
-      testEl.style.position = 'absolute';
-      testEl.style.visibility = 'hidden';
-      document.body.appendChild(testEl);
-      const computedBase = window.getComputedStyle(testEl).backgroundColor;
-      document.body.removeChild(testEl);
-
-      if (computedBase && computedBase !== 'transparent' && computedBase !== 'rgba(0, 0, 0, 0)') {
-        baseColor = computedBase;
-      }
-    }
-
-    // Get wrapper background color
-    const appWrapper = document.getElementById('zen-main-app-wrapper');
-    let wrapperColor = null;
-    if (appWrapper) {
-      const wrapperComputed = window.getComputedStyle(appWrapper);
-      wrapperColor = wrapperComputed.backgroundColor;
-    }
-
-    // If we don't have both colors, fallback to base
-    if (!baseColor || !wrapperColor || baseColor === 'transparent' || wrapperColor === 'transparent') {
-      return 'var(--zen-main-browser-background)';
-    }
-
-    const baseRGB = parseRGB(baseColor);
-    const wrapperRGB = parseRGB(wrapperColor);
-
-    if (!baseRGB || !wrapperRGB) {
-      return 'var(--zen-main-browser-background)';
-    }
-
-    // Blend the colors to achieve the target: rgb(49, 32, 42)
-    // Formula: blended = base * (1 - ratio) + wrapper * ratio
-    // Solving for ratio to match target rgb(49, 32, 42):
-    // If base is rgb(34, 17, 31) and wrapper is rgb(255, 233, 198):
-    // - R: 34 + (255-34) * ratio = 49 => ratio ≈ 0.068
-    // - G: 17 + (233-17) * ratio = 32 => ratio ≈ 0.069  
-    // - B: 31 + (198-31) * ratio = 42 => ratio ≈ 0.066
-    // Average ratio ≈ 0.067 (about 6.7%)
-    const wrapperRatio = 0.067; // Adjusted to match target rgb(49, 32, 42)
-
-    const blendedR = Math.round(baseRGB.r * (1 - wrapperRatio) + wrapperRGB.r * wrapperRatio);
-    const blendedG = Math.round(baseRGB.g * (1 - wrapperRatio) + wrapperRGB.g * wrapperRatio);
-    const blendedB = Math.round(baseRGB.b * (1 - wrapperRatio) + wrapperRGB.b * wrapperRatio);
-
-    // Always return fully opaque color (no transparency)
-    return `rgb(${blendedR}, ${blendedG}, ${blendedB})`;
-  }
-
-  // Calculate text color based on background color (using Zen's luminance/contrast logic)
-  function calculateTextColorForBackground(backgroundColor) {
-    const parsed = parseRGB(backgroundColor);
-    const bgRGB = parsed ? [parsed.r, parsed.g, parsed.b] : null;
-    if (!bgRGB) {
-      // Fallback to CSS variable if we can't parse
-      return 'var(--zen-text-color, #e0e0e0)';
-    }
-
-    // Calculate relative luminance (from Zen's luminance function)
-    function luminance([r, g, b]) {
-      const a = [r, g, b].map((v) => {
-        v /= 255;
-        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-      });
-      return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
-    }
-
-    // Calculate contrast ratio (from Zen's contrastRatio function)
-    function contrastRatio(rgb1, rgb2) {
-      const lum1 = luminance(rgb1);
-      const lum2 = luminance(rgb2);
-      const brightest = Math.max(lum1, lum2);
-      const darkest = Math.min(lum1, lum2);
-      return (brightest + 0.05) / (darkest + 0.05);
-    }
-
-    // Test dark text (black) and light text (white)
-    const darkText = [0, 0, 0];
-    const lightText = [255, 255, 255];
-
-    const darkContrast = contrastRatio(bgRGB, darkText);
-    const lightContrast = contrastRatio(bgRGB, lightText);
-
-    // Use whichever has better contrast
-    // Also consider: if background is very light, use dark text; if very dark, use light text
-    const bgLuminance = luminance(bgRGB);
-    const useDarkText = darkContrast > lightContrast || bgLuminance > 0.5;
-
-    if (useDarkText) {
-      return 'rgba(0, 0, 0, 0.8)'; // Dark text with some transparency
-    } else {
-      return 'rgba(255, 255, 255, 0.8)'; // Light text with some transparency
-    }
-  }
-
-  // Update text colors for all pod rows based on current background
-  function updatePodTextColors() {
-    if (!state.dynamicSizer) {
-      return;
-    }
-
-    const blendedColor = computeBlendedBackgroundColor();
-    const textColor = calculateTextColorForBackground(blendedColor);
-
-    // Update all pod text elements
-    const textElements = state.pileContainer.querySelectorAll('.dismissed-pod-filename, .dismissed-pod-filesize');
-    textElements.forEach(el => {
-      el.style.color = textColor;
-    });
-
-    console.log('[ShowPile] Updated text colors to:', textColor, 'for background:', blendedColor);
   }
 
   // applyTabsWrapperMask and removeTabsWrapperMask function removed - logic replaced by CSS mask-image with --zen-pile-height variable

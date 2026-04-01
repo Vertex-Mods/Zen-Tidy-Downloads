@@ -101,22 +101,26 @@
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 23
     },
-    "modules/zen-stuff/zen-stuff-pile-mask-repair.uc.js": {
+    "modules/zen-stuff/zen-stuff-pile-theme-colors.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 24
     },
-    "modules/zen-stuff/zen-stuff-context-fileops.uc.js": {
+    "modules/zen-stuff/zen-stuff-pile-mask-repair.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 25
     },
-    "zen-stuff.uc.js": {
+    "modules/zen-stuff/zen-stuff-context-fileops.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 26
+    },
+    "zen-stuff.uc.js": {
+      "include": ["chrome://browser/content/browser.xhtml"],
+      "loadOrder": 27
     }
   },
   "preferences": "preferences.json",
   "author": "Vertex",
-  "version": "3.7.3",
+  "version": "3.7.4",
   "tags": ["sine", "fx-autoconfig", "Downloads", "Tidy Pack"],
   "createdAt": "2025-05-24",
   "updatedAt": "2026-03-20",
