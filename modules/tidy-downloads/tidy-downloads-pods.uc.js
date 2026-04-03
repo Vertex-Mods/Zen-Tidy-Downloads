@@ -320,9 +320,7 @@
             domAppended: false,
             intendedTargetTransform: null,
             intendedTargetOpacity: null,
-            isBeingRemoved: false,
-            /** True until layout runs a one-shot entrance when download reaches succeeded (in-progress layout skips re-animation otherwise). */
-            needsStickyEntranceReveal: false
+            isBeingRemoved: false
           };
           activeDownloadCards.set(key, cardData);
 
@@ -397,7 +395,6 @@
         }
 
         if (download.succeeded && !cardData.complete) {
-          cardData.needsStickyEntranceReveal = true;
           cardData.complete = true;
           cardData.userCanceled = false;
           podElement.classList.add("completed");

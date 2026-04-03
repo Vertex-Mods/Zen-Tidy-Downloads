@@ -232,45 +232,6 @@
           podElement.classList.add("zen-tidy-sticky-pod");
           podElement.style.pointerEvents = "auto";
           podElement.style.cursor = "pointer";
-          // Run sticky reveal on inner content so layout transform updates on the pod
-          // itself cannot cancel the first animation.
-          const previewElement = podElement.querySelector(".card-preview-container");
-          if (previewElement) {
-            try {
-              if (typeof previewElement.animate === "function") {
-                previewElement.animate(
-                  [
-                    { opacity: 0, transform: "scale(0.78)" },
-                    { opacity: 1, transform: "scale(1)" }
-                  ],
-                  {
-                    duration: 260,
-                    easing: "cubic-bezier(0.22, 0.61, 0.36, 1)",
-                    fill: "both"
-                  }
-                );
-              } else {
-                const previousPreviewTransition = previewElement.style.transition;
-                previewElement.style.transition = "none";
-                previewElement.style.opacity = "0";
-                previewElement.style.transform = "scale(0.78)";
-                void previewElement.offsetWidth;
-                requestAnimationFrame(() => {
-                  previewElement.style.transition =
-                    "opacity 0.22s ease-out, transform 0.26s cubic-bezier(0.22, 0.61, 0.36, 1)";
-                  previewElement.style.opacity = "1";
-                  previewElement.style.transform = "scale(1)";
-                  setTimeout(() => {
-                    if (!previewElement || !previewElement.isConnected) return;
-                    previewElement.style.transition = previousPreviewTransition || "";
-                    previewElement.style.transform = "";
-                  }, 320);
-                });
-              }
-            } catch (_error) {
-              // Keep sticky flow resilient: animation failure should never block lifecycle.
-            }
-          }
 
           podElement.addEventListener("mouseenter", () => {
             document.dispatchEvent(new CustomEvent("request-pile-expand", { bubbles: true }));

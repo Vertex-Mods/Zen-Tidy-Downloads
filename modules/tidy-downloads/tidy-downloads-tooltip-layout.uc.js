@@ -242,62 +242,29 @@
                 podElement.style.zIndex = `${layoutData.zIndex}`;
                 const targetTransform = `translateX(${layoutData.x}px) scale(1) translateY(0)`;
                 const targetOpacity = layoutData.isFocused ? '1' : '0.75';
-                const forceStickyEntrance =
-                  layoutData.isFocused && cardData.needsStickyEntranceReveal === true;
 
                 // Only animate if intended state changes or if it's becoming visible
                 if (
                     !cardData.isVisible ||
                     cardData.intendedTargetTransform !== targetTransform ||
-                    cardData.intendedTargetOpacity !== targetOpacity ||
-                    forceStickyEntrance
+                    cardData.intendedTargetOpacity !== targetOpacity
                 ) {
-                    debugLog(`[LayoutManager_Jukebox_Anim_Setup] Pod ${key}: Setting up IN/MOVE animation to X=${layoutData.x}, Opacity=${targetOpacity}. Prev IntendedTransform: ${cardData.intendedTargetTransform}, Prev Opacity: ${cardData.intendedTargetOpacity}, IsVisible: ${cardData.isVisible}, forceStickyEntrance: ${forceStickyEntrance}`);
+                    debugLog(`[LayoutManager_Jukebox_Anim_Setup] Pod ${key}: Setting up IN/MOVE animation to X=${layoutData.x}, Opacity=${targetOpacity}. Prev IntendedTransform: ${cardData.intendedTargetTransform}, Prev Opacity: ${cardData.intendedTargetOpacity}, IsVisible: ${cardData.isVisible}`);
                     
                     // Apply directional entrance animation for newly focused pods during rotation
                     if (layoutData.isFocused && !cardData.isVisible && store.lastRotationDirection) {
                         const entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
                         
-                        // Set initial position for entrance animation
                         podElement.style.transform = entranceTransform;
                         podElement.style.opacity = '0';
                         
                         debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Starting ${store.lastRotationDirection} entrance from ${entranceTransform}`);
                         
-                        // Animate to final position
                         requestAnimationFrame(() => {
                             requestAnimationFrame(() => {
                                 podElement.style.opacity = targetOpacity;
                                 podElement.style.transform = targetTransform;
                                 debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Animating to final position ${targetTransform}`);
-                            });
-                        });
-                    } else if (forceStickyEntrance) {
-                        // Download finished while this pod was already laid out during progress — target matches so the
-                        // branch above would skip; replay a proper entrance (same motion as pile rotation).
-                        cardData.needsStickyEntranceReveal = false;
-                        const entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
-                        if (!podElement.style.transition) {
-                            podElement.style.transition =
-                                "opacity 0.4s ease-out, transform 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55), z-index 0.3s ease-out";
-                        }
-                        podElement.style.willChange = "opacity, transform";
-                        podElement.style.transform = entranceTransform;
-                        podElement.style.opacity = "0";
-                        // Force the entrance frame to commit before we animate to final state.
-                        // Without this, first-startup completion can batch styles and skip the transition.
-                        void podElement.offsetWidth;
-                        debugLog(`[LayoutManager_StickyEntrance] Pod ${key}: Completion entrance from ${entranceTransform}`);
-                        requestAnimationFrame(() => {
-                            requestAnimationFrame(() => {
-                                podElement.style.opacity = targetOpacity;
-                                podElement.style.transform = targetTransform;
-                                debugLog(`[LayoutManager_StickyEntrance] Pod ${key}: Animating to ${targetTransform}`);
-                                setTimeout(() => {
-                                    if (podElement && podElement.isConnected) {
-                                        podElement.style.willChange = "";
-                                    }
-                                }, 500);
                             });
                         });
                     } else {
