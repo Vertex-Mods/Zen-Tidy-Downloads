@@ -44,11 +44,20 @@
   // ============================================================================
   // PREFERENCES
   // ============================================================================
+  const _prefBranch = (() => {
+    try {
+      return Cc["@mozilla.org/preferences-service;1"]
+        .getService(Ci.nsIPrefService)
+        .getBranch("");
+    } catch (_) {
+      return null;
+    }
+  })();
+
   function getPref(prefName, defaultValue) {
     try {
-      const prefService = Cc["@mozilla.org/preferences-service;1"]
-        .getService(Ci.nsIPrefService);
-      const branch = prefService.getBranch("");
+      const branch = _prefBranch;
+      if (!branch) return defaultValue;
 
       if (typeof defaultValue === "boolean") {
         return branch.getBoolPref(prefName, defaultValue);
@@ -222,14 +231,23 @@
         REQUEST_HISTORY.shift();
       }
 
-      const recentRequests = REQUEST_HISTORY.filter(time => time > oneMinuteAgo);
-      if (recentRequests.length >= MAX_REQUESTS_PER_MINUTE) {
-        const oldestRecent = Math.min(...recentRequests);
-        const waitTime = Math.ceil((oldestRecent + 60000 - now) / 1000);
+      let minuteCount = 0;
+      let oldestInMinute = Infinity;
+      for (let i = REQUEST_HISTORY.length - 1; i >= 0; i--) {
+        if (REQUEST_HISTORY[i] > oneMinuteAgo) {
+          minuteCount++;
+          if (REQUEST_HISTORY[i] < oldestInMinute) oldestInMinute = REQUEST_HISTORY[i];
+        } else {
+          break;
+        }
+      }
+
+      if (minuteCount >= MAX_REQUESTS_PER_MINUTE) {
+        const waitTime = Math.ceil((oldestInMinute + 60000 - now) / 1000);
         return {
           allowed: false,
           waitTime,
-          reason: `Rate limit exceeded: ${recentRequests.length} requests in the last minute (max: ${MAX_REQUESTS_PER_MINUTE})`
+          reason: `Rate limit exceeded: ${minuteCount} requests in the last minute (max: ${MAX_REQUESTS_PER_MINUTE})`
         };
       }
       if (REQUEST_HISTORY.length >= MAX_REQUESTS_PER_HOUR) {
@@ -266,6 +284,28 @@
   // ============================================================================
   // LOGGING
   // ============================================================================
+  const SENSITIVE_KEY_PATTERN = /(api|key|authorization|token|secret|password|credential)/i;
+
+  const _debugFlags = { enabled: false, aiOnly: true };
+  try {
+    _debugFlags.enabled = getPref("extensions.downloads.enable_debug", false);
+    _debugFlags.aiOnly = getPref("extensions.downloads.debug_ai_only", true);
+    if (typeof Services !== "undefined" && Services.prefs) {
+      const _debugFlagObserver = {
+        observe(_subject, topic, data) {
+          if (topic !== "nsPref:changed") return;
+          if (data === "extensions.downloads.enable_debug") {
+            _debugFlags.enabled = getPref("extensions.downloads.enable_debug", false);
+          } else if (data === "extensions.downloads.debug_ai_only") {
+            _debugFlags.aiOnly = getPref("extensions.downloads.debug_ai_only", true);
+          }
+        }
+      };
+      Services.prefs.addObserver("extensions.downloads.enable_debug", _debugFlagObserver, false);
+      Services.prefs.addObserver("extensions.downloads.debug_ai_only", _debugFlagObserver, false);
+    }
+  } catch (_) {}
+
   function redactSensitiveData(data) {
     if (typeof data === "string") {
       return data
@@ -276,7 +316,6 @@
     if (typeof data !== "object" || data === null) return data;
     if (Array.isArray(data)) return data.map(item => redactSensitiveData(item));
 
-    const SENSITIVE_KEY_PATTERN = /(api|key|authorization|token|secret|password|credential)/i;
     const redacted = {};
     for (const key in data) {
       if (!Object.prototype.hasOwnProperty.call(data, key)) continue;
@@ -295,13 +334,10 @@
   }
 
   function debugLog(message, data = null, category = "general") {
+    if (!_debugFlags.enabled) return;
+    if (_debugFlags.aiOnly && category !== "aiRename" && category !== "general") return;
+
     try {
-      const debugEnabled = getPref("extensions.downloads.enable_debug", false);
-      const debugAiOnly = getPref("extensions.downloads.debug_ai_only", true);
-
-      if (!debugEnabled) return;
-      if (debugAiOnly && category !== "aiRename" && category !== "general") return;
-
       const timestamp = new Date().toISOString();
       const prefix = `[${timestamp}] Download Preview [${category.toUpperCase()}]:`;
       const safeData = data ? redactSensitiveData(data) : null;
@@ -381,6 +417,7 @@
       const str = {};
       cstream.readString(maxBytes, str);
       cstream.close();
+      fstream.close();
       return str.value;
     } catch (e) {
       return null;
@@ -392,22 +429,31 @@
   // ============================================================================
   function waitForElement(elementId, timeout = 5000) {
     return new Promise(resolve => {
-      const startTime = Date.now();
-      const checkForElement = () => {
-        const element = document.getElementById(elementId);
-        if (element) {
-          console.log(`[Tidy Downloads] Element ${elementId} found after ${Date.now() - startTime}ms`);
-          resolve(element);
-          return;
-        }
-        if (Date.now() - startTime >= timeout) {
-          console.log(`[Tidy Downloads] Timeout waiting for element ${elementId} after ${timeout}ms`);
-          resolve(null);
-          return;
-        }
-        setTimeout(checkForElement, 100);
+      const existing = document.getElementById(elementId);
+      if (existing) {
+        resolve(existing);
+        return;
+      }
+
+      let resolved = false;
+      const finish = (el) => {
+        if (resolved) return;
+        resolved = true;
+        observer.disconnect();
+        clearTimeout(timeoutId);
+        resolve(el);
       };
-      checkForElement();
+
+      const observer = new MutationObserver(() => {
+        const el = document.getElementById(elementId);
+        if (el) finish(el);
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+
+      const timeoutId = setTimeout(() => {
+        const el = document.getElementById(elementId);
+        finish(el || null);
+      }, timeout);
     });
   }
 

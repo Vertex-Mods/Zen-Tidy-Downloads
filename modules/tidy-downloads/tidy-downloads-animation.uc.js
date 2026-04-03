@@ -21,6 +21,7 @@
      */
     init(ctx) {
       const { waitForElement, debugLog } = ctx;
+      let _proxyButtonRef = null;
 
       function isElementVisible(element) {
         if (!element) return false;
@@ -79,18 +80,25 @@
       }
 
       function setupAnimationElementPatcher() {
+        let patchCount = 0;
         const observer = new MutationObserver((mutations) => {
-          mutations.forEach((mutation) => {
-            mutation.addedNodes.forEach((node) => {
-              if (node.nodeType === Node.ELEMENT_NODE) {
-                if (node.tagName === "ZEN-DOWNLOAD-ANIMATION") {
-                  patchAnimationElement(node);
-                }
-                const animationElements = node.querySelectorAll?.("zen-download-animation");
-                animationElements?.forEach(patchAnimationElement);
+          for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+              if (node.nodeType !== Node.ELEMENT_NODE) continue;
+              if (node.tagName === "ZEN-DOWNLOAD-ANIMATION") {
+                patchAnimationElement(node);
+                patchCount++;
               }
-            });
-          });
+              const animationElements = node.querySelectorAll?.("zen-download-animation");
+              if (animationElements) {
+                animationElements.forEach(el => { patchAnimationElement(el); patchCount++; });
+              }
+            }
+          }
+          if (patchCount > 0) {
+            observer.disconnect();
+            debugLog("[Animation] Subtree observer disconnected after patching elements");
+          }
         });
         observer.observe(document.body, { childList: true, subtree: true });
         console.log("[Tidy Downloads] Set up animation element patcher");
@@ -454,6 +462,7 @@
             if (mutationObserver) mutationObserver.disconnect();
           };
 
+          _proxyButtonRef = proxy;
           setupDownloadsIndicatorFix(proxy);
           console.log("[Tidy Downloads] Created complete downloads-button proxy with progress elements for zen-library-button");
         } catch (error) {
@@ -511,9 +520,16 @@
         }
       }
 
+      function cleanup() {
+        if (_proxyButtonRef && typeof _proxyButtonRef._cleanupObservers === "function") {
+          _proxyButtonRef._cleanupObservers();
+        }
+      }
+
       return {
         findDownloadsButton,
-        patchDownloadsIndicatorMethods
+        patchDownloadsIndicatorMethods,
+        cleanup
       };
     }
   };

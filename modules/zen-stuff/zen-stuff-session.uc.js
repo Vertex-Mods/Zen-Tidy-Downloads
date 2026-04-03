@@ -32,11 +32,15 @@
         showPile
       } = deps;
 
-      async function initSessionStore() {
+      async function initSessionStore(attempt = 0) {
+        const MAX_RETRIES = 50;
         if (!window.SessionStore) {
-          console.warn("[Dismissed Pile] SessionStore not available, retrying...");
+          if (attempt >= MAX_RETRIES) {
+            console.warn("[Dismissed Pile] SessionStore not available after max retries, giving up");
+            return;
+          }
           await new Promise((resolve) => setTimeout(resolve, 200));
-          return initSessionStore();
+          return initSessionStore(attempt + 1);
         }
         try {
           if (window.SessionStore.promiseInitialized) {

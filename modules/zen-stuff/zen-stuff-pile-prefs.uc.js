@@ -52,17 +52,8 @@
 
       function getUseLibraryButton() {
         try {
-          const value = Services.prefs.getBoolPref(PREFS.useLibraryButton, false);
-          console.log(`[Zen Stuff] getUseLibraryButton() returning: ${value}`);
-          console.log(`[Zen Stuff] Preference name: ${PREFS.useLibraryButton}`);
-
-          const libraryBtn = document.getElementById("zen-library-button");
-          const downloadsBtn = document.getElementById("downloads-button");
-          console.log(`[Zen Stuff] Available buttons - Library: ${!!libraryBtn}, Downloads: ${!!downloadsBtn}`);
-
-          return value;
+          return Services.prefs.getBoolPref(PREFS.useLibraryButton, false);
         } catch (e) {
-          console.log(`[Zen Stuff] Error reading use-library-button preference, using default (false):`, e);
           debugLog("Error reading use-library-button preference, using default (false):", e);
           return false;
         }

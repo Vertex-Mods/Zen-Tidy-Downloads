@@ -382,45 +382,6 @@
           if (safeFilename !== cardData.originalFilename && !download.aiName) {
             cardData.originalFilename = safeFilename;
           }
-
-          if (download.succeeded && !cardData.complete) {
-            cardData.needsStickyEntranceReveal = true;
-            cardData.complete = true;
-            cardData.userCanceled = false;
-            podElement.classList.add("completed");
-            debugLog(`[PodFUNC] Existing pod marked as complete: ${key}`);
-
-            const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
-            const aiPossible = getAiRenamingPossible();
-            debugLog(`[PodFUNC] Checking AI rename eligibility for ${key}:`, {
-              aiRenamingEnabled,
-              aiRenamingPossible: aiPossible,
-              hasPath: !!download.target?.path,
-              path: download.target?.path,
-              alreadyRenamed: renamedFiles.has(download.target?.path)
-            });
-
-            if (
-              aiRenamingEnabled &&
-              aiPossible &&
-              download.target?.path &&
-              !renamedFiles.has(download.target.path)
-            ) {
-              setTimeout(() => {
-                const currentCardData = activeDownloadCards.get(key);
-                if (currentCardData && currentCardData.download) {
-                  debugLog(`[PodFUNC] Adding ${key} to AI rename queue after delay`);
-                  getAddToAIRenameQueue()(key, currentCardData.download, currentCardData.originalFilename);
-                } else {
-                  debugLog(`[PodFUNC] Cannot add ${key} to queue - cardData missing after delay`);
-                }
-              }, 1000);
-            } else {
-              debugLog(`[PodFUNC] Not adding ${key} to AI rename queue - conditions not met`);
-            }
-
-            scheduleCardRemoval(key);
-          }
         }
 
         const previewElement = podElement.querySelector(".card-preview-container");

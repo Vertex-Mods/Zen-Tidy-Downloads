@@ -19,9 +19,9 @@
      * @param {function} ctx.debugLog
      * @param {function} ctx.formatBytes
      * @param {Object} ctx.previewApi
-     * @param {function} ctx.getAiRenamingPossible
-     * @param {function} ctx.addToAIRenameQueue
-     * @param {function} ctx.scheduleCardRemoval
+     * @param {function} [ctx.getAiRenamingPossible] - unused, kept for caller compat
+     * @param {function} [ctx.addToAIRenameQueue] - unused, kept for caller compat
+     * @param {function} [ctx.scheduleCardRemoval] - unused, kept for caller compat
      * @param {function} ctx.isInQueue
      * @param {function} ctx.updateQueueStatusInUI
      * @param {function} ctx.getMasterTooltip
@@ -36,9 +36,6 @@
         debugLog,
         formatBytes,
         previewApi,
-        getAiRenamingPossible,
-        addToAIRenameQueue,
-        scheduleCardRemoval,
         isInQueue,
         updateQueueStatusInUI,
         getMasterTooltip,
@@ -47,8 +44,25 @@
         updateDownloadCardsVisibility
       } = ctx;
 
-      const { activeDownloadCards, focusedKeyRef, orderedPodKeys, renamedFiles } = store;
+      const { activeDownloadCards, focusedKeyRef, orderedPodKeys } = store;
       let pendingZeroWidthLayoutRetry = false;
+
+      let _cachedTooltipEls = null;
+      let _cachedTooltipRoot = null;
+      function getTooltipElements(tooltipDom) {
+        if (_cachedTooltipRoot === tooltipDom && _cachedTooltipEls) return _cachedTooltipEls;
+        _cachedTooltipRoot = tooltipDom;
+        _cachedTooltipEls = {
+          titleEl: tooltipDom.querySelector(".card-title"),
+          statusEl: tooltipDom.querySelector(".card-status"),
+          progressEl: tooltipDom.querySelector(".card-progress"),
+          originalFilenameEl: tooltipDom.querySelector(".card-original-filename"),
+          undoBtnEl: tooltipDom.querySelector(".card-undo-button"),
+          sparkleLayer: tooltipDom.querySelector(".ai-sparkle-layer"),
+          fileSizeEl: tooltipDom.querySelector(".card-filesize")
+        };
+        return _cachedTooltipEls;
+      }
 
       function managePodVisibilityAndAnimations() {
             const masterTooltipDOMElement = getMasterTooltip();
@@ -204,22 +218,23 @@
 
         debugLog(`[LayoutManager_NaturalStack] Calculated layout for ${visiblePodsLayoutData.length} pods. Focused: ${focusedKeyRef.current}`, visiblePodsLayoutData);
 
+        const layoutMap = new Map(visiblePodsLayoutData.map(p => [p.key, p]));
+
         // 3. Apply styles and animations
         orderedPodKeys.forEach(key => {
             const cardData = activeDownloadCards.get(key);
             if (!cardData || !cardData.podElement || !cardData.domAppended || cardData.isWaitingForZenAnimation || cardData.isBeingRemoved) {
                 debugLog(`[LayoutManager_Jukebox_Skip] Skipping pod ${key}. Conditions: cardData=${!!cardData}, podElement=${!!cardData?.podElement}, domAppended=${cardData?.domAppended}, waitingZen=${cardData?.isWaitingForZenAnimation}, beingRemoved=${cardData?.isBeingRemoved}`);
-                return; // Skip pods that are not ready, waiting for Zen, or being removed
+                return;
             }
 
-            // Additional safety check: ensure pod is actually in the DOM
             if (!cardData.podElement.parentNode) {
                 debugLog(`[LayoutManager_Jukebox_Skip] Pod ${key} not in DOM, skipping layout.`);
                 return;
             }
 
             const podElement = cardData.podElement;
-            const layoutData = visiblePodsLayoutData.find(p => p.key === key);
+            const layoutData = layoutMap.get(key);
 
             if (layoutData) {
                 // This pod should be visible
@@ -241,16 +256,7 @@
                     
                     // Apply directional entrance animation for newly focused pods during rotation
                     if (layoutData.isFocused && !cardData.isVisible && store.lastRotationDirection) {
-                        let entranceTransform;
-                        if (store.lastRotationDirection === 'forward') {
-                            // Forward rotation: new focused pod slides in from the right
-                            entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
-                        } else if (store.lastRotationDirection === 'backward') {
-                            // Backward rotation: new focused pod slides in from the right (same as forward - reverse animation)
-                            entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
-          } else {
-                            entranceTransform = targetTransform;
-                        }
+                        const entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
                         
                         // Set initial position for entrance animation
                         podElement.style.transform = entranceTransform;
@@ -323,21 +329,9 @@
                 if (cardData.isVisible || podElement.style.opacity !== '0') {
                     debugLog(`[LayoutManager_Jukebox_Anim_OUT] Pod ${key}`);
                     
-                    // Apply directional exit animation for previously focused pod during rotation
-                    let targetTransformOut;
-                    if (cardData.key === focusedKeyRef.current && store.lastRotationDirection) {
-                        // This shouldn't happen as focused pod should be visible, but safety check
-                        targetTransformOut = 'scale(0.8) translateX(-30px)';
-                    } else if (store.lastRotationDirection === 'forward') {
-                        // Forward rotation: previously focused pod slides left to join pile
-                        targetTransformOut = 'scale(0.8) translateX(-60px)';
-                    } else if (store.lastRotationDirection === 'backward') {
-                        // Backward rotation: previously focused pod slides left to join pile (same as forward - reverse animation)
-                        targetTransformOut = 'scale(0.8) translateX(-60px)';
-                    } else {
-                        // Default exit animation
-                        targetTransformOut = 'scale(0.8) translateX(-30px)';
-                    }
+                    const targetTransformOut = store.lastRotationDirection
+                        ? 'scale(0.8) translateX(-60px)'
+                        : 'scale(0.8) translateX(-30px)';
                     
                     if (cardData.intendedTargetTransform !== targetTransformOut || cardData.intendedTargetOpacity !== '0') {
                         podElement.style.opacity = '0';
@@ -432,59 +426,12 @@
             }
           } else {
             // Both cardDataToFocus, podElement, AND download object are valid. Proceed with detailed updates.
-
-            // 0. Ensure completion status is up to date
-            if (download.succeeded && !cardDataToFocus.complete) {
-              cardDataToFocus.needsStickyEntranceReveal = true;
-              cardDataToFocus.complete = true;
-              cardDataToFocus.userCanceled = false;
-              podElement.classList.add("completed");
-              debugLog(`[UIUPDATE] Download marked as complete during UI update: ${focusedKeyRef.current}`);
-              
-              // Add to AI rename queue when completion is detected in UI update
-              const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
-              debugLog(`[UIUPDATE] Checking AI rename eligibility for ${focusedKeyRef.current}:`, {
-                aiRenamingEnabled,
-                aiRenamingPossible: getAiRenamingPossible(),
-                hasPath: !!download.target?.path,
-                path: download.target?.path,
-                alreadyRenamed: renamedFiles.has(download.target?.path)
-              });
-              
-              if (aiRenamingEnabled && getAiRenamingPossible() && download.target?.path && 
-                  !renamedFiles.has(download.target.path)) {
-                // Small delay to ensure download is fully settled before queuing
-                setTimeout(() => {
-                  const currentCardData = activeDownloadCards.get(focusedKeyRef.current);
-                  if (currentCardData && currentCardData.download) {
-                    debugLog(`[UIUPDATE] Adding ${focusedKeyRef.current} to AI rename queue after delay`);
-                    addToAIRenameQueue(focusedKeyRef.current, currentCardData.download, currentCardData.originalFilename);
-                  } else {
-                    debugLog(`[UIUPDATE] Cannot add ${focusedKeyRef.current} to queue - cardData missing after delay`);
-                  }
-                }, 1000);
-              } else {
-                debugLog(`[UIUPDATE] Not adding ${focusedKeyRef.current} to AI rename queue - conditions not met`);
-              }
-              
-              scheduleCardRemoval(focusedKeyRef.current);
-              
-              // Set image preview for completed downloads
-              const previewElement = podElement.querySelector(".card-preview-container");
-              if (previewElement) {
-                debugLog(`[UIUPDATE] Setting completed file preview for: ${focusedKeyRef.current}`);
-                  previewApi.setCompletedFilePreview(previewElement, download)
-                    .catch(e => debugLog("Error setting completed file preview during UI update", { error: e, download }));
-              }
-            }
+            // Completion side effects (AI queue, scheduleCardRemoval, preview) are handled by
+            // tidy-downloads-pods.uc.js — this module only updates the tooltip display state.
 
             // 1. Update masterTooltipDOMElement content
-            const titleEl = masterTooltipDOMElement.querySelector(".card-title");
-            const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-            const progressEl = masterTooltipDOMElement.querySelector(".card-progress");
-            const originalFilenameEl = masterTooltipDOMElement.querySelector(".card-original-filename");
-            const undoBtnEl = masterTooltipDOMElement.querySelector(".card-undo-button"); // Get the undo button
-            const sparkleLayer = masterTooltipDOMElement.querySelector(".ai-sparkle-layer"); // Get the sparkle layer
+            const { titleEl, statusEl, progressEl, originalFilenameEl, undoBtnEl, sparkleLayer, fileSizeEl: cachedFileSizeEl } =
+              getTooltipElements(masterTooltipDOMElement);
 
             // Derive display name from actual file path if possible to catch OS renames (e.g. file(1).jpg)
             let displayName = download.aiName || cardDataToFocus.originalFilename || "File";
@@ -517,12 +464,10 @@
                     if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
                     const fileSizeText = formatBytes(finalSize || 0);
                     
-                    // Always show file size in bottom right corner for renamed files
-                    const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
                     statusEl.textContent = "Download renamed to:";
-                    if (fileSizeEl) {
-                        fileSizeEl.textContent = fileSizeText;
-                        fileSizeEl.style.display = "block";
+                    if (cachedFileSizeEl) {
+                        cachedFileSizeEl.textContent = fileSizeText;
+                        cachedFileSizeEl.style.display = "block";
                     }
                     statusEl.style.color = "#a0a0a0"; 
 
@@ -548,9 +493,7 @@
                       sparkleLayer.classList.remove("visible");
                     }
                     
-                    // Hide the bottom-right file size element in non-renamed states
-                    const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
-                    if (fileSizeEl) fileSizeEl.style.display = "none";
+                    if (cachedFileSizeEl) cachedFileSizeEl.style.display = "none";
                     
                     // Reset undo button to original undo icon and title
                     undoBtnEl.title = "Undo Rename";

@@ -162,10 +162,14 @@
       findDownloadsButton: async () => null,
       patchDownloadsIndicatorMethods: () => {}
     };
-    const { findDownloadsButton, patchDownloadsIndicatorMethods } = animationApi;
+    const { findDownloadsButton, patchDownloadsIndicatorMethods, cleanup: cleanupAnimation } = animationApi;
 
     // CRITICAL: Patch downloads indicator methods immediately to prevent errors
     patchDownloadsIndicatorMethods();
+
+    if (typeof cleanupAnimation === "function") {
+      window.addEventListener("beforeunload", cleanupAnimation, { once: true });
+    }
     
     // --- Configuration via Firefox Preferences ---
     // Available preferences (set in about:config):

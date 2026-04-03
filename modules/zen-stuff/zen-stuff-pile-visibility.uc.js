@@ -65,11 +65,14 @@
         );
       }
 
+      let _podsRowRef = null;
       function shouldDisableHover() {
         try {
-          const podsRowContainer = document.getElementById("userchrome-pods-row-container");
-          if (podsRowContainer) {
-            const activePods = podsRowContainer.querySelectorAll(".download-pod:not(.zen-tidy-sticky-pod)");
+          if (!_podsRowRef || !_podsRowRef.isConnected) {
+            _podsRowRef = document.getElementById("userchrome-pods-row-container");
+          }
+          if (_podsRowRef) {
+            const activePods = _podsRowRef.querySelectorAll(".download-pod:not(.zen-tidy-sticky-pod)");
             if (activePods.length > 0) {
               debugLog(`[HoverCheck] Found ${activePods.length} active (non-sticky) pods - disabling pile hover`);
               return true;
