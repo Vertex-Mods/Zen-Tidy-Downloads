@@ -306,7 +306,16 @@
             }
           }
 
-          if (isSystemIconType || download?.contentType?.startsWith("video/") || download?.contentType?.startsWith("application/pdf")) {
+          const isOpenDocumentMime =
+            typeof download?.contentType === "string" &&
+            download.contentType.startsWith("application/vnd.oasis.opendocument");
+
+          if (
+            isSystemIconType ||
+            isOpenDocumentMime ||
+            download?.contentType?.startsWith("video/") ||
+            download?.contentType?.startsWith("application/pdf")
+          ) {
             debugLog("[setCompletedFilePreview] Rendering System Icon");
             renderSystemIcon(previewElement, filePath);
             return;

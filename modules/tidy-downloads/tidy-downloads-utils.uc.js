@@ -35,6 +35,7 @@
     ".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v",
     ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma",
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".odt", ".ods", ".odp", ".odg", ".odf",
     ".exe", ".msi", ".bat", ".cmd", ".scr",
     ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".iso"
   ]);
