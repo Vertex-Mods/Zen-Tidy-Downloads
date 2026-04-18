@@ -158,8 +158,17 @@
 
       function onArcRemovedOrTimeout() {
         teardownArcWatcher();
-        pieRevealed = true;
-        updateVisual();
+        // Only mark the pie as "revealed" if there is still an active
+        // download it would reveal FOR. Otherwise (fast download that
+        // terminated while the arc was still flying) we must leave
+        // pieRevealed=false so the NEXT download re-arms the arc watcher
+        // instead of skipping it and popping the pie over the fresh arc.
+        if (active.size > 0) {
+          pieRevealed = true;
+          updateVisual();
+        } else {
+          pieRevealed = false;
+        }
         flushArcDoneWaiters();
       }
 
