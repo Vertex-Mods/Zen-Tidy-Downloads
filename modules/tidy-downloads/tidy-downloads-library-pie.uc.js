@@ -127,6 +127,8 @@
       let pieRevealed = false;
       let arcMutationObserver = null;
       let arcFallbackTimerId = null;
+      /** @type {Array<() => void>} Resolvers waiting for the arc animation to finish. */
+      const arcDoneWaiters = [];
 
       function isFeatureEnabled() {
         try {
@@ -147,10 +149,53 @@
         }
       }
 
+      function flushArcDoneWaiters() {
+        const waiters = arcDoneWaiters.splice(0, arcDoneWaiters.length);
+        for (const resolve of waiters) {
+          try { resolve(); } catch (_e) {}
+        }
+      }
+
       function onArcRemovedOrTimeout() {
         teardownArcWatcher();
         pieRevealed = true;
         updateVisual();
+        flushArcDoneWaiters();
+      }
+
+      /**
+       * Returns true if Zen's flying arc animation node is currently present
+       * in the shadow root — i.e. the download-start animation is still playing.
+       */
+      function isArcAnimationActive() {
+        try {
+          const host = document.querySelector("zen-download-animation");
+          const sr = host?.shadowRoot;
+          if (!sr) return false;
+          return !!sr.querySelector(".zen-download-arc-animation");
+        } catch (_e) {
+          return false;
+        }
+      }
+
+      /**
+       * Resolve when the arc animation node leaves the shadow root (or
+       * immediately if it isn't currently playing). Used by the lifecycle to
+       * defer pod creation on very fast downloads that terminate before the
+       * arc finishes flying.
+       * @returns {Promise<void>}
+       */
+      function waitForArcDone() {
+        if (!isArcAnimationActive()) return Promise.resolve();
+        return new Promise((resolve) => {
+          arcDoneWaiters.push(resolve);
+          // Arm the watcher in case there is no active download right now
+          // (pie may already have torn it down after syncDownload removed
+          // the only entry on terminal state).
+          if (!arcMutationObserver && !arcFallbackTimerId) {
+            beginWaitForArcThenReveal();
+          }
+        });
       }
 
       /**
@@ -363,7 +408,13 @@
 
         if (active.size === 0) {
           pieRevealed = false;
-          teardownArcWatcher();
+          // Only tear down the arc watcher if the arc is no longer playing —
+          // otherwise fast downloads that terminate mid-flight would lose
+          // their waitForArcDone() notification.
+          if (!isArcAnimationActive()) {
+            teardownArcWatcher();
+            flushArcDoneWaiters();
+          }
           if (root) root.style.display = "none";
           refreshContainerVisibility();
           return;
@@ -378,6 +429,7 @@
 
       function destroy() {
         teardownArcWatcher();
+        flushArcDoneWaiters();
         active.clear();
         pieRevealed = false;
         pendingArcIconClone = null;
@@ -418,6 +470,16 @@
             iconClone = /** @type {HTMLElement} */ (iconEl.cloneNode(true));
           }
           return { rect, iconClone };
+        },
+        /**
+         * Resolves when Zen's flying arc animation has finished (or immediately
+         * if it isn't currently playing). The pod lifecycle uses this to delay
+         * creating a live-pod on very fast downloads so the pod doesn't pop in
+         * on top of the arc.
+         * @returns {Promise<void>}
+         */
+        waitForArcDone() {
+          return waitForArcDone();
         },
         destroy
       };

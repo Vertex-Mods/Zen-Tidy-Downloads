@@ -481,6 +481,16 @@
         if (!isTerminalTransition) return;
 
         // Terminal succeeded/error → transition progress → live-pod via pods renderer.
+        // On very fast downloads, Zen's arc-flight animation may still be playing;
+        // defer pod creation until it completes so the pod doesn't pop in on top.
+        if (pie?.waitForArcDone) {
+          try {
+            await pie.waitForArcDone();
+          } catch (e) {
+            debugLog("[Lifecycle] pie.waitForArcDone error", e);
+          }
+        }
+
         const throttledUpdate = typeof getThrottledCreateOrUpdateCard === "function"
           ? getThrottledCreateOrUpdateCard()
           : null;
