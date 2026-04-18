@@ -5,7 +5,10 @@
 // ==/UserScript==
 
 // tidy-downloads-downloads-listener.uc.js
-// Owns DownloadsAdapter listener registration + startup recent-download scan.
+// Single Downloads view registrar. Delegates every add/change/remove event
+// to the pod-lifecycle dispatcher (tidy-downloads-card-lifecycle.apply), and
+// runs the startup recent-download scan directly against the pods renderer
+// (bypassing the progress phase since those downloads already completed).
 (function () {
   "use strict";
 
@@ -19,12 +22,9 @@
      * @param {function} ctx.debugLog
      * @param {function} ctx.getDownloadKey
      * @param {function} ctx.getPref
-     * @param {function} ctx.cancelAIProcessForDownload
-     * @param {function} ctx.removeCard
-     * @param {function} ctx.fireCustomEvent
-     * @param {function(): function} ctx.getThrottledCreateOrUpdateCard
-     * @param {function(): ({getDownloadViewListener: function}|null)} ctx.getLibraryPieController
-     * @returns {{ start: function }}
+     * @param {function(dl: unknown, removed: boolean): unknown} ctx.applyDownloadEvent - lifecycle.apply bound to the current lifecycle api
+     * @param {function(): function} ctx.getThrottledCreateOrUpdateCard - () => pods renderer for startup batch only
+     * @returns {{ start: function, stop: function }}
      */
     createController(ctx) {
       const {
@@ -33,50 +33,48 @@
         debugLog,
         getDownloadKey,
         getPref,
-        cancelAIProcessForDownload,
-        removeCard,
-        fireCustomEvent,
-        getThrottledCreateOrUpdateCard,
-        getLibraryPieController
+        applyDownloadEvent,
+        getThrottledCreateOrUpdateCard
       } = ctx;
 
       const {
         activeDownloadCards,
-        dismissedDownloads,
-        actualDownloadRemovedEventListeners
+        dismissedDownloads
       } = store;
 
+      /** @type {Object|null} */
+      let registeredView = null;
+      /** @type {Object|null} */
+      let registeredList = null;
+
       function start() {
-        const downloadListener = DownloadsAdapter.createDownloadViewListener({
-          onCompletedState: (dl) => getThrottledCreateOrUpdateCard()(dl),
-          onRemoved: async (dl) => {
-            const key = getDownloadKey(dl);
-            await cancelAIProcessForDownload(key);
-
-            const cardData = activeDownloadCards.get(key);
-            if (cardData?.isManuallyCleaning) return;
-
-            await removeCard(key, false);
-            actualDownloadRemovedEventListeners.forEach((callback) => {
-              try {
-                callback(key);
-              } catch (error) {
-                debugLog("[API Event] Error in actualDownloadRemoved callback:", error);
-              }
-            });
-            fireCustomEvent("actual-download-removed", { podKey: key });
+        const unifiedView = {
+          onDownloadAdded: (dl) => {
+            const p = applyDownloadEvent(dl, false);
+            if (p && typeof p.catch === "function") {
+              p.catch((e) => debugLog("[DownloadsListener] applyDownloadEvent(add) error", e));
+            }
+          },
+          onDownloadChanged: (dl) => {
+            const p = applyDownloadEvent(dl, false);
+            if (p && typeof p.catch === "function") {
+              p.catch((e) => debugLog("[DownloadsListener] applyDownloadEvent(change) error", e));
+            }
+          },
+          onDownloadRemoved: (dl) => {
+            const p = applyDownloadEvent(dl, true);
+            if (p && typeof p.catch === "function") {
+              p.catch((e) => debugLog("[DownloadsListener] applyDownloadEvent(remove) error", e));
+            }
           }
-        });
+        };
 
         DownloadsAdapter.getAllDownloadsList()
           .then((list) => {
             if (!list) return;
-            list.addView(downloadListener);
-
-            const libraryPieController = getLibraryPieController();
-            if (libraryPieController?.getDownloadViewListener) {
-              list.addView(libraryPieController.getDownloadViewListener());
-            }
+            list.addView(unifiedView);
+            registeredView = unifiedView;
+            registeredList = list;
 
             list.getAll().then((all) => {
               const recentDownloads = DownloadsAdapter.filterInitialCompletedDownloads(all, {
@@ -86,13 +84,35 @@
                 activeDownloadCards,
                 debugLog
               });
-              recentDownloads.forEach((dl) => getThrottledCreateOrUpdateCard()(dl, true));
+              const throttledUpdate = getThrottledCreateOrUpdateCard();
+              if (typeof throttledUpdate === "function") {
+                recentDownloads.forEach((dl) => throttledUpdate(dl, true));
+              }
             });
           })
           .catch((e) => console.error("DL Preview Mistral AI: List error:", e));
       }
 
-      return { start };
+      /**
+       * Unregister the unified view from Firefox's Downloads list. Safe to
+       * call if start() never registered (no-op) or has already been stopped.
+       */
+      function stop() {
+        if (registeredList && registeredView) {
+          try {
+            const result = registeredList.removeView(registeredView);
+            if (result && typeof result.catch === "function") {
+              result.catch((e) => debugLog("[DownloadsListener] removeView rejection", e));
+            }
+          } catch (e) {
+            debugLog("[DownloadsListener] removeView error", e);
+          }
+        }
+        registeredList = null;
+        registeredView = null;
+      }
+
+      return { start, stop };
     }
   };
 })();

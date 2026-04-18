@@ -19,6 +19,8 @@
      * @param {function(): (HTMLElement|null)} ctx.getDownloadCardsContainer
      * @param {function(): (HTMLElement|null)} ctx.getMasterTooltip
      * @param {function(): (HTMLElement|null)} ctx.getPodsRowContainer
+     * @param {Object} [ctx.store] - shared store; used to keep the pods-row visible
+     *   while the library pie is mid-download even if no completed pod exists yet
      * @returns {{ setupCompactModeObserver: function, updateDownloadCardsVisibility: function }}
      */
     createCompactVisibility(ctx) {
@@ -27,7 +29,8 @@
         orderedPodKeys,
         getDownloadCardsContainer,
         getMasterTooltip,
-        getPodsRowContainer
+        getPodsRowContainer,
+        store
       } = ctx;
 
       function updateDownloadCardsVisibility() {
@@ -40,8 +43,10 @@
         const isCompactMode = document.documentElement.getAttribute("zen-compact-mode") === "true";
         const isSidebarExpanded = document.documentElement.getAttribute("zen-sidebar-expanded") === "true";
 
+        const hasProgressing = store?.progressingDownloads instanceof Map && store.progressingDownloads.size > 0;
+
         debugLog(
-          `[CompactModeObserver] Checking visibility: isCompactMode=${isCompactMode}, isSidebarExpanded=${isSidebarExpanded}, hasPods=${orderedPodKeys.length > 0}`
+          `[CompactModeObserver] Checking visibility: isCompactMode=${isCompactMode}, isSidebarExpanded=${isSidebarExpanded}, hasPods=${orderedPodKeys.length > 0}, hasProgressing=${hasProgressing}`
         );
 
         if (isCompactMode && !isSidebarExpanded) {
@@ -65,8 +70,8 @@
           return;
         }
 
-        if (orderedPodKeys.length > 0) {
-          debugLog("[CompactModeObserver] Showing download cards (not in collapsed compact mode)");
+        if (orderedPodKeys.length > 0 || hasProgressing) {
+          debugLog("[CompactModeObserver] Showing download cards (pods or in-progress pie present)");
           downloadCardsContainer.style.display = "flex";
           downloadCardsContainer.style.opacity = "1";
           downloadCardsContainer.style.visibility = "visible";
@@ -80,7 +85,7 @@
           return;
         }
 
-        debugLog("[CompactModeObserver] No pods, hiding download cards");
+        debugLog("[CompactModeObserver] No pods and no in-progress downloads, hiding download cards");
         downloadCardsContainer.style.display = "none";
         downloadCardsContainer.style.opacity = "0";
         downloadCardsContainer.style.visibility = "hidden";

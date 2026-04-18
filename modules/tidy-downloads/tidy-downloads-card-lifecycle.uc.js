@@ -5,7 +5,10 @@
 // ==/UserScript==
 
 // tidy-downloads-card-lifecycle.uc.js
-// Dismiss/auto-hide/sticky lifecycle for pod cards.
+// Authoritative pod lifecycle: owns the phase model (progress → live-pod →
+// sticky → dismissed), fans every Firefox download event into the right
+// renderer via apply(), and manages autohide / sticky / dismiss transitions.
+// (Rename to tidy-downloads-pod-lifecycle.uc.js deferred to Step 6.)
 (function () {
   "use strict";
 
@@ -25,7 +28,11 @@
      * @param {function} ctx.getDownloadCardsContainer
      * @param {function} ctx.getMasterTooltip
      * @param {function} ctx.getPodsRowContainer
-     * @returns {{ capturePodDataForDismissal: function, removeCard: function, scheduleCardRemoval: function, performAutohideSequence: function, makePodSticky: function, clearStickyPod: function, clearAllStickyPods: function, clearStickyPodsOnly: function }}
+     * @param {function} [ctx.getDownloadKey] - canonical key resolver (required for apply())
+     * @param {function} [ctx.getLibraryPieController] - () => pie controller; apply() feeds it every event
+     * @param {function} [ctx.getThrottledCreateOrUpdateCard] - () => pods renderer entry; apply() calls it on terminal state
+     * @param {function} [ctx.getHandoffAnimator] - () => pod-handoff animator; optional visual bridge on progress → live-pod
+     * @returns {{ capturePodDataForDismissal: function, removeCard: function, scheduleCardRemoval: function, performAutohideSequence: function, makePodSticky: function, clearStickyPod: function, clearAllStickyPods: function, clearStickyPodsOnly: function, apply: function, getPhase: function, reconcileDismissedForIncoming: function, destroy: function }}
      */
     createCardLifecycle(ctx) {
       const {
@@ -39,7 +46,11 @@
         cancelAIProcessForDownload,
         getDownloadCardsContainer,
         getMasterTooltip,
-        getPodsRowContainer
+        getPodsRowContainer,
+        getDownloadKey,
+        getLibraryPieController,
+        getThrottledCreateOrUpdateCard,
+        getHandoffAnimator
       } = ctx;
 
       const {
@@ -50,7 +61,9 @@
         dismissedDownloads,
         stickyPods,
         dismissedPodsData,
-        dismissEventListeners
+        dismissEventListeners,
+        progressingDownloads,
+        actualDownloadRemovedEventListeners
       } = store;
 
       function capturePodDataForDismissal(downloadKey) {
@@ -119,6 +132,7 @@
           }
 
           cardData.isBeingRemoved = true;
+          cardData.phase = "dismissed";
           await cancelAIProcessForDownload(downloadKey);
           if (cardData.autohideTimeoutId) {
             clearTimeout(cardData.autohideTimeoutId);
@@ -226,6 +240,7 @@
 
         stickyPods.add(downloadKey);
         cardData.isSticky = true;
+        cardData.phase = "sticky";
         dismissedDownloads.add(downloadKey);
         if (cardData.podElement) {
           const podElement = cardData.podElement;
@@ -298,6 +313,214 @@
         if (podsRowContainerElement) podsRowContainerElement.style.pointerEvents = "";
       }
 
+      /**
+       * Decide whether an incoming download event should be admitted as a new
+       * pod or skipped because its key was previously dismissed. Single
+       * source of truth for the dismissed/newer logic — both the pods
+       * renderer and any future caller should route through here instead of
+       * poking at store.dismissedDownloads directly.
+       *
+       *   - "allow" : not dismissed, OR dismissed but superseded by a newer
+       *              re-download (dismissed set is evicted as a side effect
+       *              so subsequent events see a clean slate)
+       *   - "skip"  : dismissed and the incoming event is not newer; caller
+       *              should abort rendering
+       *
+       * @param {string} key
+       * @param {{ startTime?: string|Date|number }} download
+       * @returns {{ action: "allow"|"skip", reason?: string, dismissedTime?: number, currentTime?: number }}
+       */
+      function reconcileDismissedForIncoming(key, download) {
+        if (!key || !dismissedDownloads.has(key) || activeDownloadCards.has(key)) {
+          return { action: "allow" };
+        }
+        const dismissedData = dismissedPodsData.get(key);
+        const dismissedTime = dismissedData?.startTime
+          ? new Date(dismissedData.startTime).getTime()
+          : 0;
+        const currentTime = download?.startTime
+          ? new Date(download.startTime).getTime()
+          : 0;
+        const isNewerDownload =
+          !dismissedData ||
+          !dismissedData.startTime ||
+          !download?.startTime ||
+          currentTime > dismissedTime;
+
+        if (isNewerDownload) {
+          dismissedDownloads.delete(key);
+          return {
+            action: "allow",
+            reason: "newer-than-dismissed",
+            dismissedTime,
+            currentTime
+          };
+        }
+        return {
+          action: "skip",
+          reason: "older-than-dismissed",
+          dismissedTime,
+          currentTime
+        };
+      }
+
+      /**
+       * Report the current lifecycle phase of a download key.
+       *   - "progress"  : in-flight, rendered by the library-pie
+       *   - "live-pod"  : completed, pod card visible in the pods row
+       *   - "sticky"    : autohide elapsed; pod waiting to be absorbed by the pile
+       *   - "dismissed" : fade-out in flight or already removed
+       *   - null        : unknown key
+       * @param {string} key
+       * @returns {"progress"|"live-pod"|"sticky"|"dismissed"|null}
+       */
+      function getPhase(key) {
+        if (!key) return null;
+        const cardData = activeDownloadCards.get(key);
+        if (cardData) {
+          return cardData.phase || "live-pod";
+        }
+        if (progressingDownloads && progressingDownloads.has(key)) {
+          return "progress";
+        }
+        if (dismissedDownloads.has(key)) {
+          return "dismissed";
+        }
+        return null;
+      }
+
+      /**
+       * Authoritative dispatcher for a single raw download event. Every
+       * onDownloadAdded / onDownloadChanged / onDownloadRemoved from Firefox's
+       * Downloads view should funnel through here.
+       *
+       *   - Always feeds the pie renderer so progress state stays current
+       *     (the pie also handles rekey and removal-on-terminal internally).
+       *   - On Firefox list removal: cancel AI, remove the card if present,
+       *     notify external listeners, fire the actual-download-removed event.
+       *   - On terminal succeeded/error (non-removal): hand off to the pods
+       *     renderer so the record transitions from "progress" to "live-pod".
+       *   - In-progress events: nothing to do on the pods side; the pie
+       *     already saw the event.
+       *
+       * Startup batch of already-completed downloads should bypass this path
+       * and call getThrottledCreateOrUpdateCard() directly with the init flag.
+       *
+       * @param {unknown} dl
+       * @param {boolean} [removed]
+       */
+      async function apply(dl, removed = false) {
+        if (!dl) return;
+
+        if (typeof getDownloadKey !== "function") {
+          try {
+            getLibraryPieController?.()?.syncDownload?.(dl, removed);
+          } catch (e) {
+            debugLog("[Lifecycle] pie.syncDownload error", e);
+          }
+          debugLog("[Lifecycle] apply() called without getDownloadKey; skipping pods dispatch");
+          return;
+        }
+
+        const key = getDownloadKey(dl);
+        const pie = typeof getLibraryPieController === "function" ? getLibraryPieController() : null;
+
+        // Detect the about-to-happen progress → live-pod transition so we can
+        // snapshot the pie position BEFORE syncDownload auto-hides it on
+        // terminal state. Conditions:
+        //   - non-removal, terminal (succeeded or error)
+        //   - no existing card yet (we're creating a brand-new live-pod, not re-rendering)
+        //   - handoff animator available and enabled
+        const isTerminalTransition = !removed && (dl.succeeded === true || !!dl.error);
+        const wasAlreadyLive = activeDownloadCards.has(key);
+        const animator = typeof getHandoffAnimator === "function" ? getHandoffAnimator() : null;
+        const shouldCaptureSnapshot =
+          isTerminalTransition && !wasAlreadyLive && animator && animator.isEnabled?.();
+
+        let handoffSnapshot = null;
+        if (shouldCaptureSnapshot) {
+          try {
+            handoffSnapshot = pie?.captureHandoffSnapshot?.() || null;
+          } catch (e) {
+            debugLog("[Lifecycle] pie.captureHandoffSnapshot error", e);
+          }
+        }
+
+        try {
+          pie?.syncDownload?.(dl, removed);
+        } catch (e) {
+          debugLog("[Lifecycle] pie.syncDownload error", e);
+        }
+
+        if (removed) {
+          try {
+            await cancelAIProcessForDownload(key);
+          } catch (e) {
+            debugLog("[Lifecycle] cancelAIProcessForDownload error", e);
+          }
+
+          const cardData = activeDownloadCards.get(key);
+          if (cardData?.isManuallyCleaning) return;
+
+          await removeCard(key, false);
+
+          if (actualDownloadRemovedEventListeners) {
+            actualDownloadRemovedEventListeners.forEach((callback) => {
+              try {
+                callback(key);
+              } catch (error) {
+                debugLog("[API Event] Error in actualDownloadRemoved callback:", error);
+              }
+            });
+          }
+          fireCustomEvent("actual-download-removed", { podKey: key });
+          return;
+        }
+
+        // Non-terminal events stay in the "progress" phase — pie already handled it.
+        if (!isTerminalTransition) return;
+
+        // Terminal succeeded/error → transition progress → live-pod via pods renderer.
+        const throttledUpdate = typeof getThrottledCreateOrUpdateCard === "function"
+          ? getThrottledCreateOrUpdateCard()
+          : null;
+        if (typeof throttledUpdate === "function") {
+          throttledUpdate(dl);
+        }
+
+        // Fire the handoff animation if we captured a snapshot and the new
+        // pod element is actually in the DOM and has real dimensions.
+        if (handoffSnapshot && animator) {
+          const newCardData = activeDownloadCards.get(key);
+          const podEl = newCardData?.podElement;
+          if (podEl && podEl.parentNode) {
+            try {
+              animator.animate({
+                fromRect: handoffSnapshot.rect,
+                iconClone: handoffSnapshot.iconClone,
+                toElement: podEl
+              });
+            } catch (e) {
+              debugLog("[Lifecycle] handoff animator threw", e);
+            }
+          }
+        }
+      }
+
+      /**
+       * Tear down any active timers the lifecycle owns. Currently limited to
+       * per-card autohide timeouts — DOM listeners attached to pod elements
+       * are cleaned up when the pods themselves are removed. Idempotent.
+       */
+      function destroy() {
+        activeDownloadCards.forEach((cardData) => {
+          if (cardData?.autohideTimeoutId) {
+            clearTimeout(cardData.autohideTimeoutId);
+            cardData.autohideTimeoutId = null;
+          }
+        });
+      }
+
       return {
         capturePodDataForDismissal,
         removeCard,
@@ -306,7 +529,11 @@
         makePodSticky,
         clearStickyPod,
         clearAllStickyPods,
-        clearStickyPodsOnly
+        clearStickyPodsOnly,
+        apply,
+        getPhase,
+        reconcileDismissedForIncoming,
+        destroy
       };
     }
   };

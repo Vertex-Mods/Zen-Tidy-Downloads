@@ -33,6 +33,7 @@
      * @param {function} ctx.updateUIForFocusedDownload
      * @param {function} ctx.getPodsRowContainer - () => pods row element or null
      * @param {function} ctx.migrateAIRenameKeys - (oldKey, newKey) => void — keep AI queue aligned when card key changes
+     * @param {function} [ctx.getLifecycleApi] - () => card-lifecycle api; used to route dismissed/newer checks through the authoritative reconciler
      * @returns {{ throttledCreateOrUpdateCard: function, createOrUpdatePodElement: function }}
      */
     init(ctx) {
@@ -55,7 +56,8 @@
         updateDownloadCardsVisibility,
         updateUIForFocusedDownload,
         getPodsRowContainer,
-        migrateAIRenameKeys
+        migrateAIRenameKeys,
+        getLifecycleApi
       } = ctx;
 
       const {
@@ -65,7 +67,6 @@
         orderedPodKeys,
         stickyPods,
         dismissedDownloads,
-        dismissedPodsData,
         permanentlyDeletedPaths,
         permanentlyDeletedMeta,
         renamedFiles
@@ -159,23 +160,19 @@
             deletedTimeMs,
             currentTimeMs
           });
-        } else if (dismissedDownloads.has(key) && !activeDownloadCards.has(key)) {
-          const dismissedData = dismissedPodsData.get(key);
-          const dismissedTime = dismissedData?.startTime ? new Date(dismissedData.startTime).getTime() : 0;
-          const currentTime = download.startTime ? new Date(download.startTime).getTime() : 0;
-          const isNewerDownload =
-            !dismissedData ||
-            !dismissedData.startTime ||
-            !download.startTime ||
-            currentTime > dismissedTime;
-          if (isNewerDownload) {
-            dismissedDownloads.delete(key);
+        } else {
+          const lifecycleApi = typeof getLifecycleApi === "function" ? getLifecycleApi() : null;
+          const verdict = lifecycleApi?.reconcileDismissedForIncoming?.(key, download);
+          if (verdict?.action === "skip") {
             debugLog(
-              `[CreatePod] Allowing newer re-download to bypass dismissed check (dismissed: ${dismissedTime}, current: ${currentTime}): ${key}`
+              `[CreatePod] Skipping dismissed download that's not currently active (dismissed: ${verdict.dismissedTime}, current: ${verdict.currentTime}): ${key}`
             );
-          } else {
-            debugLog(`[CreatePod] Skipping dismissed download that's not currently active: ${key}`);
             return null;
+          }
+          if (verdict?.reason === "newer-than-dismissed") {
+            debugLog(
+              `[CreatePod] Allowing newer re-download to bypass dismissed check (dismissed: ${verdict.dismissedTime}, current: ${verdict.currentTime}): ${key}`
+            );
           }
         }
 
@@ -320,7 +317,9 @@
             domAppended: false,
             intendedTargetTransform: null,
             intendedTargetOpacity: null,
-            isBeingRemoved: false
+            isBeingRemoved: false,
+            /** Explicit lifecycle phase; updated by tidy-downloads-card-lifecycle on transitions. */
+            phase: "live-pod"
           };
           activeDownloadCards.set(key, cardData);
 

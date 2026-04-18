@@ -97,6 +97,7 @@
       const lifecycleReady = window.zenTidyDownloadsCardLifecycle?.createCardLifecycle;
       const compactReady = window.zenTidyDownloadsCompactVisibility?.createCompactVisibility;
       const listenerReady = window.zenTidyDownloadsDownloadsListener?.createController;
+      const handoffReady = window.zenTidyDownloadsPodHandoff?.createHandoffAnimator;
       if (
         utilsReady &&
         storeReady &&
@@ -109,7 +110,8 @@
         uiReady &&
         lifecycleReady &&
         compactReady &&
-        listenerReady
+        listenerReady &&
+        handoffReady
       ) {
         initializeMainScript();
         return;
@@ -213,8 +215,12 @@
     let podsRowContainerElement = null;
     let masterTooltipDOMElement = null;
     let initSidebarWidthSyncFn = () => { };
-    /** @type {{ getDownloadViewListener: function(): Object, destroy: function(): void }|null} */
+    /** @type {{ syncDownload: function, captureHandoffSnapshot: function, destroy: function(): void }|null} */
     let libraryPieController = null;
+    /** @type {{ isEnabled: function(): boolean, animate: function(Object): boolean }|null} */
+    let podHandoffAnimator = null;
+    /** @type {{ start: function, stop: function }|null} */
+    let downloadsListenerController = null;
 
     // File operations module (open, erase from history, content-type)
     const fileOpsApi = window.zenTidyDownloadsFileOps?.init({ SecurityUtils, debugLog }) || {
@@ -403,7 +409,8 @@
       orderedPodKeys,
       getDownloadCardsContainer: () => downloadCardsContainer,
       getMasterTooltip: () => masterTooltipDOMElement,
-      getPodsRowContainer: () => podsRowContainerElement
+      getPodsRowContainer: () => podsRowContainerElement,
+      store
     });
 
     const lifecycleApi = window.zenTidyDownloadsCardLifecycle.createCardLifecycle({
@@ -417,7 +424,15 @@
       cancelAIProcessForDownload: (key) => cancelAIProcessForDownload(key),
       getDownloadCardsContainer: () => downloadCardsContainer,
       getMasterTooltip: () => masterTooltipDOMElement,
-      getPodsRowContainer: () => podsRowContainerElement
+      getPodsRowContainer: () => podsRowContainerElement,
+      getDownloadKey,
+      // Lazy getters: the pie controller, throttled updater, and handoff
+      // animator are all created later inside initDownloadManager, but
+      // apply() is only ever invoked after start() on the downloads listener,
+      // which happens last.
+      getLibraryPieController: () => libraryPieController,
+      getThrottledCreateOrUpdateCard: () => throttledCreateOrUpdateCard,
+      getHandoffAnimator: () => podHandoffAnimator
     });
 
     async function init() {
@@ -548,31 +563,73 @@
           updateDownloadCardsVisibility,
           updateUIForFocusedDownload,
           getPodsRowContainer: () => podsRowContainerElement,
-          migrateAIRenameKeys: (oldKey, newKey) => tidyDeps.migrateAIRenameKeys(oldKey, newKey)
+          migrateAIRenameKeys: (oldKey, newKey) => tidyDeps.migrateAIRenameKeys(oldKey, newKey),
+          getLifecycleApi: () => lifecycleApi
         });
         throttledCreateOrUpdateCard = podsApi.throttledCreateOrUpdateCard;
 
         if (window.zenTidyDownloadsLibraryPie?.createController) {
-          libraryPieController = window.zenTidyDownloadsLibraryPie.createController({ getPref, debugLog });
+          libraryPieController = window.zenTidyDownloadsLibraryPie.createController({
+            getPref,
+            debugLog,
+            getDownloadKey,
+            store,
+            getPodsRowContainer: () => podsRowContainerElement,
+            updateDownloadCardsVisibility
+          });
         }
 
-        const downloadsListenerController = window.zenTidyDownloadsDownloadsListener.createController({
+        if (window.zenTidyDownloadsPodHandoff?.createHandoffAnimator) {
+          podHandoffAnimator = window.zenTidyDownloadsPodHandoff.createHandoffAnimator({
+            getPref,
+            debugLog
+          });
+        }
+
+        downloadsListenerController = window.zenTidyDownloadsDownloadsListener.createController({
           store,
           DownloadsAdapter,
           debugLog,
           getDownloadKey,
           getPref,
-          cancelAIProcessForDownload: (key) => cancelAIProcessForDownload(key),
-          removeCard,
-          fireCustomEvent,
-          getThrottledCreateOrUpdateCard: () => throttledCreateOrUpdateCard,
-          getLibraryPieController: () => libraryPieController
+          applyDownloadEvent: (dl, removed) => lifecycleApi.apply(dl, removed),
+          getThrottledCreateOrUpdateCard: () => throttledCreateOrUpdateCard
         });
         downloadsListenerController.start();
       } catch (e) {
         console.error("DL Preview Mistral AI: Init error", e);
       }
     }
+
+    /**
+     * Coordinated teardown. Stops the unified downloads view, tears down the
+     * pie's observers/DOM, and clears lifecycle autohide timers. Each
+     * controller's destroy is idempotent so this is safe to call multiple
+     * times. Wired to window "unload" so background pages that get hot-
+     * reloaded during userscript development don't leave dangling observers.
+     */
+    function teardownTidyDownloads() {
+      try {
+        downloadsListenerController?.stop?.();
+      } catch (e) {
+        debugLog("[Teardown] downloads-listener.stop error", e);
+      }
+      try {
+        libraryPieController?.destroy?.();
+      } catch (e) {
+        debugLog("[Teardown] pie.destroy error", e);
+      }
+      try {
+        lifecycleApi?.destroy?.();
+      } catch (e) {
+        debugLog("[Teardown] lifecycle.destroy error", e);
+      }
+      libraryPieController = null;
+      podHandoffAnimator = null;
+      downloadsListenerController = null;
+    }
+
+    window.addEventListener("unload", teardownTidyDownloads, { once: true });
 
   async function removeCard(downloadKey, force = false) {
     return lifecycleApi.removeCard(downloadKey, force);

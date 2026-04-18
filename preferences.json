@@ -57,6 +57,12 @@
     "defaultValue": true
   },
   {
+    "property": "extensions.downloads.enable_pod_handoff_animation",
+    "type": "checkbox",
+    "label": "Animate the pie into the pod card when a download completes",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Zen Stuff"
   },

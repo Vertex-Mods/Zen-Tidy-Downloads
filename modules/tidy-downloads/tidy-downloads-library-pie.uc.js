@@ -5,7 +5,11 @@
 // ==/UserScript==
 
 // tidy-downloads-library-pie.uc.js
-// Circular download progress at zen-library-button (or downloads-button) after Zen arc animation ends
+// Circular download progress pie rendered as a flex child of
+// #userchrome-pods-row-container. Living in the same parent as the pods makes
+// the pie inherit the pods' compact-mode / sidebar-expanded hide/show rules
+// for free, and makes its position automatically match where the completed
+// pod will land (it IS visually the "progress" state of the pod).
 (function () {
   "use strict";
 
@@ -13,28 +17,27 @@
 
   const PREF_ENABLE = "extensions.downloads.enable_library_pie_progress";
 
-  /** Geometry + anchor offset (matches Zen arc styling, smaller footprint) */
+  /** Geometry - host sized to match .download-pod (25x25). */
   const PIE = Object.freeze({
-    hostPx: 20,
-    /** Fills content box inside host padding (host − 2×padPx) */
-    svgPx: 16,
+    hostPx: 25,
+    svgPx: 20,
     padPx: 2,
     cx: 16,
     cy: 16,
     r: 13,
-    stroke: 3.5,
-    /** px from anchor center */
-    offsetX: 10,
-    offsetY: -10
+    stroke: 3.5
   });
 
   const PIE_CIRC = 2 * Math.PI * PIE.r;
 
-  /** @param {unknown} dl */
-  function sessionKeyForDownload(dl) {
-    if (dl && dl.id != null) {
-      return `id:${dl.id}`;
-    }
+  /**
+   * Fallback key when no external getDownloadKey is provided. Canonicalisation
+   * (target.path preferred) happens upstream via ctx.getDownloadKey.
+   * @param {unknown} dl
+   */
+  function fallbackKeyForDownload(dl) {
+    if (dl?.target?.path) return dl.target.path;
+    if (dl?.id != null) return `id:${dl.id}`;
     const url = dl?.source?.url || dl?.url || "";
     const st = dl?.startTime || "";
     return `t:${url}_${st}`;
@@ -85,29 +88,45 @@
      * @param {Object} ctx
      * @param {function} ctx.getPref
      * @param {function} ctx.debugLog
-     * @returns {{ getDownloadViewListener: function(): Object, destroy: function(): void }}
+     * @param {function} [ctx.getDownloadKey] - canonical key resolver shared with the pods module
+     * @param {Object} [ctx.store] - shared state bag; when provided, active downloads
+     *   are tracked via store.progressingDownloads so the pod-lifecycle can see them too
+     * @param {function(): (HTMLElement|null)} [ctx.getPodsRowContainer] - returns
+     *   the #userchrome-pods-row-container element; the pie is appended there as a
+     *   flex sibling of the pods
+     * @param {function} [ctx.updateDownloadCardsVisibility] - compact-visibility
+     *   refresh hook, called whenever the pie appears/disappears so the parent
+     *   container can show/hide even when there are zero pods
+     * @returns {{ syncDownload: function, captureHandoffSnapshot: function, destroy: function(): void }}
      */
     createController(ctx) {
       const { getPref, debugLog } = ctx;
+      const resolveKey = typeof ctx.getDownloadKey === "function" ? ctx.getDownloadKey : fallbackKeyForDownload;
+      const getPodsRowContainer = typeof ctx.getPodsRowContainer === "function" ? ctx.getPodsRowContainer : () => null;
+      const refreshContainerVisibility =
+        typeof ctx.updateDownloadCardsVisibility === "function" ? ctx.updateDownloadCardsVisibility : () => {};
 
-      /** @type {Map<string, unknown>} */
-      const active = new Map();
+      /**
+       * Active in-progress downloads keyed by canonical getDownloadKey. Backed
+       * by the shared store when available so the pod-lifecycle module can
+       * inspect the progress phase without reaching into the pie's internals.
+       * @type {Map<string, unknown>}
+       */
+      const active = ctx.store?.progressingDownloads instanceof Map
+        ? ctx.store.progressingDownloads
+        : new Map();
+      /** @type {WeakMap<object, string>} Track the last key assigned to each Download ref so we can rekey in place when target.path arrives mid-download. */
+      const keyByDownload = new WeakMap();
 
       let root = null;
-      let trackCircle = null;
       let progressCircle = null;
       let indeterminateGroup = null;
-      /** @type {HTMLDivElement|null} */
-      let zenInnerCircleEl = null;
+      /** @type {HTMLElement|null} clone of Zen's arc icon when arc node is removed */
+      let pendingArcIconClone = null;
 
       let pieRevealed = false;
       let arcMutationObserver = null;
       let arcFallbackTimerId = null;
-      let resizeObserver = null;
-      /** @type {Element|null} */
-      let observedAnchor = null;
-      /** @type {HTMLElement|null} clone of Zen's arc icon when arc node is removed */
-      let pendingArcIconClone = null;
 
       function isFeatureEnabled() {
         try {
@@ -115,34 +134,6 @@
         } catch (e) {
           return true;
         }
-      }
-
-      /**
-       * @param {Element|null} el
-       * @returns {boolean}
-       */
-      function isElementVisible(el) {
-        if (!el) return false;
-        const rect = el.getBoundingClientRect();
-        if (rect.bottom < 1 || rect.right < 1 || rect.top > window.innerHeight || rect.left > window.innerWidth) {
-          return false;
-        }
-        return true;
-      }
-
-      function getAnchor() {
-        let lib = document.getElementById("zen-library-button");
-        if (!lib) {
-          lib = document.querySelector("zen-library-button");
-        }
-        if (lib && isElementVisible(lib)) {
-          return lib;
-        }
-        const dlBtn = document.getElementById("downloads-button");
-        if (dlBtn && isElementVisible(dlBtn)) {
-          return dlBtn;
-        }
-        return null;
       }
 
       function teardownArcWatcher() {
@@ -164,6 +155,9 @@
 
       /**
        * Wait for Zen's flying arc node to leave the shadow root, then reveal the pie.
+       * Timing only - we keep this so the pie appears at the same familiar moment
+       * (arc flight complete), even though the pie itself no longer lives at the
+       * toolbar button.
        */
       function beginWaitForArcThenReveal() {
         teardownArcWatcher();
@@ -211,133 +205,106 @@
         }, 3200);
       }
 
+      /**
+       * Build the pie element and append it to the pods-row container as the
+       * first (leading) flex child. Leading position means in-progress activity
+       * surfaces on the side closest to the library button, and completed pods
+       * stack after it.
+       */
       function ensureDom() {
-        if (root) return;
+        if (root && root.isConnected) return;
 
-        const NS = "http://www.w3.org/2000/svg";
-        root = document.createElement("div");
-        root.id = "zen-tidy-download-pie-host";
-        root.className = "zen-tidy-pie-host";
-        root.setAttribute("role", "presentation");
-        root.style.cssText = [
-          "position:fixed",
-          "left:0",
-          "top:0",
-          `width:${PIE.hostPx}px`,
-          `height:${PIE.hostPx}px`,
-          "margin:0",
-          `padding:${PIE.padPx}px`,
-          "pointer-events:none",
-          "z-index:2147483646",
-          "display:none",
-          "box-sizing:border-box",
-          "border-radius:50%",
-          "background-color:var(--zen-colors-hover-bg, rgba(128,128,128,0.25))",
-          "box-shadow:var(--zen-big-shadow, 0 2px 8px rgba(0,0,0,0.2))",
-          "align-items:stretch",
-          "justify-content:center",
-          "flex-direction:column"
-        ].join(";");
-
-        const svg = document.createElementNS(NS, "svg");
-        svg.setAttribute("width", String(PIE.svgPx));
-        svg.setAttribute("height", String(PIE.svgPx));
-        svg.setAttribute("viewBox", "0 0 32 32");
-        svg.classList.add("zen-tidy-pie-ring-svg");
-        svg.style.cssText = [
-          "position:absolute",
-          "left:50%",
-          "top:50%",
-          "transform:translate(-50%,-50%)",
-          "z-index:2",
-          "pointer-events:none",
-          "display:block",
-          "overflow:visible"
-        ].join(";");
-
-        const cx = String(PIE.cx);
-        const cy = String(PIE.cy);
-        const r = String(PIE.r);
-        const sw = String(PIE.stroke);
-
-        trackCircle = document.createElementNS(NS, "circle");
-        trackCircle.setAttribute("cx", cx);
-        trackCircle.setAttribute("cy", cy);
-        trackCircle.setAttribute("r", r);
-        trackCircle.setAttribute("fill", "none");
-        trackCircle.setAttribute("stroke", "var(--toolbar-color, rgba(200,200,200,0.35))");
-        trackCircle.setAttribute("stroke-width", sw);
-
-        progressCircle = document.createElementNS(NS, "circle");
-        progressCircle.setAttribute("cx", cx);
-        progressCircle.setAttribute("cy", cy);
-        progressCircle.setAttribute("r", r);
-        progressCircle.setAttribute("fill", "none");
-        progressCircle.setAttribute("stroke", "var(--zen-primary-color, #0a84ff)");
-        progressCircle.setAttribute("stroke-width", sw);
-        progressCircle.setAttribute("stroke-linecap", "round");
-        progressCircle.setAttribute("transform", `rotate(-90 ${PIE.cx} ${PIE.cy})`);
-        progressCircle.setAttribute("stroke-dasharray", String(PIE_CIRC));
-        progressCircle.setAttribute("stroke-dashoffset", String(PIE_CIRC));
-
-        indeterminateGroup = document.createElementNS(NS, "g");
-        indeterminateGroup.style.display = "none";
-        indeterminateGroup.style.transformOrigin = `${PIE.cx}px ${PIE.cy}px`;
-        indeterminateGroup.style.animation = "zen-tidy-pie-spin 0.85s linear infinite";
-        const indTrack = trackCircle.cloneNode(true);
-        const spin = document.createElementNS(NS, "circle");
-        spin.setAttribute("cx", cx);
-        spin.setAttribute("cy", cy);
-        spin.setAttribute("r", r);
-        spin.setAttribute("fill", "none");
-        spin.setAttribute("stroke", "var(--zen-primary-color, #0a84ff)");
-        spin.setAttribute("stroke-width", sw);
-        spin.setAttribute("stroke-linecap", "round");
-        spin.setAttribute("stroke-dasharray", `${Math.round(PIE_CIRC * 0.25)} ${Math.round(PIE_CIRC * 0.75)}`);
-        spin.setAttribute("transform", `rotate(-90 ${PIE.cx} ${PIE.cy})`);
-        indeterminateGroup.appendChild(indTrack);
-        indeterminateGroup.appendChild(spin);
-
-        svg.appendChild(trackCircle);
-        svg.appendChild(progressCircle);
-        svg.appendChild(indeterminateGroup);
-        root.appendChild(svg);
-
-        // Same structure as Zen arc (see zen-download-arc-animation.css + ZenDownloadAnimation.mjs).
-        // Scoped widget styles + zen-tidy-pie-spin keyframes live in chrome.css (#zen-tidy-download-pie-host).
-        zenInnerCircleEl = document.createElement("div");
-        zenInnerCircleEl.className = "zen-download-arc-animation-inner-circle";
-        zenInnerCircleEl.style.cssText =
-          "width:100%;height:100%;min-width:0;min-height:0;flex:1 1 auto;box-sizing:border-box";
-        /** @type {HTMLElement} */
-        let zenIconEl;
-        if (pendingArcIconClone) {
-          zenIconEl = pendingArcIconClone;
-          pendingArcIconClone = null;
-          zenIconEl.setAttribute("aria-hidden", "true");
-        } else {
-          zenIconEl = document.createElement("div");
-          zenIconEl.className = "zen-download-arc-animation-icon";
-          zenIconEl.setAttribute("aria-hidden", "true");
+        const podsRow = getPodsRowContainer();
+        if (!podsRow) {
+          debugLog("[LibraryPie] pods-row container not ready; deferring DOM creation");
+          return;
         }
-        zenInnerCircleEl.appendChild(zenIconEl);
-        root.appendChild(zenInnerCircleEl);
 
-        document.body.appendChild(root);
-      }
+        if (!root) {
+          const NS = "http://www.w3.org/2000/svg";
+          root = document.createElement("div");
+          root.id = "zen-tidy-download-pie-host";
+          root.className = "zen-tidy-pie-host";
+          root.setAttribute("role", "presentation");
 
-      function bindAnchorResize(anchor) {
-        if (resizeObserver) {
-          resizeObserver.disconnect();
-          resizeObserver = null;
+          const svg = document.createElementNS(NS, "svg");
+          svg.setAttribute("width", String(PIE.svgPx));
+          svg.setAttribute("height", String(PIE.svgPx));
+          svg.setAttribute("viewBox", "0 0 32 32");
+          svg.classList.add("zen-tidy-pie-ring-svg");
+
+          const cx = String(PIE.cx);
+          const cy = String(PIE.cy);
+          const r = String(PIE.r);
+          const sw = String(PIE.stroke);
+
+          const trackCircle = document.createElementNS(NS, "circle");
+          trackCircle.setAttribute("cx", cx);
+          trackCircle.setAttribute("cy", cy);
+          trackCircle.setAttribute("r", r);
+          trackCircle.setAttribute("fill", "none");
+          trackCircle.setAttribute("stroke", "var(--toolbar-color, rgba(200,200,200,0.35))");
+          trackCircle.setAttribute("stroke-width", sw);
+
+          progressCircle = document.createElementNS(NS, "circle");
+          progressCircle.setAttribute("cx", cx);
+          progressCircle.setAttribute("cy", cy);
+          progressCircle.setAttribute("r", r);
+          progressCircle.setAttribute("fill", "none");
+          progressCircle.setAttribute("stroke", "var(--zen-primary-color, #0a84ff)");
+          progressCircle.setAttribute("stroke-width", sw);
+          progressCircle.setAttribute("stroke-linecap", "round");
+          progressCircle.setAttribute("transform", `rotate(-90 ${PIE.cx} ${PIE.cy})`);
+          progressCircle.setAttribute("stroke-dasharray", String(PIE_CIRC));
+          progressCircle.setAttribute("stroke-dashoffset", String(PIE_CIRC));
+
+          indeterminateGroup = document.createElementNS(NS, "g");
+          indeterminateGroup.style.display = "none";
+          indeterminateGroup.style.transformOrigin = `${PIE.cx}px ${PIE.cy}px`;
+          indeterminateGroup.style.animation = "zen-tidy-pie-spin 0.85s linear infinite";
+          const indTrack = trackCircle.cloneNode(true);
+          const spin = document.createElementNS(NS, "circle");
+          spin.setAttribute("cx", cx);
+          spin.setAttribute("cy", cy);
+          spin.setAttribute("r", r);
+          spin.setAttribute("fill", "none");
+          spin.setAttribute("stroke", "var(--zen-primary-color, #0a84ff)");
+          spin.setAttribute("stroke-width", sw);
+          spin.setAttribute("stroke-linecap", "round");
+          spin.setAttribute("stroke-dasharray", `${Math.round(PIE_CIRC * 0.25)} ${Math.round(PIE_CIRC * 0.75)}`);
+          spin.setAttribute("transform", `rotate(-90 ${PIE.cx} ${PIE.cy})`);
+          indeterminateGroup.appendChild(indTrack);
+          indeterminateGroup.appendChild(spin);
+
+          svg.appendChild(trackCircle);
+          svg.appendChild(progressCircle);
+          svg.appendChild(indeterminateGroup);
+          root.appendChild(svg);
+
+          // Same inner-circle + icon structure as Zen's arc widget, so the pie
+          // looks like the arc landed and is now spinning progress around it.
+          const inner = document.createElement("div");
+          inner.className = "zen-download-arc-animation-inner-circle";
+          /** @type {HTMLElement} */
+          let iconEl;
+          if (pendingArcIconClone) {
+            iconEl = pendingArcIconClone;
+            pendingArcIconClone = null;
+            iconEl.setAttribute("aria-hidden", "true");
+          } else {
+            iconEl = document.createElement("div");
+            iconEl.className = "zen-download-arc-animation-icon";
+            iconEl.setAttribute("aria-hidden", "true");
+          }
+          inner.appendChild(iconEl);
+          root.appendChild(inner);
         }
-        observedAnchor = anchor;
-        if (!anchor) return;
-        try {
-          resizeObserver = new ResizeObserver(() => updateVisual());
-          resizeObserver.observe(anchor);
-        } catch (e) {
-          debugLog("[LibraryPie] ResizeObserver unavailable:", e);
+
+        // Always (re)insert at the leading edge of the pods row.
+        if (root.parentNode !== podsRow) {
+          podsRow.insertBefore(root, podsRow.firstChild);
+        } else if (podsRow.firstChild !== root) {
+          podsRow.insertBefore(root, podsRow.firstChild);
         }
       }
 
@@ -352,23 +319,8 @@
           return;
         }
 
-        const anchor = getAnchor();
-        if (!anchor) {
-          if (root) root.style.display = "none";
-          return;
-        }
-
         ensureDom();
         if (!root) return;
-
-        const rect = anchor.getBoundingClientRect();
-        root.style.left = `${rect.left + rect.width / 2 + PIE.offsetX}px`;
-        root.style.top = `${rect.top + rect.height / 2 + PIE.offsetY}px`;
-        root.style.transform = "translate(-50%, -50%)";
-
-        if (observedAnchor !== anchor) {
-          bindAnchorResize(anchor);
-        }
 
         const { fraction, indeterminate } = aggregateProgress(active);
 
@@ -385,27 +337,35 @@
         }
 
         root.style.display = "flex";
+        refreshContainerVisibility();
       }
 
       function syncDownload(dl, removed = false) {
-        const key = sessionKeyForDownload(dl);
         if (!dl) return;
+        const key = resolveKey(dl) || fallbackKeyForDownload(dl);
+        if (!key) return;
+
+        // If this Download ref was previously tracked under a different key
+        // (temp_url_startTime → real target.path after succeeded), migrate the
+        // entry in place so we don't leave a stale key behind.
+        const priorKey = keyByDownload.get(dl);
+        if (priorKey && priorKey !== key && active.has(priorKey)) {
+          active.delete(priorKey);
+        }
 
         if (removed || dl.succeeded || dl.error || dl.canceled) {
           active.delete(key);
+          keyByDownload.delete(dl);
         } else {
           active.set(key, dl);
+          keyByDownload.set(dl, key);
         }
 
         if (active.size === 0) {
           pieRevealed = false;
           teardownArcWatcher();
           if (root) root.style.display = "none";
-          if (resizeObserver) {
-            resizeObserver.disconnect();
-            resizeObserver = null;
-          }
-          observedAnchor = null;
+          refreshContainerVisibility();
           return;
         }
 
@@ -418,11 +378,6 @@
 
       function destroy() {
         teardownArcWatcher();
-        if (resizeObserver) {
-          resizeObserver.disconnect();
-          resizeObserver = null;
-        }
-        observedAnchor = null;
         active.clear();
         pieRevealed = false;
         pendingArcIconClone = null;
@@ -430,19 +385,39 @@
           root.parentNode.removeChild(root);
         }
         root = null;
-        trackCircle = null;
         progressCircle = null;
         indeterminateGroup = null;
-        zenInnerCircleEl = null;
       }
 
       return {
-        getDownloadViewListener() {
-          return {
-            onDownloadAdded: (dl) => syncDownload(dl, false),
-            onDownloadChanged: (dl) => syncDownload(dl, false),
-            onDownloadRemoved: (dl) => syncDownload(dl, true)
-          };
+        /**
+         * Feed a single download event into the pie. The unified downloads
+         * listener calls this for every add/change/remove so the pie and the
+         * pods pipeline share one event source.
+         * @param {unknown} dl
+         * @param {boolean} [removed] - true when the download was removed from the list
+         */
+        syncDownload(dl, removed = false) {
+          syncDownload(dl, removed);
+        },
+        /**
+         * Read-only snapshot of the pie's current visual position and icon,
+         * used by the pod-handoff animator at the moment of transition from
+         * "progress" to "live-pod". Returns null when the pie isn't
+         * currently visible.
+         * @returns {{ rect: DOMRect, iconClone: HTMLElement|null }|null}
+         */
+        captureHandoffSnapshot() {
+          if (!root) return null;
+          if (root.style.display === "none") return null;
+          const rect = root.getBoundingClientRect();
+          if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+          let iconClone = null;
+          const iconEl = root.querySelector(".zen-download-arc-animation-icon");
+          if (iconEl instanceof HTMLElement) {
+            iconClone = /** @type {HTMLElement} */ (iconEl.cloneNode(true));
+          }
+          return { rect, iconClone };
         },
         destroy
       };

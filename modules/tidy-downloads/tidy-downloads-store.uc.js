@@ -49,7 +49,17 @@
         MAX_PERMANENTLY_DELETED_PATHS: 50,
         actualDownloadRemovedEventListeners: new Set(),
         dismissedPodsData: new Map(),
-        dismissEventListeners: new Set()
+        dismissEventListeners: new Set(),
+        /**
+         * Downloads currently in the "progress" phase (not yet succeeded/
+         * error/canceled/removed). Keyed by the same canonical getDownloadKey
+         * used by activeDownloadCards so the pie renderer and the pods
+         * pipeline share one identity space. The library pie owns the
+         * lifecycle writes to this map today; after the Step 4 refactor the
+         * pod-lifecycle module will own it and renderers become read-only.
+         * @type {Map<string, unknown>}
+         */
+        progressingDownloads: new Map()
       };
     }
   };
