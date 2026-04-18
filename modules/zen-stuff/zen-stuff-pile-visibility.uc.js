@@ -66,6 +66,27 @@
       }
 
       let _podsRowRef = null;
+
+      /**
+       * True when Zen Tidy Downloads is showing the in-progress library pie
+       * (#zen-tidy-download-pie-host). In that state, hovering the library /
+       * downloads button should not expand the dismissed pile — the pie is the
+       * active download affordance in that slot.
+       * @returns {boolean}
+       */
+      function isTidyDownloadsLibraryPieVisible() {
+        try {
+          const pie = document.getElementById("zen-tidy-download-pie-host");
+          if (!pie || !pie.isConnected) return false;
+          const cs = window.getComputedStyle(pie);
+          if (cs.display === "none" || cs.visibility === "hidden") return false;
+          const op = parseFloat(cs.opacity);
+          return !Number.isFinite(op) || op > 0;
+        } catch (_e) {
+          return false;
+        }
+      }
+
       function shouldDisableHover() {
         try {
           if (!_podsRowRef || !_podsRowRef.isConnected) {
@@ -248,10 +269,18 @@
 
         if (state.dismissedPods.size === 0) return;
         if (getAlwaysShowPile()) return;
+        if (isTidyDownloadsLibraryPieVisible()) {
+          debugLog("[DownloadHover] Library pie visible — not opening pile from button hover");
+          return;
+        }
         if (shouldDisableHover()) return;
 
         clearTimeout(state.hoverTimeout);
         state.hoverTimeout = setTimeout(() => {
+          if (isTidyDownloadsLibraryPieVisible()) {
+            debugLog("[DownloadHover] Pie became visible during hover debounce — skipping pile open");
+            return;
+          }
           showPile();
           schedulePileLayoutRepair("download-hover", 50);
         }, CONFIG.hoverDebounceMs);
