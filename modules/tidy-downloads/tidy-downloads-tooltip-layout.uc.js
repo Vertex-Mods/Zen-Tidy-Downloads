@@ -296,6 +296,7 @@
                      // This relies on updateUIForFocusedDownload having set the initial opacity/transform if focus changed.
                      debugLog(`[LayoutManager_Jukebox_Tooltip] Focused pod ${key} is visible/animating, and tooltip is hidden. Animating tooltip IN.`);
                      setTimeout(() => { 
+                        masterTooltipDOMElement.style.visibility = "visible";
                         masterTooltipDOMElement.style.opacity = "1";
                         masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
                         masterTooltipDOMElement.style.pointerEvents = "auto"; // Enable interactions when visible
@@ -379,9 +380,12 @@
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
+          masterTooltipDOMElement.style.visibility = "hidden";
         } else {
           // cardDataToFocus and podElement are valid, proceed with UI updates for tooltip and AI.
-          masterTooltipDOMElement.style.display = "flex"; 
+          masterTooltipDOMElement.style.display = "flex";
+          // Pie-only / compact-mode paths set visibility:hidden; must clear when a live pod shows the tooltip.
+          masterTooltipDOMElement.style.visibility = "visible";
 
           if (oldFocusedKey !== focusedKeyRef.current || isNewOrSignificantUpdate) {
               debugLog(`[UIUPDATE_TOOLTIP_RESET] Focus changed or significant update. Resetting tooltip for animation for ${focusedKeyRef.current}. Old focus: ${oldFocusedKey}`);

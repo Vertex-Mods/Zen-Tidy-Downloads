@@ -82,6 +82,12 @@
             podsRowContainerElement.style.opacity = "1";
             podsRowContainerElement.style.pointerEvents = "auto";
           }
+          // Compact collapse set master tooltip to display:none + visibility:hidden; restore when pods exist so
+          // tooltip-layout can show it again without a redundant focus event.
+          if (masterTooltipDOMElement && orderedPodKeys.length > 0) {
+            masterTooltipDOMElement.style.display = "flex";
+            masterTooltipDOMElement.style.visibility = "visible";
+          }
           return;
         }
 

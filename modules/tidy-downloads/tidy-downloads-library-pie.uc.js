@@ -19,8 +19,8 @@
 
   /** Geometry - host sized to match .download-pod (25x25). */
   const PIE = Object.freeze({
-    hostPx: 25,
-    svgPx: 20,
+    hostPx: 16,
+    svgPx: 16,
     padPx: 2,
     cx: 16,
     cy: 16,
