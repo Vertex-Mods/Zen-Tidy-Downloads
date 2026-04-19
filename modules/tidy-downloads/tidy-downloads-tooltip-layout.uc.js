@@ -73,24 +73,34 @@
         debugLog(`[LayoutManager] Current state: orderedPodKeys=${orderedPodKeys.length}, focusedKey=${focusedKeyRef.current}, activeDownloadCards=${activeDownloadCards.size}`);
 
         if (orderedPodKeys.length === 0) {
-            // Hide the entire container when no pods exist
-            if (downloadCardsContainer) {
-                downloadCardsContainer.style.display = "none";
-                downloadCardsContainer.style.opacity = "0";
-                downloadCardsContainer.style.visibility = "hidden";
+            const progressing =
+              store.progressingDownloads instanceof Map && store.progressingDownloads.size > 0;
+
+            // Always collapse the master tooltip when no pod is focused — the
+            // tooltip belongs to the live-pod phase only. Using display:none
+            // (not just opacity:0) removes it from layout AND matches the
+            // CSS default, so it isn't visibly "in the DOM" during progress.
+            masterTooltipDOMElement.style.display = "none";
+            masterTooltipDOMElement.style.opacity = "0";
+            masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+            masterTooltipDOMElement.style.pointerEvents = "none";
+            masterTooltipDOMElement.style.visibility = "hidden";
+
+            if (progressing) {
+              // Pie-only: keep the cards container visible (compact-visibility
+              // handles show/hide), but don't hide downloadCardsContainer here.
+              updateDownloadCardsVisibility();
+              debugLog("[LayoutManager] Progress-only (pie, no pods): master tooltip hidden.");
+            } else if (downloadCardsContainer) {
+              // No pods and no progress: hide the whole strip.
+              downloadCardsContainer.style.display = "none";
+              downloadCardsContainer.style.opacity = "0";
+              downloadCardsContainer.style.visibility = "hidden";
+              debugLog("[LayoutManager] No pods and no progress — hiding download cards.");
             }
-            
-            if (masterTooltipDOMElement.style.opacity !== "0") {
-                debugLog("[LayoutManager] No pods, ensuring master tooltip is hidden.");
-                masterTooltipDOMElement.style.opacity = "0";
-                masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-                masterTooltipDOMElement.style.pointerEvents = "none";
-                setTimeout(() => { 
-                    if (masterTooltipDOMElement.style.opacity === "0") masterTooltipDOMElement.style.display = "none";
-                }, 300);
-            }
+
             debugLog(`[LayoutManager] Exiting: No OrderedPodKeys.`);
-            podsRowContainerElement.style.gap = '0px'; // Reset gap just in case
+            podsRowContainerElement.style.gap = "0px";
             return;
         }
 
