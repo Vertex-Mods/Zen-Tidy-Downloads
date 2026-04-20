@@ -425,6 +425,7 @@
       getDownloadCardsContainer: () => downloadCardsContainer,
       getMasterTooltip: () => masterTooltipDOMElement,
       getPodsRowContainer: () => podsRowContainerElement,
+      updateDownloadCardsVisibility,
       getDownloadKey,
       // Lazy getters: the pie controller, throttled updater, and handoff
       // animator are all created later inside initDownloadManager, but
@@ -501,7 +502,8 @@
               updateUIForFocusedDownload(focusedKeyRef.current, false);
             }
           },
-          setupCompactModeObserver
+          setupCompactModeObserver,
+          findDownloadsButton
         });
         downloadCardsContainer = uiApi.getDownloadCardsContainer();
         masterTooltipDOMElement = uiApi.getMasterTooltip();

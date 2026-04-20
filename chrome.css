@@ -160,18 +160,80 @@
   left: 15px;
 }
 
-/* Pods row container */
+/* Anchor for floating pods + pie (reparented under downloads / library control in JS) */
+.zen-tidy-download-badge-anchor {
+  position: relative !important;
+  overflow: visible !important;
+}
+
+/* Pods row: badge cluster at top-outer corner of the anchor button (out of toolbar flex gap) */
 #userchrome-pods-row-container {
   display: flex;
   flex-direction: row;
   align-items: flex-end;
-  justify-content: flex-start;
+  justify-content: flex-end;
   position: absolute;
   height: 0px;
-  order: 1;
-  width: 100%;
-  left: 10px;
-  bottom: 15px;
+  width: auto;
+  min-width: 0;
+  top: -10px;
+  right: -5px;
+  left: auto;
+  bottom: auto;
+  z-index: 6;
+  gap: 4px;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+/* Pie + pods share one 25×25 slot (anchored on the download / library control) */
+#userchrome-pods-row-container.zen-tidy-pods-badge-stack {
+  display: block;
+  width: 25px;
+  min-width: 25px;
+  max-width: 25px;
+  gap: 0;
+  overflow: visible;
+  height: 25px;
+}
+
+/* Pie stays in the same badge cell as the pod but renders smaller (scaled), centered */
+#userchrome-pods-row-container.zen-tidy-pods-badge-stack #zen-tidy-download-pie-host.zen-tidy-pie-host {
+  position: absolute !important;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%) scale(0.9);
+  transform-origin: center center;
+}
+
+#userchrome-pods-row-container.zen-tidy-pods-badge-stack #zen-tidy-download-pie-host.zen-tidy-pie-host.zen-tidy-pie-pop-in {
+  animation: zen-tidy-pie-badge-pop-in 0.58s cubic-bezier(0.34, 1.35, 0.64, 1) both;
+}
+
+@keyframes zen-tidy-pie-badge-pop-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.28);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+}
+
+#userchrome-pods-row-container.zen-tidy-pods-badge-stack .download-pod {
+  left: 0 !important;
+  top: 0 !important;
+  right: auto !important;
+  bottom: auto !important;
+  margin: 0 !important;
 }
 
 /* Download pods */
@@ -277,18 +339,14 @@
 
 #main-window[zen-right-side] #userchrome-pods-row-container,
 :root[zen-right-side] #userchrome-pods-row-container {
-  left: -160px;
+  right: auto;
+  left: -2px;
+  justify-content: flex-start;
 }
 
 #main-window[zen-right-side] #userchrome-download-cards-container .details-tooltip,
 :root[zen-right-side] #userchrome-download-cards-container .details-tooltip {
   transform-origin: bottom right;
-}
-
-
-#main-window[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container,
-:root[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container {
-  justify-content: flex-end;
 }
 
 /* AI Sparkle Effect */
@@ -481,6 +539,22 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   justify-content: center;
   background-color: var(--zen-colors-hover-bg, rgba(128, 128, 128, 0.25));
   box-shadow: var(--zen-big-shadow, 0 2px 8px rgba(0, 0, 0, 0.2));
+}
+
+#zen-tidy-download-pie-host.zen-tidy-pie-host.zen-tidy-pie-pop-in {
+  animation: zen-tidy-pie-pop-in-ambient 0.52s cubic-bezier(0.34, 1.35, 0.64, 1) both;
+}
+
+@keyframes zen-tidy-pie-pop-in-ambient {
+  from {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 #zen-tidy-download-pie-host.zen-tidy-pie-host .zen-tidy-pie-ring-svg {

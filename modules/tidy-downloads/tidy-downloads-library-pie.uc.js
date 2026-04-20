@@ -5,8 +5,8 @@
 // ==/UserScript==
 
 // tidy-downloads-library-pie.uc.js
-// Circular download progress pie rendered as a flex child of
-// #userchrome-pods-row-container. Living in the same parent as the pods makes
+// Circular download progress pie rendered inside #userchrome-pods-row-container
+// (stacked with completed pods in badge mode). Living in the same parent as the pods makes
 // the pie inherit the pods' compact-mode / sidebar-expanded hide/show rules
 // for free, and makes its position automatically match where the completed
 // pod will land (it IS visually the "progress" state of the pod).
@@ -29,6 +29,9 @@
   });
 
   const PIE_CIRC = 2 * Math.PI * PIE.r;
+
+  /** Pause after Zen's arc leaves the DOM before showing the pie (ms). */
+  const POST_ARC_PIE_DELAY_MS = 200;
 
   /**
    * Fallback key when no external getDownloadKey is provided. Canonicalisation
@@ -127,6 +130,8 @@
       let pieRevealed = false;
       let arcMutationObserver = null;
       let arcFallbackTimerId = null;
+      /** @type {ReturnType<typeof setTimeout>|null} */
+      let postArcPieDelayId = null;
       /** @type {Array<() => void>} Resolvers waiting for the arc animation to finish. */
       const arcDoneWaiters = [];
 
@@ -147,6 +152,10 @@
           clearTimeout(arcFallbackTimerId);
           arcFallbackTimerId = null;
         }
+        if (postArcPieDelayId) {
+          clearTimeout(postArcPieDelayId);
+          postArcPieDelayId = null;
+        }
       }
 
       function flushArcDoneWaiters() {
@@ -158,18 +167,21 @@
 
       function onArcRemovedOrTimeout() {
         teardownArcWatcher();
-        // Only mark the pie as "revealed" if there is still an active
-        // download it would reveal FOR. Otherwise (fast download that
-        // terminated while the arc was still flying) we must leave
-        // pieRevealed=false so the NEXT download re-arms the arc watcher
-        // instead of skipping it and popping the pie over the fresh arc.
-        if (active.size > 0) {
-          pieRevealed = true;
-          updateVisual();
-        } else {
-          pieRevealed = false;
-        }
-        flushArcDoneWaiters();
+        postArcPieDelayId = setTimeout(() => {
+          postArcPieDelayId = null;
+          // Only mark the pie as "revealed" if there is still an active
+          // download it would reveal FOR. Otherwise (fast download that
+          // terminated while the arc was still flying) we must leave
+          // pieRevealed=false so the NEXT download re-arms the arc watcher
+          // instead of skipping it and popping the pie over the fresh arc.
+          if (active.size > 0) {
+            pieRevealed = true;
+            updateVisual();
+          } else {
+            pieRevealed = false;
+          }
+          flushArcDoneWaiters();
+        }, POST_ARC_PIE_DELAY_MS);
       }
 
       /**
@@ -390,7 +402,19 @@
           }
         }
 
+        const wasHidden = root.style.display !== "flex";
         root.style.display = "flex";
+        if (wasHidden) {
+          root.classList.remove("zen-tidy-pie-pop-in");
+          requestAnimationFrame(() => {
+            root.classList.add("zen-tidy-pie-pop-in");
+            const onEnd = () => {
+              root.classList.remove("zen-tidy-pie-pop-in");
+            };
+            root.addEventListener("animationend", onEnd, { once: true });
+            setTimeout(onEnd, 700);
+          });
+        }
         refreshContainerVisibility();
       }
 
