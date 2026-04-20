@@ -33,27 +33,12 @@
         store
       } = ctx;
 
-      /**
-       * Master tooltip is the only child left in #userchrome-download-cards-container
-       * after pods moved to the anchor; show that strip only when the tooltip is actually used.
-       * @param {HTMLElement|null} masterEl
-       */
-      function isMasterTooltipShown(masterEl) {
-        if (!masterEl) return false;
-        if (masterEl.style.display !== "flex") return false;
-        if (masterEl.style.visibility === "hidden") return false;
-        return true;
-      }
-
       function updateDownloadCardsVisibility() {
         const downloadCardsContainer = getDownloadCardsContainer();
         if (!downloadCardsContainer) return;
 
         const masterTooltipDOMElement = getMasterTooltip();
         const podsRowContainerElement = getPodsRowContainer();
-        const useBadgeStack = !!(
-          podsRowContainerElement && podsRowContainerElement.classList.contains("zen-tidy-pods-badge-stack")
-        );
 
         const isCompactMode = document.documentElement.getAttribute("zen-compact-mode") === "true";
         const isSidebarExpanded = document.documentElement.getAttribute("zen-sidebar-expanded") === "true";
@@ -61,7 +46,7 @@
         const hasProgressing = store?.progressingDownloads instanceof Map && store.progressingDownloads.size > 0;
 
         debugLog(
-          `[CompactModeObserver] Checking visibility: isCompactMode=${isCompactMode}, isSidebarExpanded=${isSidebarExpanded}, hasPods=${orderedPodKeys.length > 0}, hasProgressing=${hasProgressing}, badgeStack=${useBadgeStack}, masterTooltipShown=${isMasterTooltipShown(masterTooltipDOMElement)}`
+          `[CompactModeObserver] Checking visibility: isCompactMode=${isCompactMode}, isSidebarExpanded=${isSidebarExpanded}, hasPods=${orderedPodKeys.length > 0}, hasProgressing=${hasProgressing}`
         );
 
         if (isCompactMode && !isSidebarExpanded) {
@@ -86,28 +71,22 @@
         }
 
         if (orderedPodKeys.length > 0 || hasProgressing) {
-          debugLog("[CompactModeObserver] Pods row / pie active — syncing strip visibility");
+          debugLog("[CompactModeObserver] Showing download cards (pods or in-progress pie present)");
+          downloadCardsContainer.style.display = "flex";
+          downloadCardsContainer.style.opacity = "1";
+          downloadCardsContainer.style.visibility = "visible";
+          downloadCardsContainer.style.pointerEvents = "auto";
           if (podsRowContainerElement) {
             podsRowContainerElement.style.display = "flex";
             podsRowContainerElement.style.visibility = "visible";
             podsRowContainerElement.style.opacity = "1";
-            /* Row is a badge overlay on the anchor button; leave hit-testing to .download-pod (pointer-events: auto in CSS). */
-            podsRowContainerElement.style.pointerEvents = "none";
+            podsRowContainerElement.style.pointerEvents = "auto";
           }
-          const legacyStrip =
-            !useBadgeStack && (orderedPodKeys.length > 0 || hasProgressing);
-          const showCardsContainer =
-            legacyStrip || isMasterTooltipShown(masterTooltipDOMElement);
-          if (showCardsContainer) {
-            downloadCardsContainer.style.display = "flex";
-            downloadCardsContainer.style.opacity = "1";
-            downloadCardsContainer.style.visibility = "visible";
-            downloadCardsContainer.style.pointerEvents = "auto";
-          } else {
-            downloadCardsContainer.style.display = "none";
-            downloadCardsContainer.style.opacity = "0";
-            downloadCardsContainer.style.visibility = "hidden";
-            downloadCardsContainer.style.pointerEvents = "none";
+          // Compact collapse set master tooltip to display:none + visibility:hidden; restore when pods exist so
+          // tooltip-layout can show it again without a redundant focus event.
+          if (masterTooltipDOMElement && orderedPodKeys.length > 0) {
+            masterTooltipDOMElement.style.display = "flex";
+            masterTooltipDOMElement.style.visibility = "visible";
           }
           return;
         }

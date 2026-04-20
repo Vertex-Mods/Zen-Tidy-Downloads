@@ -24,8 +24,6 @@
      * @param {function} ctx.clearAllStickyPods
      * @param {function} ctx.onPileHiddenRepair
      * @param {function} ctx.setupCompactModeObserver
-     * @param {function(): Promise<Element|null|undefined>} [ctx.findDownloadsButton] - resolves
-     *   the anchor toolbar control (native downloads or zen-library-button); pods row is reparented here
      * @returns {{ getDownloadCardsContainer: function, getMasterTooltip: function, getPodsRow: function }}
      */
     async init(ctx) {
@@ -39,116 +37,12 @@
         getActiveCardByKey,
         clearAllStickyPods,
         onPileHiddenRepair,
-        setupCompactModeObserver,
-        findDownloadsButton
+        setupCompactModeObserver
       } = ctx;
 
       let downloadCardsContainer = document.getElementById("userchrome-download-cards-container");
       let masterTooltipDOMElement = null;
       let podsRowContainerElement = null;
-      /** @type {MutationObserver|null} */
-      let footToolbarObserver = null;
-      /** @type {Element|null} */
-      let preparedAnchorRef = null;
-
-      /**
-       * @param {Element} anchor
-       */
-      function prepareAnchorForBadges(anchor) {
-        try {
-          anchor.classList.add("zen-tidy-download-badge-anchor");
-          const cs = window.getComputedStyle(anchor);
-          if (cs.position === "static") {
-            anchor.style.position = "relative";
-          }
-          anchor.style.setProperty("overflow", "visible", "important");
-        } catch (e) {
-          debugLog("[DownloadUI] prepareAnchorForBadges:", e);
-        }
-      }
-
-      /**
-       * Reparent #userchrome-pods-row-container under the resolved downloads / library button.
-       * @param {Element|null|undefined} anchor
-       */
-      function mountPodsRowToAnchor(anchor) {
-        if (!podsRowContainerElement) return;
-        if (anchor && anchor.isConnected) {
-          if (preparedAnchorRef && preparedAnchorRef !== anchor) {
-            try {
-              preparedAnchorRef.classList.remove("zen-tidy-download-badge-anchor");
-            } catch (_e) {
-              /* ignore */
-            }
-          }
-          prepareAnchorForBadges(anchor);
-          preparedAnchorRef = anchor;
-          if (podsRowContainerElement.parentNode !== anchor) {
-            anchor.appendChild(podsRowContainerElement);
-            debugLog("[DownloadUI] Pods row mounted on download anchor");
-          }
-          podsRowContainerElement.classList.add("zen-tidy-pods-badge-stack");
-          return;
-        }
-        if (preparedAnchorRef) {
-          try {
-            preparedAnchorRef.classList.remove("zen-tidy-download-badge-anchor");
-          } catch (_e) {
-            /* ignore */
-          }
-          preparedAnchorRef = null;
-        }
-        if (downloadCardsContainer && podsRowContainerElement.parentNode !== downloadCardsContainer) {
-          downloadCardsContainer.appendChild(podsRowContainerElement);
-          debugLog("[DownloadUI] Pods row fallback: appended to download-cards container (no anchor)");
-        }
-        podsRowContainerElement.classList.remove("zen-tidy-pods-badge-stack");
-      }
-
-      async function remountPodsRowToAnchor() {
-        if (typeof findDownloadsButton !== "function") return;
-        try {
-          const anchor = await findDownloadsButton();
-          mountPodsRowToAnchor(anchor || null);
-        } catch (e) {
-          debugLog("[DownloadUI] remountPodsRowToAnchor failed:", e);
-        }
-      }
-
-      function setupFootToolbarRemountObserver() {
-        if (typeof findDownloadsButton !== "function") return;
-        const foot = document.getElementById("zen-sidebar-foot-buttons");
-        if (!foot) {
-          debugLog("[DownloadUI] #zen-sidebar-foot-buttons not found; skipping foot toolbar observer");
-          return;
-        }
-        let debounceId = 0;
-        const schedule = () => {
-          clearTimeout(debounceId);
-          debounceId = setTimeout(() => {
-            remountPodsRowToAnchor();
-          }, 80);
-        };
-        try {
-          footToolbarObserver = new MutationObserver(schedule);
-          footToolbarObserver.observe(foot, { childList: true, subtree: true });
-          window.addEventListener(
-            "unload",
-            () => {
-              try {
-                footToolbarObserver?.disconnect();
-              } catch (_e) {
-                /* ignore */
-              }
-              footToolbarObserver = null;
-            },
-            { once: true }
-          );
-          debugLog("[DownloadUI] Observing #zen-sidebar-foot-buttons for anchor remounts");
-        } catch (e) {
-          debugLog("[DownloadUI] Foot toolbar observer setup failed:", e);
-        }
-      }
 
       if (!downloadCardsContainer) {
         downloadCardsContainer = document.createElement("div");
@@ -177,8 +71,7 @@
             parentContainer.style.position = "relative";
           }
         }
-        downloadCardsContainer.style.cssText =
-          "box-sizing: border-box; display: none; opacity: 0; visibility: hidden;";
+        downloadCardsContainer.style.cssText = "box-sizing: border-box;";
         setupCompactModeObserver();
 
         masterTooltipDOMElement = document.createElement("div");
@@ -207,6 +100,7 @@
 
         podsRowContainerElement = document.createElement("div");
         podsRowContainerElement.id = "userchrome-pods-row-container";
+        downloadCardsContainer.appendChild(podsRowContainerElement);
 
         document.addEventListener("pile-shown", clearAllStickyPods);
         document.addEventListener("pile-hidden", onPileHiddenRepair);
@@ -267,9 +161,6 @@
         podsRowContainerElement = document.getElementById("userchrome-pods-row-container");
         masterTooltipDOMElement = downloadCardsContainer.querySelector(".master-tooltip");
       }
-
-      await remountPodsRowToAnchor();
-      setupFootToolbarRemountObserver();
 
       debugLog("Download UI shell initialized");
 

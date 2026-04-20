@@ -69,7 +69,6 @@
             const podsRowContainerElement = getPodsRowContainer();
             const downloadCardsContainer = getDownloadCardsContainer();
         if (!masterTooltipDOMElement || !podsRowContainerElement) return;
-        const useBadgeStack = podsRowContainerElement.classList.contains("zen-tidy-pods-badge-stack");
         debugLog("[LayoutManager] managePodVisibilityAndAnimations Natural Stacking Style called.");
         debugLog(`[LayoutManager] Current state: orderedPodKeys=${orderedPodKeys.length}, focusedKey=${focusedKeyRef.current}, activeDownloadCards=${activeDownloadCards.size}`);
 
@@ -91,9 +90,6 @@
               // Pie-only: keep the cards container visible (compact-visibility
               // handles show/hide), but don't hide downloadCardsContainer here.
               updateDownloadCardsVisibility();
-              if (useBadgeStack) {
-                podsRowContainerElement.style.height = "25px";
-              }
               debugLog("[LayoutManager] Progress-only (pie, no pods): master tooltip hidden.");
             } else if (downloadCardsContainer) {
               // No pods and no progress: hide the whole strip.
@@ -122,7 +118,7 @@
             }
         }
 
-        const podNominalWidth = useBadgeStack ? 25 : 56;
+        const podNominalWidth = 56;
 
         // Ensure all pods in orderedPodKeys are in the DOM and have initial styles for animation/layout.
         // Run before tooltip width check so pods are attached even when the master tooltip still measures 0 on first show.
@@ -137,6 +133,7 @@
                 // Ensure consistent styling for all pods (in case they were created before layout manager)
                 if (cardData.podElement.style.position !== 'absolute') {
                     cardData.podElement.style.position = 'absolute';
+                    cardData.podElement.style.width = `${podNominalWidth}px`;
                     cardData.podElement.style.marginRight = '0px';
                     cardData.podElement.style.boxSizing = 'border-box';
                     if (!cardData.podElement.style.transition) {
@@ -146,18 +143,15 @@
                     }
                     debugLog(`[LayoutManager] Updated pod ${key} styling for absolute positioning.`);
                 }
-                cardData.podElement.style.width = `${podNominalWidth}px`;
             }
         });
 
         const tooltipWidth = masterTooltipDOMElement.offsetWidth;
         const podOverlapAmount = 50;
         const baseZIndex = 10;
-        const maxVisiblePodsInPile = useBadgeStack
-          ? orderedPodKeys.length
-          : Math.min(4, Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1);
+        const maxVisiblePodsInPile = Math.min(4, Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1);
 
-        if (tooltipWidth === 0 && orderedPodKeys.length > 0 && !useBadgeStack) {
+        if (tooltipWidth === 0 && orderedPodKeys.length > 0) {
             debugLog("[LayoutManager] Master tooltip width is 0. Cannot manage pod layout yet.");
             if (podsRowContainerElement.style.height === '0px') {
                 podsRowContainerElement.style.height = '56px';
@@ -193,74 +187,46 @@
             const cd = activeDownloadCards.get(key);
             if (cd && cd.podElement && cd.isVisible) {
               cd.podElement.style.opacity = '0';
-              cd.podElement.style.transform = useBadgeStack
-                ? "scale(0.65) translateY(6px)"
-                : "scale(0.8) translateX(-30px)";
+              cd.podElement.style.transform = 'scale(0.8) translateX(-30px)';
               cd.isVisible = false;
             }
           });
           return;
         }
 
-        if (useBadgeStack) {
-          visiblePodsLayoutData.push({
-            key: focusedKeyRef.current,
-            x: 0,
-            zIndex: baseZIndex + orderedPodKeys.length + 1,
-            isFocused: true
-          });
-          const pileKeys = orderedPodKeys.slice().reverse().filter((key) => key !== focusedKeyRef.current);
-          let pileCount = 0;
-          for (let i = 0; i < pileKeys.length && pileCount < maxVisiblePodsInPile - 1; i++) {
-            const podKeyInPile = pileKeys[i];
-            visiblePodsLayoutData.push({
-              key: podKeyInPile,
-              x: 0,
-              zIndex: baseZIndex + pileKeys.length - i,
-              isFocused: false
-            });
-            pileCount++;
-          }
-          debugLog(
-            `[LayoutManager_BadgeStack] Overlapping layout for ${visiblePodsLayoutData.length} pods at origin. Focused: ${focusedKeyRef.current}`,
-            visiblePodsLayoutData
-          );
-        } else {
-          // 1. Position the focused pod
-          let currentX = 0;
-          visiblePodsLayoutData.push({
+        // 1. Position the focused pod
+        let currentX = 0;
+        visiblePodsLayoutData.push({
             key: focusedKeyRef.current,
             x: currentX,
             zIndex: baseZIndex + orderedPodKeys.length + 1, // Highest Z
             isFocused: true
-          });
-          currentX += podNominalWidth - podOverlapAmount; // Next pod starts offset by (width - overlap)
+        });
+        currentX += podNominalWidth - podOverlapAmount; // Next pod starts offset by (width - overlap)
 
-          // 2. Position the pile pods to the right in reverse chronological order (natural stacking)
-          const pileKeys = orderedPodKeys.slice().reverse().filter((key) => key !== focusedKeyRef.current);
-          let pileCount = 0;
-
-          for (let i = 0; i < pileKeys.length && pileCount < maxVisiblePodsInPile - 1; i++) {
+        // 2. Position the pile pods to the right in reverse chronological order (natural stacking)
+        // Create pile from newest to oldest, excluding the focused pod
+        const pileKeys = orderedPodKeys.slice().reverse().filter(key => key !== focusedKeyRef.current);
+        let pileCount = 0;
+        
+        for (let i = 0; i < pileKeys.length && pileCount < maxVisiblePodsInPile - 1; i++) {
             const podKeyInPile = pileKeys[i];
 
-            if (currentX + podNominalWidth <= tooltipWidth + podOverlapAmount) {
-              visiblePodsLayoutData.push({
-                key: podKeyInPile,
-                x: currentX,
-                zIndex: baseZIndex + pileKeys.length - i,
-                isFocused: false
-              });
-              currentX += podNominalWidth - podOverlapAmount;
-              pileCount++;
-            } else {
-              break;
+            if (currentX + podNominalWidth <= tooltipWidth + podOverlapAmount) { // Allow last one to partially show
+                visiblePodsLayoutData.push({
+                    key: podKeyInPile,
+                    x: currentX,
+                    zIndex: baseZIndex + pileKeys.length - i, // Decreasing Z (newest in pile has highest Z)
+                    isFocused: false
+                });
+                currentX += (podNominalWidth - podOverlapAmount);
+                pileCount++;
+          } else {
+                break; // No more space
             }
-          }
-          debugLog(
-            `[LayoutManager_NaturalStack] Calculated layout for ${visiblePodsLayoutData.length} pods. Focused: ${focusedKeyRef.current}`,
-            visiblePodsLayoutData
-          );
         }
+
+        debugLog(`[LayoutManager_NaturalStack] Calculated layout for ${visiblePodsLayoutData.length} pods. Focused: ${focusedKeyRef.current}`, visiblePodsLayoutData);
 
         const layoutMap = new Map(visiblePodsLayoutData.map(p => [p.key, p]));
 
@@ -284,9 +250,7 @@
                 // This pod should be visible
                 podElement.style.display = 'flex';
                 podElement.style.zIndex = `${layoutData.zIndex}`;
-                const targetTransform = useBadgeStack
-                  ? "translateX(0px) scale(1) translateY(0)"
-                  : `translateX(${layoutData.x}px) scale(1) translateY(0)`;
+                const targetTransform = `translateX(${layoutData.x}px) scale(1) translateY(0)`;
                 const targetOpacity = layoutData.isFocused ? '1' : '0.75';
 
                 // Only animate if intended state changes or if it's becoming visible
@@ -299,9 +263,7 @@
                     
                     // Apply directional entrance animation for newly focused pods during rotation
                     if (layoutData.isFocused && !cardData.isVisible && store.lastRotationDirection) {
-                        const entranceTransform = useBadgeStack
-                          ? "translateX(0px) scale(0.65) translateY(6px)"
-                          : `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
+                        const entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
                         
                         podElement.style.transform = entranceTransform;
                         podElement.style.opacity = '0';
@@ -345,11 +307,9 @@
                 if (cardData.isVisible || podElement.style.opacity !== '0') {
                     debugLog(`[LayoutManager_Jukebox_Anim_OUT] Pod ${key}`);
                     
-                    const targetTransformOut = useBadgeStack
-                      ? "scale(0.65) translateY(8px)"
-                      : store.lastRotationDirection
-                        ? "scale(0.8) translateX(-60px)"
-                        : "scale(0.8) translateX(-30px)";
+                    const targetTransformOut = store.lastRotationDirection
+                        ? 'scale(0.8) translateX(-60px)'
+                        : 'scale(0.8) translateX(-30px)';
                     
                     if (cardData.intendedTargetTransform !== targetTransformOut || cardData.intendedTargetOpacity !== '0') {
                         podElement.style.opacity = '0';
@@ -366,7 +326,7 @@
         // Set container height dynamically based on whether any pods are visible
         // This is important as pods are position:absolute now.
         if (visiblePodsLayoutData.length > 0) {
-            podsRowContainerElement.style.height = `${podNominalWidth}px`;
+            podsRowContainerElement.style.height = `${podNominalWidth}px`; // Set to pod height
           } else {
             podsRowContainerElement.style.height = '0px';
         }
@@ -426,7 +386,6 @@
           masterTooltipDOMElement.style.display = "flex";
           // Pie-only / compact-mode paths set visibility:hidden; must clear when a live pod shows the tooltip.
           masterTooltipDOMElement.style.visibility = "visible";
-          updateDownloadCardsVisibility();
 
           if (oldFocusedKey !== focusedKeyRef.current || isNewOrSignificantUpdate) {
               debugLog(`[UIUPDATE_TOOLTIP_RESET] Focus changed or significant update. Resetting tooltip for animation for ${focusedKeyRef.current}. Old focus: ${oldFocusedKey}`);

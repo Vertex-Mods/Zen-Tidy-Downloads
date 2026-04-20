@@ -28,7 +28,6 @@
      * @param {function} ctx.getDownloadCardsContainer
      * @param {function} ctx.getMasterTooltip
      * @param {function} ctx.getPodsRowContainer
-     * @param {function} [ctx.updateDownloadCardsVisibility] - sync strip visibility after tooltip hide (badge stack)
      * @param {function} [ctx.getDownloadKey] - canonical key resolver (required for apply())
      * @param {function} [ctx.getLibraryPieController] - () => pie controller; apply() feeds it every event
      * @param {function} [ctx.getThrottledCreateOrUpdateCard] - () => pods renderer entry; apply() calls it on terminal state
@@ -48,7 +47,6 @@
         getDownloadCardsContainer,
         getMasterTooltip,
         getPodsRowContainer,
-        updateDownloadCardsVisibility,
         getDownloadKey,
         getLibraryPieController,
         getThrottledCreateOrUpdateCard,
@@ -264,18 +262,13 @@
         if (idx > -1) orderedPodKeys.splice(idx, 1);
 
         const masterTooltipDOMElement = getMasterTooltip();
-        const syncStrip =
-          typeof updateDownloadCardsVisibility === "function" ? updateDownloadCardsVisibility : () => {};
         if (focusedKeyRef.current === downloadKey && masterTooltipDOMElement) {
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
-          masterTooltipDOMElement.style.visibility = "hidden";
-          syncStrip();
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {
               masterTooltipDOMElement.style.display = "none";
-              syncStrip();
             }
           }, 300);
           focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
