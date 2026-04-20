@@ -481,6 +481,7 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   justify-content: center;
   background-color: var(--zen-colors-hover-bg, rgba(128, 128, 128, 0.25));
   box-shadow: var(--zen-big-shadow, 0 2px 8px rgba(0, 0, 0, 0.2));
+  scale: 0.9;
 }
 
 #zen-tidy-download-pie-host.zen-tidy-pie-host .zen-tidy-pie-ring-svg {
