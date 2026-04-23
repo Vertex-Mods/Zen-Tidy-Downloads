@@ -141,9 +141,6 @@
         state.pileRepairDebounceId = setTimeout(() => {
           state.pileRepairDebounceId = null;
           const now = Date.now();
-          if (now - state.lastPileRepairAt < 350) {
-            return;
-          }
           state.lastPileRepairAt = now;
           try {
             enforcePileLayoutInvariants(source);

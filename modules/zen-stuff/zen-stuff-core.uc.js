@@ -37,6 +37,10 @@
       this.isEditing = false;
       this.recentlyRemoved = false;
       this.mediaToolbarMaskRemovalTimeout = null;
+      /** @type {ReturnType<typeof setTimeout>|null} */
+      this.pileHoverEventsSetupTimeout = null;
+      /** Incremented on every show/hide so stale timers / rAF skips apply. */
+      this.pileUiGeneration = 0;
       this.pileContextMenuActive = false;
       this.pileRepairDebounceId = null;
       this.lastPileRepairAt = 0;

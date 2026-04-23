@@ -65,6 +65,29 @@
         );
       }
 
+      /**
+       * Recompute `--zen-pile-height` and `zen-pile-expanded` from grid geometry +
+       * live media toolbar height. Idempotent; safe after expand or on a verify tick.
+       */
+      function syncPileMaskToCurrentLayout() {
+        if (!state.dynamicSizer || state.dynamicSizer.style.height === "0px") return;
+        if (state.dismissedPods.size === 0) return;
+
+        const totalPods = state.dismissedPods.size;
+        const podsToShow = Math.min(totalPods, 4);
+        const rowHeight = 48;
+        const rowSpacing = 6;
+        const baseBottomOffset = 8;
+        const totalRowHeight = podsToShow * rowHeight + (podsToShow - 1) * rowSpacing;
+        const gridHeight = totalRowHeight + baseBottomOffset;
+
+        const mediaControlsToolbar = document.getElementById("zen-media-controls-toolbar");
+        const mediaToolbarHeight = mediaControlsToolbar?.getBoundingClientRect().height ?? 0;
+        const pileMaskHeight = Math.max(0, gridHeight - (mediaToolbarHeight > 0 ? mediaToolbarHeight : 0));
+        document.documentElement.style.setProperty("--zen-pile-height", `${pileMaskHeight}px`);
+        if (mediaControlsToolbar) mediaControlsToolbar.classList.add("zen-pile-expanded");
+      }
+
       let _podsRowRef = null;
 
       /**
@@ -370,6 +393,7 @@
 
       function showPile() {
         if (state.dismissedPods.size === 0 || !state.dynamicSizer) return;
+
         const wasVisible = state.dynamicSizer.style.height !== "0px";
 
         const isCompactMode = document.documentElement.getAttribute("zen-compact-mode") === "true";
@@ -377,6 +401,17 @@
         if (isCompactMode && !isSidebarExpanded) {
           state.dynamicSizer.style.display = "none";
           return;
+        }
+
+        state.pileUiGeneration += 1;
+        const gen = state.pileUiGeneration;
+        if (state.mediaToolbarMaskRemovalTimeout) {
+          clearTimeout(state.mediaToolbarMaskRemovalTimeout);
+          state.mediaToolbarMaskRemovalTimeout = null;
+        }
+        if (state.pileHoverEventsSetupTimeout) {
+          clearTimeout(state.pileHoverEventsSetupTimeout);
+          state.pileHoverEventsSetupTimeout = null;
         }
 
         state.dynamicSizer.style.display = "flex";
@@ -398,11 +433,7 @@
 
         if (state.hoverBridge) state.hoverBridge.style.display = "block";
 
-        const mediaControlsToolbar = document.getElementById("zen-media-controls-toolbar");
-        const mediaToolbarHeight = mediaControlsToolbar?.getBoundingClientRect().height ?? 0;
-        const pileMaskHeight = Math.max(0, gridHeight - (mediaToolbarHeight > 0 ? mediaToolbarHeight : 0));
-        document.documentElement.style.setProperty("--zen-pile-height", `${pileMaskHeight}px`);
-        if (mediaControlsToolbar) mediaControlsToolbar.classList.add("zen-pile-expanded");
+        syncPileMaskToCurrentLayout();
 
         showPileBackground();
         hideWorkspaceScrollboxAfter();
@@ -436,12 +467,25 @@
           });
         }
 
-        setTimeout(() => {
+        state.pileHoverEventsSetupTimeout = setTimeout(() => {
+          state.pileHoverEventsSetupTimeout = null;
+          if (gen !== state.pileUiGeneration) return;
           setupPileBackgroundHoverEvents();
         }, 50);
 
         document.dispatchEvent(new CustomEvent("pile-shown", { bubbles: true }));
         schedulePileLayoutRepair("show-pile", 30);
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (gen !== state.pileUiGeneration) return;
+            if (!state.dynamicSizer || state.dynamicSizer.style.height === "0px") return;
+            syncPileMaskToCurrentLayout();
+            updatePointerEvents();
+            schedulePileLayoutRepair("show-pile-verify", 0);
+            debugLog("[PileMask] verification tick after expand", { gen });
+          });
+        });
       }
 
       function hidePile() {
@@ -452,6 +496,17 @@
           return;
         }
         if (!state.dynamicSizer) return;
+
+        state.pileUiGeneration += 1;
+        const gen = state.pileUiGeneration;
+        if (state.mediaToolbarMaskRemovalTimeout) {
+          clearTimeout(state.mediaToolbarMaskRemovalTimeout);
+          state.mediaToolbarMaskRemovalTimeout = null;
+        }
+        if (state.pileHoverEventsSetupTimeout) {
+          clearTimeout(state.pileHoverEventsSetupTimeout);
+          state.pileHoverEventsSetupTimeout = null;
+        }
 
         state.dynamicSizer.style.pointerEvents = "none";
         state.dynamicSizer.style.height = "0px";
@@ -477,7 +532,9 @@
         document.documentElement.style.setProperty("--zen-pile-height", "-50px");
         const mediaControlsToolbar = document.getElementById("zen-media-controls-toolbar");
         if (mediaControlsToolbar) {
-          setTimeout(() => {
+          state.mediaToolbarMaskRemovalTimeout = setTimeout(() => {
+            state.mediaToolbarMaskRemovalTimeout = null;
+            if (gen !== state.pileUiGeneration) return;
             mediaControlsToolbar.classList.remove("zen-pile-expanded");
           }, CONFIG.containerAnimationDuration);
         }
