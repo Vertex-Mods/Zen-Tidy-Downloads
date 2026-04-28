@@ -28,6 +28,7 @@
      * @param {function} ctx.getDownloadCardsContainer
      * @param {function} ctx.getMasterTooltip
      * @param {function} ctx.getPodsRowContainer
+     * @param {function} [ctx.updateDownloadCardsVisibility] - refresh pods shell vs cards container visibility
      * @param {function} [ctx.getDownloadKey] - canonical key resolver (required for apply())
      * @param {function} [ctx.getLibraryPieController] - () => pie controller; apply() feeds it every event
      * @param {function} [ctx.getThrottledCreateOrUpdateCard] - () => pods renderer entry; apply() calls it on terminal state
@@ -47,6 +48,7 @@
         getDownloadCardsContainer,
         getMasterTooltip,
         getPodsRowContainer,
+        updateDownloadCardsVisibility,
         getDownloadKey,
         getLibraryPieController,
         getThrottledCreateOrUpdateCard,
@@ -178,11 +180,8 @@
 
             updateUIForFocusedDownload(focusedKeyRef.current, false);
 
-            const downloadCardsContainer = getDownloadCardsContainer();
-            if (orderedPodKeys.length === 0 && downloadCardsContainer) {
-              downloadCardsContainer.style.display = "none";
-              downloadCardsContainer.style.opacity = "0";
-              downloadCardsContainer.style.visibility = "hidden";
+            if (typeof updateDownloadCardsVisibility === "function") {
+              updateDownloadCardsVisibility();
             }
           }, 300);
 
@@ -262,6 +261,7 @@
         if (idx > -1) orderedPodKeys.splice(idx, 1);
 
         const masterTooltipDOMElement = getMasterTooltip();
+        const downloadCardsContainer = getDownloadCardsContainer();
         if (focusedKeyRef.current === downloadKey && masterTooltipDOMElement) {
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
@@ -269,6 +269,12 @@
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {
               masterTooltipDOMElement.style.display = "none";
+            }
+            if (downloadCardsContainer) {
+              downloadCardsContainer.style.display = "none";
+              downloadCardsContainer.style.opacity = "0";
+              downloadCardsContainer.style.visibility = "hidden";
+              downloadCardsContainer.style.pointerEvents = "none";
             }
           }, 300);
           focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
@@ -290,19 +296,10 @@
       function clearAllStickyPods() {
         const keys = Array.from(stickyPods);
         if (keys.length === 0) return;
-        const podsRowContainerElement = getPodsRowContainer();
-        if (podsRowContainerElement) {
-          podsRowContainerElement.style.visibility = "hidden";
-          podsRowContainerElement.style.display = "none";
-          podsRowContainerElement.style.pointerEvents = "";
-        }
-        const downloadCardsContainer = getDownloadCardsContainer();
-        if (downloadCardsContainer) {
-          downloadCardsContainer.style.display = "none";
-          downloadCardsContainer.style.opacity = "0";
-          downloadCardsContainer.style.visibility = "hidden";
-        }
         keys.forEach(clearStickyPod);
+        if (typeof updateDownloadCardsVisibility === "function") {
+          updateDownloadCardsVisibility();
+        }
       }
 
       function clearStickyPodsOnly() {

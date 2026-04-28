@@ -24,7 +24,7 @@
      * @param {function} ctx.clearAllStickyPods
      * @param {function} ctx.onPileHiddenRepair
      * @param {function} ctx.setupCompactModeObserver
-     * @returns {{ getDownloadCardsContainer: function, getMasterTooltip: function, getPodsRow: function }}
+     * @returns {{ getDownloadCardsContainer: function, getMasterTooltip: function, getPodsRow: function, getPodsShell: function }}
      */
     async init(ctx) {
       const {
@@ -41,6 +41,7 @@
       } = ctx;
 
       let downloadCardsContainer = document.getElementById("userchrome-download-cards-container");
+      let podsShellElement = document.getElementById("userchrome-download-pods-shell");
       let masterTooltipDOMElement = null;
       let podsRowContainerElement = null;
 
@@ -51,17 +52,26 @@
         downloadCardsContainer.style.opacity = "0";
         downloadCardsContainer.style.visibility = "hidden";
 
+        podsShellElement = document.createElement("div");
+        podsShellElement.id = "userchrome-download-pods-shell";
+        podsRowContainerElement = document.createElement("div");
+        podsRowContainerElement.id = "userchrome-pods-row-container";
+        podsShellElement.appendChild(podsRowContainerElement);
+
         const mediaControlsToolbar = document.getElementById("zen-media-controls-toolbar");
         const zenMainAppWrapper = document.getElementById("zen-main-app-wrapper");
         let parentContainer = null;
         if (mediaControlsToolbar && mediaControlsToolbar.parentNode) {
           parentContainer = mediaControlsToolbar.parentNode;
-          parentContainer.insertBefore(downloadCardsContainer, mediaControlsToolbar.nextSibling);
+          parentContainer.insertBefore(podsShellElement, mediaControlsToolbar.nextSibling);
+          parentContainer.insertBefore(downloadCardsContainer, podsShellElement.nextSibling);
         } else if (zenMainAppWrapper) {
           parentContainer = zenMainAppWrapper;
+          zenMainAppWrapper.appendChild(podsShellElement);
           zenMainAppWrapper.appendChild(downloadCardsContainer);
         } else {
           parentContainer = document.body;
+          document.body.appendChild(podsShellElement);
           document.body.appendChild(downloadCardsContainer);
         }
 
@@ -71,7 +81,7 @@
             parentContainer.style.position = "relative";
           }
         }
-        downloadCardsContainer.style.cssText = "box-sizing: border-box;";
+        downloadCardsContainer.style.boxSizing = "border-box";
         setupCompactModeObserver();
 
         masterTooltipDOMElement = document.createElement("div");
@@ -97,10 +107,6 @@
           <div class="tooltip-tail"></div>
         `;
         downloadCardsContainer.appendChild(masterTooltipDOMElement);
-
-        podsRowContainerElement = document.createElement("div");
-        podsRowContainerElement.id = "userchrome-pods-row-container";
-        downloadCardsContainer.appendChild(podsRowContainerElement);
 
         document.addEventListener("pile-shown", clearAllStickyPods);
         document.addEventListener("pile-hidden", onPileHiddenRepair);
@@ -158,8 +164,20 @@
           });
         }
       } else {
-        podsRowContainerElement = document.getElementById("userchrome-pods-row-container");
         masterTooltipDOMElement = downloadCardsContainer.querySelector(".master-tooltip");
+        podsRowContainerElement = document.getElementById("userchrome-pods-row-container");
+        podsShellElement = document.getElementById("userchrome-download-pods-shell");
+        if (podsRowContainerElement && podsRowContainerElement.parentElement === downloadCardsContainer) {
+          if (!podsShellElement) {
+            podsShellElement = document.createElement("div");
+            podsShellElement.id = "userchrome-download-pods-shell";
+            downloadCardsContainer.parentNode.insertBefore(podsShellElement, downloadCardsContainer.nextSibling);
+          }
+          podsShellElement.appendChild(podsRowContainerElement);
+          debugLog("[DownloadUI] Migrated #userchrome-pods-row-container out of cards container into pods shell");
+        } else if (!podsShellElement && podsRowContainerElement?.parentElement?.id === "userchrome-download-pods-shell") {
+          podsShellElement = podsRowContainerElement.parentElement;
+        }
       }
 
       debugLog("Download UI shell initialized");
@@ -167,7 +185,8 @@
       return {
         getDownloadCardsContainer: () => downloadCardsContainer,
         getMasterTooltip: () => masterTooltipDOMElement,
-        getPodsRow: () => podsRowContainerElement
+        getPodsRow: () => podsRowContainerElement,
+        getPodsShell: () => podsShellElement
       };
     }
   };

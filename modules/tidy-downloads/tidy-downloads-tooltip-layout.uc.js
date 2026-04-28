@@ -86,17 +86,20 @@
             masterTooltipDOMElement.style.pointerEvents = "none";
             masterTooltipDOMElement.style.visibility = "hidden";
 
-            if (progressing) {
-              // Pie-only: keep the cards container visible (compact-visibility
-              // handles show/hide), but don't hide downloadCardsContainer here.
-              updateDownloadCardsVisibility();
-              debugLog("[LayoutManager] Progress-only (pie, no pods): master tooltip hidden.");
-            } else if (downloadCardsContainer) {
-              // No pods and no progress: hide the whole strip.
+            if (downloadCardsContainer) {
               downloadCardsContainer.style.display = "none";
               downloadCardsContainer.style.opacity = "0";
               downloadCardsContainer.style.visibility = "hidden";
-              debugLog("[LayoutManager] No pods and no progress — hiding download cards.");
+              downloadCardsContainer.style.pointerEvents = "none";
+            }
+
+            if (progressing) {
+              // Pie-only: pods shell visible; cards container stays off-layout (compact-visibility).
+              updateDownloadCardsVisibility();
+              debugLog("[LayoutManager] Progress-only (pie, no pods): master tooltip hidden; pods shell only.");
+            } else {
+              updateDownloadCardsVisibility();
+              debugLog("[LayoutManager] No pods and no progress — hiding download UI via compact visibility.");
             }
 
             debugLog(`[LayoutManager] Exiting: No OrderedPodKeys.`);
@@ -295,12 +298,19 @@
                      // Pod is focused and tooltip is currently hidden, animate tooltip IN.
                      // This relies on updateUIForFocusedDownload having set the initial opacity/transform if focus changed.
                      debugLog(`[LayoutManager_Jukebox_Tooltip] Focused pod ${key} is visible/animating, and tooltip is hidden. Animating tooltip IN.`);
-                     setTimeout(() => { 
+                     setTimeout(() => {
+                        const dc = getDownloadCardsContainer();
+                        if (dc) {
+                          dc.style.display = "flex";
+                          dc.style.opacity = "1";
+                          dc.style.visibility = "visible";
+                          dc.style.pointerEvents = "auto";
+                        }
                         masterTooltipDOMElement.style.visibility = "visible";
                         masterTooltipDOMElement.style.opacity = "1";
                         masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
-                        masterTooltipDOMElement.style.pointerEvents = "auto"; // Enable interactions when visible
-                    }, 100); 
+                        masterTooltipDOMElement.style.pointerEvents = "auto";
+                    }, 100);
                 }
             } else {
                 // This pod should be hidden or moved to pile
@@ -375,14 +385,29 @@
             return; // Critical error, cannot proceed
         }
 
+        const downloadCardsContainer = getDownloadCardsContainer();
+
         if (!cardDataToFocus || !cardDataToFocus.podElement) {
           debugLog(`[UIUPDATE_NO_CARD_DATA] No card data or podElement for key ${focusedKeyRef.current}. Hiding master tooltip. CardData:`, cardDataToFocus);
+          if (downloadCardsContainer) {
+            downloadCardsContainer.style.display = "none";
+            downloadCardsContainer.style.opacity = "0";
+            downloadCardsContainer.style.visibility = "hidden";
+            downloadCardsContainer.style.pointerEvents = "none";
+          }
+          masterTooltipDOMElement.style.display = "none";
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
           masterTooltipDOMElement.style.visibility = "hidden";
         } else {
           // cardDataToFocus and podElement are valid, proceed with UI updates for tooltip and AI.
+          if (downloadCardsContainer) {
+            downloadCardsContainer.style.display = "flex";
+            downloadCardsContainer.style.opacity = "1";
+            downloadCardsContainer.style.visibility = "visible";
+            downloadCardsContainer.style.pointerEvents = "auto";
+          }
           masterTooltipDOMElement.style.display = "flex";
           // Pie-only / compact-mode paths set visibility:hidden; must clear when a live pod shows the tooltip.
           masterTooltipDOMElement.style.visibility = "visible";

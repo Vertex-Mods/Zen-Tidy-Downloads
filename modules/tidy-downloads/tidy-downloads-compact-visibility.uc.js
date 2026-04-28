@@ -19,6 +19,7 @@
      * @param {function(): (HTMLElement|null)} ctx.getDownloadCardsContainer
      * @param {function(): (HTMLElement|null)} ctx.getMasterTooltip
      * @param {function(): (HTMLElement|null)} ctx.getPodsRowContainer
+     * @param {function(): (HTMLElement|null)} [ctx.getPodsShell] - #userchrome-download-pods-shell (pie + pods row)
      * @param {Object} [ctx.store] - shared store; used to keep the pods-row visible
      *   while the library pie is mid-download even if no completed pod exists yet
      * @returns {{ setupCompactModeObserver: function, updateDownloadCardsVisibility: function }}
@@ -30,36 +31,48 @@
         getDownloadCardsContainer,
         getMasterTooltip,
         getPodsRowContainer,
+        getPodsShell,
         store
       } = ctx;
 
       function updateDownloadCardsVisibility() {
         const downloadCardsContainer = getDownloadCardsContainer();
-        if (!downloadCardsContainer) return;
-
         const masterTooltipDOMElement = getMasterTooltip();
         const podsRowContainerElement = getPodsRowContainer();
+        const podsShellElement =
+          typeof getPodsShell === "function" ? getPodsShell() : document.getElementById("userchrome-download-pods-shell");
 
         const isCompactMode = document.documentElement.getAttribute("zen-compact-mode") === "true";
         const isSidebarExpanded = document.documentElement.getAttribute("zen-sidebar-expanded") === "true";
 
         const hasProgressing = store?.progressingDownloads instanceof Map && store.progressingDownloads.size > 0;
+        const hasLivePodsInJukebox = orderedPodKeys.length > 0;
+        const hasStickyPods = store?.stickyPods instanceof Set && store.stickyPods.size > 0;
+        const needsPodsChrome = hasLivePodsInJukebox || hasProgressing || hasStickyPods;
 
         debugLog(
-          `[CompactModeObserver] Checking visibility: isCompactMode=${isCompactMode}, isSidebarExpanded=${isSidebarExpanded}, hasPods=${orderedPodKeys.length > 0}, hasProgressing=${hasProgressing}`
+          `[CompactModeObserver] Checking visibility: isCompactMode=${isCompactMode}, isSidebarExpanded=${isSidebarExpanded}, hasPods=${hasLivePodsInJukebox}, hasProgressing=${hasProgressing}, hasSticky=${hasStickyPods}`
         );
 
         if (isCompactMode && !isSidebarExpanded) {
-          debugLog("[CompactModeObserver] Compact mode with collapsed sidebar - FORCING hide of download cards");
-          downloadCardsContainer.style.display = "none";
-          downloadCardsContainer.style.opacity = "0";
-          downloadCardsContainer.style.visibility = "hidden";
-          downloadCardsContainer.style.pointerEvents = "none";
+          debugLog("[CompactModeObserver] Compact mode with collapsed sidebar - FORCING hide of download UI");
+          if (downloadCardsContainer) {
+            downloadCardsContainer.style.display = "none";
+            downloadCardsContainer.style.opacity = "0";
+            downloadCardsContainer.style.visibility = "hidden";
+            downloadCardsContainer.style.pointerEvents = "none";
+          }
           if (masterTooltipDOMElement) {
             masterTooltipDOMElement.style.display = "none";
             masterTooltipDOMElement.style.opacity = "0";
             masterTooltipDOMElement.style.visibility = "hidden";
             masterTooltipDOMElement.style.pointerEvents = "none";
+          }
+          if (podsShellElement) {
+            podsShellElement.style.display = "none";
+            podsShellElement.style.opacity = "0";
+            podsShellElement.style.visibility = "hidden";
+            podsShellElement.style.pointerEvents = "none";
           }
           if (podsRowContainerElement) {
             podsRowContainerElement.style.display = "none";
@@ -70,32 +83,51 @@
           return;
         }
 
-        if (orderedPodKeys.length > 0 || hasProgressing) {
-          debugLog("[CompactModeObserver] Showing download cards (pods or in-progress pie present)");
-          downloadCardsContainer.style.display = "flex";
-          downloadCardsContainer.style.opacity = "1";
-          downloadCardsContainer.style.visibility = "visible";
-          downloadCardsContainer.style.pointerEvents = "auto";
+        if (needsPodsChrome) {
+          debugLog("[CompactModeObserver] Showing pods shell (live pods, pie, and/or sticky); cards only when jukebox pods exist");
+          if (podsShellElement) {
+            podsShellElement.style.display = "block";
+            podsShellElement.style.opacity = "1";
+            podsShellElement.style.visibility = "visible";
+            podsShellElement.style.pointerEvents = "none";
+          }
           if (podsRowContainerElement) {
             podsRowContainerElement.style.display = "flex";
             podsRowContainerElement.style.visibility = "visible";
             podsRowContainerElement.style.opacity = "1";
             podsRowContainerElement.style.pointerEvents = "auto";
           }
-          // Compact collapse set master tooltip to display:none + visibility:hidden; restore when pods exist so
-          // tooltip-layout can show it again without a redundant focus event.
-          if (masterTooltipDOMElement && orderedPodKeys.length > 0) {
-            masterTooltipDOMElement.style.display = "flex";
-            masterTooltipDOMElement.style.visibility = "visible";
+
+          /* Cards container + tooltip visibility: owned by tooltip-layout (shown tooltip) and
+             lifecycle (auto-hide → sticky), not by compact mode when pods merely exist. */
+          if (!hasLivePodsInJukebox && downloadCardsContainer) {
+            downloadCardsContainer.style.display = "none";
+            downloadCardsContainer.style.opacity = "0";
+            downloadCardsContainer.style.visibility = "hidden";
+            downloadCardsContainer.style.pointerEvents = "none";
+            if (masterTooltipDOMElement) {
+              masterTooltipDOMElement.style.display = "none";
+              masterTooltipDOMElement.style.opacity = "0";
+              masterTooltipDOMElement.style.visibility = "hidden";
+              masterTooltipDOMElement.style.pointerEvents = "none";
+            }
           }
           return;
         }
 
-        debugLog("[CompactModeObserver] No pods and no in-progress downloads, hiding download cards");
-        downloadCardsContainer.style.display = "none";
-        downloadCardsContainer.style.opacity = "0";
-        downloadCardsContainer.style.visibility = "hidden";
-        downloadCardsContainer.style.pointerEvents = "none";
+        debugLog("[CompactModeObserver] No pods and no in-progress downloads, hiding download UI");
+        if (downloadCardsContainer) {
+          downloadCardsContainer.style.display = "none";
+          downloadCardsContainer.style.opacity = "0";
+          downloadCardsContainer.style.visibility = "hidden";
+          downloadCardsContainer.style.pointerEvents = "none";
+        }
+        if (podsShellElement) {
+          podsShellElement.style.display = "none";
+          podsShellElement.style.opacity = "0";
+          podsShellElement.style.visibility = "hidden";
+          podsShellElement.style.pointerEvents = "none";
+        }
       }
 
       function setupCompactModeObserver() {

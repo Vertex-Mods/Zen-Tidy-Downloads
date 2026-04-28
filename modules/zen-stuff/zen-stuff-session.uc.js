@@ -111,87 +111,83 @@
           if (!Array.isArray(podKeys)) return;
 
           let restoredCount = 0;
-          const restorationPromises = [];
+          // Restore strictly in saved `podKeys` order. Parallel restores completed in random
+          // order and mutated `dismissedPods` (Map insertion order) + appendChild order, so
+          // the newest file could land first and appear at the top of the grid after restart.
           for (const podKey of podKeys) {
-            restorationPromises.push(
-              (async () => {
+            try {
+              const podDataJson = SessionStore.getCustomWindowValue(window, `zen-stuff-pod-${podKey}`);
+              if (!podDataJson) continue;
+              let podData;
+              try {
+                podData = JSON.parse(podDataJson);
+              } catch (_error) {
+                continue;
+              }
+              if (!podData || typeof podData !== "object") continue;
+              const requiredFields = ["key", "filename", "targetPath"];
+              if (requiredFields.some((field) => !podData[field])) continue;
+              try {
+                validateFilePathOrThrow(podData.targetPath);
+              } catch (_error) {
+                continue;
+              }
+
+              let actualPath = podData.targetPath;
+              let exists = await FileSystem.fileExists(actualPath);
+              if (!exists && podData.filename) {
                 try {
-                  const podDataJson = SessionStore.getCustomWindowValue(window, `zen-stuff-pod-${podKey}`);
-                  if (!podDataJson) return;
-                  let podData;
-                  try {
-                    podData = JSON.parse(podDataJson);
-                  } catch (_error) {
-                    return;
-                  }
-                  if (!podData || typeof podData !== "object") return;
-                  const requiredFields = ["key", "filename", "targetPath"];
-                  if (requiredFields.some((field) => !podData[field])) return;
-                  try {
-                    validateFilePathOrThrow(podData.targetPath);
-                  } catch (_error) {
-                    return;
-                  }
-
-                  let actualPath = podData.targetPath;
-                  let exists = await FileSystem.fileExists(actualPath);
-                  if (!exists && podData.filename) {
-                    try {
-                      const parentDir = await FileSystem.getParentDirectory(podData.targetPath);
-                      if (parentDir && parentDir.exists()) {
-                        const newFile = parentDir.clone();
-                        newFile.append(podData.filename);
-                        if (newFile.exists()) {
-                          actualPath = newFile.path;
-                          exists = true;
-                          podData.targetPath = actualPath;
-                          saveDismissedPodToSession(podData);
-                        }
-                      }
-                    } catch (_error) {}
-                  }
-
-                  if (!exists) {
-                    removeDismissedPodFromSession(podKey);
-                    return;
-                  }
-
-                  const hasImageContentType =
-                    podData.contentType &&
-                    podData.contentType !== "null" &&
-                    podData.contentType.startsWith("image/");
-                  const hasImageExtension =
-                    podData.filename && /\.(jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i.test(podData.filename);
-                  if (hasImageContentType || hasImageExtension) {
-                    try {
-                      const file = await FileSystem.createFileInstance(actualPath);
-                      let fileUrl = "";
-                      if (Services.io && Services.io.newFileURI) {
-                        fileUrl = Services.io.newFileURI(file).spec;
-                      }
-                      if (!fileUrl) {
-                        const path = actualPath.replace(/\\/g, "/");
-                        fileUrl = `file:///${path.startsWith("/") ? path.substring(1) : path}`;
-                      }
-                      podData.previewData = { type: "image", src: fileUrl };
-                    } catch (_error) {
-                      podData.previewData = null;
+                  const parentDir = await FileSystem.getParentDirectory(podData.targetPath);
+                  if (parentDir && parentDir.exists()) {
+                    const newFile = parentDir.clone();
+                    newFile.append(podData.filename);
+                    if (newFile.exists()) {
+                      actualPath = newFile.path;
+                      exists = true;
+                      podData.targetPath = actualPath;
+                      saveDismissedPodToSession(podData);
                     }
                   }
-
-                  state.dismissedPods.set(podData.key, podData);
-                  const podElement = createPodElement(podData);
-                  state.podElements.set(podData.key, podElement);
-                  state.pileContainer.appendChild(podElement);
-                  generateGridPosition(podData.key);
-                  applyGridPosition(podData.key, 0);
-                  restoredCount++;
                 } catch (_error) {}
-              })()
-            );
-          }
+              }
 
-          await Promise.all(restorationPromises);
+              if (!exists) {
+                removeDismissedPodFromSession(podKey);
+                continue;
+              }
+
+              const hasImageContentType =
+                podData.contentType &&
+                podData.contentType !== "null" &&
+                podData.contentType.startsWith("image/");
+              const hasImageExtension =
+                podData.filename && /\.(jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i.test(podData.filename);
+              if (hasImageContentType || hasImageExtension) {
+                try {
+                  const file = await FileSystem.createFileInstance(actualPath);
+                  let fileUrl = "";
+                  if (Services.io && Services.io.newFileURI) {
+                    fileUrl = Services.io.newFileURI(file).spec;
+                  }
+                  if (!fileUrl) {
+                    const path = actualPath.replace(/\\/g, "/");
+                    fileUrl = `file:///${path.startsWith("/") ? path.substring(1) : path}`;
+                  }
+                  podData.previewData = { type: "image", src: fileUrl };
+                } catch (_error) {
+                  podData.previewData = null;
+                }
+              }
+
+              state.dismissedPods.set(podData.key, podData);
+              const podElement = createPodElement(podData);
+              state.podElements.set(podData.key, podElement);
+              state.pileContainer.appendChild(podElement);
+              generateGridPosition(podData.key);
+              applyGridPosition(podData.key, 0);
+              restoredCount++;
+            } catch (_error) {}
+          }
           if (restoredCount > 0) {
             updatePodKeysInSession();
             updatePileVisibility();

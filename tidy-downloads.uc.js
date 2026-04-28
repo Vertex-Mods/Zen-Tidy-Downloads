@@ -213,6 +213,7 @@
     let downloadCardsContainer;
     let aiRenamingPossible = false;
     let podsRowContainerElement = null;
+    let podsShellElement = null;
     let masterTooltipDOMElement = null;
     let initSidebarWidthSyncFn = () => { };
     /** @type {{ syncDownload: function, captureHandoffSnapshot: function, destroy: function(): void }|null} */
@@ -410,6 +411,7 @@
       getDownloadCardsContainer: () => downloadCardsContainer,
       getMasterTooltip: () => masterTooltipDOMElement,
       getPodsRowContainer: () => podsRowContainerElement,
+      getPodsShell: () => podsShellElement,
       store
     });
 
@@ -425,6 +427,7 @@
       getDownloadCardsContainer: () => downloadCardsContainer,
       getMasterTooltip: () => masterTooltipDOMElement,
       getPodsRowContainer: () => podsRowContainerElement,
+      updateDownloadCardsVisibility: () => compactVisibilityApi.updateDownloadCardsVisibility(),
       getDownloadKey,
       // Lazy getters: the pie controller, throttled updater, and handoff
       // animator are all created later inside initDownloadManager, but
@@ -506,6 +509,7 @@
         downloadCardsContainer = uiApi.getDownloadCardsContainer();
         masterTooltipDOMElement = uiApi.getMasterTooltip();
         podsRowContainerElement = uiApi.getPodsRow();
+        podsShellElement = typeof uiApi.getPodsShell === "function" ? uiApi.getPodsShell() : null;
 
         Object.assign(
           tooltipLayoutRef,
