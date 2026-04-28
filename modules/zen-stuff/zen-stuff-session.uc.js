@@ -26,7 +26,10 @@
         generateGridPosition,
         applyGridPosition,
         updatePileVisibility,
-        updateDownloadsButtonVisibility
+        updateDownloadsButtonVisibility,
+        getAlwaysShowPile,
+        shouldPileBeVisible,
+        showPile
       } = deps;
 
       async function initSessionStore(attempt = 0) {
@@ -191,6 +194,9 @@
             updatePodKeysInSession();
             updatePileVisibility();
             updateDownloadsButtonVisibility();
+            if (getAlwaysShowPile() && shouldPileBeVisible()) {
+              setTimeout(() => showPile(), 100);
+            }
           }
           debugLog(`[SessionStore] Restored ${restoredCount} pods from session`);
         } catch (error) {

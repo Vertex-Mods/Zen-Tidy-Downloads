@@ -20,7 +20,7 @@
      * @param {Object} ctx.store
      * @param {function} ctx.debugLog
      * @param {function} ctx.getPref
-     * @param {function} ctx.getAutohideDelayMs
+     * @param {string} ctx.DISABLE_AUTOHIDE_PREF
      * @param {function} ctx.getSafeFilename
      * @param {function} ctx.fireCustomEvent
      * @param {function} ctx.updateUIForFocusedDownload
@@ -42,7 +42,7 @@
         store,
         debugLog,
         getPref,
-        getAutohideDelayMs,
+        DISABLE_AUTOHIDE_PREF,
         getSafeFilename,
         formatBytes: formatBytesFn = (n) => `${n} B`,
         fireCustomEvent,
@@ -285,10 +285,12 @@
           const cardData = activeDownloadCards.get(downloadKey);
           if (!cardData) return;
           seedPileEntryForLivePod(downloadKey);
-          const delayMs = typeof getAutohideDelayMs === "function" ? getAutohideDelayMs() : 10000;
-          if (delayMs <= 0) return;
+          if (getPref(DISABLE_AUTOHIDE_PREF, false)) return;
           if (cardData.autohideTimeoutId) clearTimeout(cardData.autohideTimeoutId);
-          cardData.autohideTimeoutId = setTimeout(() => performAutohideSequence(downloadKey), delayMs);
+          cardData.autohideTimeoutId = setTimeout(
+            () => performAutohideSequence(downloadKey),
+            getPref("extensions.downloads.autohide_delay_ms", 10000)
+          );
         } catch (error) {
           console.error("Error scheduling card removal:", error);
         }
@@ -296,7 +298,7 @@
 
       /**
        * When a download reaches a terminal jukebox state (success/error), move it
-       * to sticky immediately instead of waiting for autohide delay (see getAutohideDelayMs).
+       * to sticky immediately instead of waiting for autohide_delay_ms.
        * @param {string} downloadKey
        */
       function scheduleImmediateSticky(downloadKey) {
@@ -328,7 +330,7 @@
       }
 
       /**
-       * After the autohide delay elapses, a pod may already be sticky (e.g. AI rename showed
+       * After autohide_delay_ms, a pod may already be sticky (e.g. AI rename showed
        * rename-success chrome). Collapse master tooltip + cards without re-running makePodSticky.
        * @param {string} downloadKey
        */
@@ -746,13 +748,13 @@
         // terminal state. Conditions:
         //   - non-removal, terminal (succeeded, error, or canceled)
         //   - no existing card yet (we're creating a brand-new live-pod, not re-rendering)
-        //   - handoff animator available
+        //   - handoff animator available and enabled
         const isTerminalTransition = !removed && (dl.succeeded === true || !!dl.error || !!dl.canceled);
         const isHandoffTerminal = !removed && (dl.succeeded === true || !!dl.error);
         const wasAlreadyLive = activeDownloadCards.has(key);
         const animator = typeof getHandoffAnimator === "function" ? getHandoffAnimator() : null;
         const shouldCaptureSnapshot =
-          isHandoffTerminal && !wasAlreadyLive && animator;
+          isHandoffTerminal && !wasAlreadyLive && animator && animator.isEnabled?.();
 
         let handoffSnapshot = null;
         if (shouldCaptureSnapshot) {
