@@ -37,5 +37,5 @@
     "value": "number",
     "label": "Show old completed downloads on startup (hours)",
     "default": 2
-  }
+  } 
 ] 
