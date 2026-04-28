@@ -25,7 +25,6 @@
      * @param {function} ctx.applyGridPosition
      * @param {function} ctx.hidePile
      * @param {function} ctx.showPile
-     * @param {function} ctx.getAlwaysShowPile
      * @param {function} ctx.shouldDisableHover
      * @param {function} ctx.isHoveringPileArea
      * @param {function} ctx.saveDismissedPodToSession
@@ -47,7 +46,6 @@
         applyGridPosition,
         hidePile,
         showPile,
-        getAlwaysShowPile,
         shouldDisableHover,
         isHoveringPileArea,
         saveDismissedPodToSession,
@@ -377,7 +375,7 @@
           filenameElement.textContent = podData.filename || originalText;
           parent.replaceChild(filenameElement, input);
 
-          if (!getAlwaysShowPile() && !shouldDisableHover()) {
+          if (!shouldDisableHover()) {
             setTimeout(() => {
               const isHoveringDownloadArea = state.downloadButton?.matches(":hover");
               const isHoveringPile = isHoveringPileArea();
@@ -603,14 +601,12 @@
               const isHoveringDownloadArea = state.downloadButton?.matches(":hover");
 
               if (!isHoveringPile && !isHoveringDownloadArea) {
-                if (!getAlwaysShowPile()) {
-                  if (state.pendingPileClose) {
-                    debugLog("[ContextMenu] popuphidden: pendingPileClose was set, closing pile now");
-                    hidePile();
-                    state.pendingPileClose = false;
-                  } else {
-                    hidePile();
-                  }
+                if (state.pendingPileClose) {
+                  debugLog("[ContextMenu] popuphidden: pendingPileClose was set, closing pile now");
+                  hidePile();
+                  state.pendingPileClose = false;
+                } else {
+                  hidePile();
                 }
               } else {
                 state.pendingPileClose = false;
