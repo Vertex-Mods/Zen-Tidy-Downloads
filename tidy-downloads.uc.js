@@ -143,7 +143,6 @@
       debugLog,
       redactSensitiveData,
       MISTRAL_API_KEY_PREF,
-      getAutohideDelayMs,
       IMAGE_LOAD_ERROR_ICON,
       TEMP_LOADER_ICON,
       RENAMED_SUCCESS_ICON,
@@ -179,9 +178,7 @@
     // extensions.downloads.enable_debug - Enable debug logging (default: false)
     // extensions.downloads.debug_ai_only - Only log AI-related messages (default: true)
     // extensions.downloads.enable_ai_renaming - Enable AI-powered file renaming (default: true)
-    // extensions.downloads.autohide_delay_seconds - Seconds before auto-hiding completed cards (default: 10; 0 = never)
-    // extensions.downloads.disable_autohide - Legacy; if true, same as 0 seconds (removed from theme UI)
-    // extensions.downloads.autohide_delay_ms - Legacy ms pref; used when seconds pref was never set by user
+    // Completed download cards auto-hide to sticky/absorb after 10s (hardcoded in card-lifecycle)
     // extensions.downloads.interaction_grace_period_ms - Grace period after user interaction (default: 5000)
     // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
     // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
@@ -419,7 +416,6 @@
       store,
       debugLog,
       getPref,
-      getAutohideDelayMs,
       getSafeFilename,
       formatBytes,
       fireCustomEvent,

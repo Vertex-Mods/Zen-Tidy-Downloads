@@ -58,13 +58,9 @@
         getLifecycleApi
       } = ctx;
 
+      /** After success/error, lifecycle schedules sticky/absorb after a fixed delay (see card-lifecycle AUTOHIDE_DELAY_MS). */
       function requestStickyAfterTerminal(podKey) {
-        const life = typeof getLifecycleApi === "function" ? getLifecycleApi() : null;
-        if (life && typeof life.scheduleImmediateSticky === "function") {
-          life.scheduleImmediateSticky(podKey);
-        } else {
-          scheduleCardRemoval(podKey);
-        }
+        scheduleCardRemoval(podKey);
       }
 
       const {

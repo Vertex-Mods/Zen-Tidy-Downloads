@@ -17,10 +17,6 @@
   // CONSTANTS
   // ============================================================================
   const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
-  /** @deprecated Legacy checkbox removed from theme UI; still honored if set in about:config */
-  const DISABLE_AUTOHIDE_PREF = "extensions.downloads.disable_autohide";
-  const AUTOHIDE_DELAY_SECONDS_PREF = "extensions.downloads.autohide_delay_seconds";
-  const AUTOHIDE_DELAY_MS_LEGACY_PREF = "extensions.downloads.autohide_delay_ms";
   const IMAGE_LOAD_ERROR_ICON = "🚫";
   const TEMP_LOADER_ICON = "⏳";
   const RENAMED_SUCCESS_ICON = "✓";
@@ -75,71 +71,6 @@
       console.error("Error getting preference:", e);
       return defaultValue;
     }
-  }
-
-  /**
-   * Integer prefs that Zen may expose as string "number" fields in preferences.json.
-   * @param {string} prefName
-   * @param {number} defaultValue
-   * @returns {number}
-   */
-  function getPrefIntFlexible(prefName, defaultValue) {
-    try {
-      const branch = _prefBranch;
-      if (!branch) return defaultValue;
-      const type = branch.getPrefType(prefName);
-      if (type === Ci.nsIPrefBranch.PREF_INT) {
-        return branch.getIntPref(prefName, defaultValue);
-      }
-      if (type === Ci.nsIPrefBranch.PREF_STRING) {
-        const s = branch.getStringPref(prefName, "");
-        const n = parseInt(s, 10);
-        return Number.isFinite(n) ? n : defaultValue;
-      }
-    } catch (_e) {
-      /* fall through */
-    }
-    return defaultValue;
-  }
-
-  /**
-   * Delay before scheduling autohide → sticky/absorb. Returns 0 when autohide is off
-   * (seconds ≤ 0 or legacy disable_autohide).
-   * @returns {number} milliseconds, capped at 24h
-   */
-  function getAutohideDelayMs() {
-    if (getPref(DISABLE_AUTOHIDE_PREF, false)) return 0;
-
-    let sec = 10;
-    try {
-      const branch = _prefBranch;
-      if (
-        branch &&
-        typeof branch.prefHasUserValue === "function" &&
-        branch.prefHasUserValue(AUTOHIDE_DELAY_SECONDS_PREF)
-      ) {
-        sec = getPrefIntFlexible(AUTOHIDE_DELAY_SECONDS_PREF, 10);
-      } else if (
-        branch &&
-        typeof branch.prefHasUserValue === "function" &&
-        branch.prefHasUserValue(AUTOHIDE_DELAY_MS_LEGACY_PREF)
-      ) {
-        const legacyMs = getPref(AUTOHIDE_DELAY_MS_LEGACY_PREF, 10000);
-        sec = Math.max(0, Math.round(Number(legacyMs) / 1000));
-      } else {
-        sec = getPrefIntFlexible(AUTOHIDE_DELAY_SECONDS_PREF, 10);
-      }
-    } catch (_e) {
-      sec = getPrefIntFlexible(AUTOHIDE_DELAY_SECONDS_PREF, 10);
-    }
-
-    if (typeof sec !== "number" || !Number.isFinite(sec)) {
-      sec = parseInt(String(sec), 10);
-    }
-    if (!Number.isFinite(sec)) sec = 10;
-    if (sec <= 0) return 0;
-    const ms = sec * 1000;
-    return Math.min(ms, 24 * 60 * 60 * 1000);
   }
 
   // ============================================================================
@@ -532,8 +463,6 @@
   window.zenTidyDownloadsUtils = {
     // Constants
     MISTRAL_API_KEY_PREF,
-    DISABLE_AUTOHIDE_PREF,
-    AUTOHIDE_DELAY_SECONDS_PREF,
     IMAGE_LOAD_ERROR_ICON,
     TEMP_LOADER_ICON,
     RENAMED_SUCCESS_ICON,
@@ -545,7 +474,6 @@
 
     // Preferences
     getPref,
-    getAutohideDelayMs,
 
     // Security
     SecurityUtils,
