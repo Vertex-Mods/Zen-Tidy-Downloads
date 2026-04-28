@@ -56,7 +56,8 @@
         getDownloadKey,
         getLibraryPieController,
         getThrottledCreateOrUpdateCard,
-        getHandoffAnimator
+        getHandoffAnimator,
+        getAiRenamingPossible
       } = ctx;
 
       const {
@@ -69,7 +70,8 @@
         dismissedPodsData,
         dismissEventListeners,
         progressingDownloads,
-        actualDownloadRemovedEventListeners
+        actualDownloadRemovedEventListeners,
+        renamedFiles
       } = store;
 
       function formatProgressSubLabel(dl) {
@@ -498,6 +500,15 @@
         }
       }
 
+      function shouldPileHoverBlockForPendingAIAfterSticky(cardData) {
+        const dl = cardData?.download;
+        if (!dl?.succeeded || !dl.target?.path) return false;
+        if (!getPref("extensions.downloads.enable_ai_renaming", true)) return false;
+        if (typeof getAiRenamingPossible === "function" && !getAiRenamingPossible()) return false;
+        if (renamedFiles?.has(dl.target.path)) return false;
+        return true;
+      }
+
       async function makePodSticky(downloadKey) {
         const cardData = activeDownloadCards.get(downloadKey);
         if (!cardData || cardData.isSticky || cardData.isBeingRemoved) return;
@@ -539,6 +550,10 @@
              the pod appears, not only after sticky transition. */
         }
 
+        if (shouldPileHoverBlockForPendingAIAfterSticky(cardData)) {
+          store.pileHoverExpandBlockedUntilAIDoneKeys.add(downloadKey);
+        }
+
         const podsRowContainerElement = getPodsRowContainer();
         if (podsRowContainerElement) {
           podsRowContainerElement.style.pointerEvents = "none";
@@ -568,7 +583,6 @@
           focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
         }
 
-        await cancelAIProcessForDownload(downloadKey);
         const runLayout = () => {
           if (typeof managePodVisibilityAndAnimations === "function") {
             try {

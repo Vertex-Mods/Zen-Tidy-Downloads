@@ -217,6 +217,10 @@
 
       function handleHoverBridgeEnter() {
         debugLog("[HoverBridge] Entered - keeping pile visible");
+        if (window.zenTidyDownloads?.isAIRenameBlockingPileExpand?.() === true) {
+          debugLog("[HoverBridge] Skipped showPile: AI rename in progress");
+          return;
+        }
         clearTimeout(state.hoverTimeout);
         if (state.dismissedPods.size > 0) {
           vis().showPile();

@@ -437,7 +437,8 @@
       // which happens last.
       getLibraryPieController: () => libraryPieController,
       getThrottledCreateOrUpdateCard: () => throttledCreateOrUpdateCard,
-      getHandoffAnimator: () => podHandoffAnimator
+      getHandoffAnimator: () => podHandoffAnimator,
+      getAiRenamingPossible: () => aiRenamingPossible
     });
 
     async function init() {

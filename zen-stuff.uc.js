@@ -506,6 +506,10 @@
     // Sticky pod hover: expand pile when user hovers over a sticky pod
     document.addEventListener('request-pile-expand', () => {
       pileHoverDebug("request-pile-expand fired", { dismissedPods: state.dismissedPods.size });
+      if (window.zenTidyDownloads?.isAIRenameBlockingPileExpand?.() === true) {
+        pileHoverDebug("request-pile-expand no-op: AI rename in progress");
+        return;
+      }
       if (state.dismissedPods.size > 0) {
         pileHoverDebug("request-pile-expand → showPile");
         showPile();

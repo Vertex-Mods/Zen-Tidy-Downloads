@@ -48,6 +48,12 @@
 
       const { activeDownloadCards, focusedKeyRef, renamedFiles } = store;
 
+      function releasePileHoverExpandBlockForKey(k) {
+        try {
+          store.pileHoverExpandBlockedUntilAIDoneKeys?.delete(k);
+        } catch (_e) {}
+      }
+
       /** @param {string} [p] */
       function normalizePathForAiDedupe(p) {
         return typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "";
@@ -306,6 +312,8 @@
 
         if (!cardData) {
           debugLog("AI Rename: Card data not found for download key:", key);
+          activeAIProcesses.delete(key);
+          releasePileHoverExpandBlockForKey(key);
           return false;
         }
 
@@ -314,19 +322,25 @@
         if (previewContainerOnPod) originalPreviewTitle = previewContainerOnPod.title;
 
         const downloadPath = download.target.path;
-        if (!downloadPath) return false;
+        if (!downloadPath) {
+          activeAIProcesses.delete(key);
+          releasePileHoverExpandBlockForKey(key);
+          return false;
+        }
 
         const trueOriginalFilename = cardData.originalFilename;
 
         if (renamedFiles.has(downloadPath)) {
           debugLog(`Skipping rename - already processed: ${downloadPath}`);
           activeAIProcesses.delete(key);
+          releasePileHoverExpandBlockForKey(key);
           return false;
         }
 
         if (abortController.signal.aborted) {
           debugLog(`[AI Process] Process aborted before file size check: ${key}`);
           activeAIProcesses.delete(key);
+          releasePileHoverExpandBlockForKey(key);
           throw new DOMException('AI process was aborted', 'AbortError');
         }
 
@@ -342,12 +356,14 @@
           if (!file.exists()) {
             debugLog(`File does not exist for AI rename: ${downloadPath}`);
             activeAIProcesses.delete(key);
+            releasePileHoverExpandBlockForKey(key);
             return false;
           }
         } catch (e) {
           const errorMessage = e.message || e.toString() || 'Unknown error';
           debugLog(`Error checking file size: ${errorMessage}`, { path: downloadPath, error: errorMessage });
           activeAIProcesses.delete(key);
+          releasePileHoverExpandBlockForKey(key);
           return false;
         }
 
@@ -704,6 +720,7 @@ Instructions:
             previewContainerOnPod.title = originalPreviewTitle;
           }
           if (podElementToStyle) podElementToStyle.classList.remove("renaming-active");
+          releasePileHoverExpandBlockForKey(key);
         }
       }
 
@@ -739,6 +756,7 @@ Instructions:
             const cardData = activeDownloadCards.get(downloadKey);
             if (!cardData || !cardData.download) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - card data no longer exists`);
+              releasePileHoverExpandBlockForKey(downloadKey);
               currentlyProcessingKey = null;
               continue;
             }
@@ -746,12 +764,14 @@ Instructions:
             const currentPath = cardData.download.target?.path;
             if (renamedFiles.has(currentPath)) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - already renamed`);
+              releasePileHoverExpandBlockForKey(downloadKey);
               currentlyProcessingKey = null;
               continue;
             }
 
             if (!cardData.download.succeeded) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - no longer in succeeded state`);
+              releasePileHoverExpandBlockForKey(downloadKey);
               currentlyProcessingKey = null;
               continue;
             }
@@ -827,60 +847,73 @@ Instructions:
           activeAIProcesses.set(newKey, proc);
           touched = true;
         }
+        const pileBlock = store.pileHoverExpandBlockedUntilAIDoneKeys;
+        if (pileBlock?.has(oldKey)) {
+          pileBlock.delete(oldKey);
+          pileBlock.add(newKey);
+          touched = true;
+        }
         if (touched) {
           debugLog(`[AI] Migrated rename keys: ${oldKey} → ${newKey}`);
         }
       }
 
       async function cancelAIProcessForDownload(downloadKey) {
-        const wasInQueue = removeFromAIRenameQueue(downloadKey);
-        if (wasInQueue) {
-          debugLog(`[AI Cancel] Removed ${downloadKey} from AI rename queue`);
-        }
-
-        const aiProcess = activeAIProcesses.get(downloadKey);
-        if (!aiProcess) {
-          debugLog(`[AI Cancel] No active AI process found for ${downloadKey}`);
-          return wasInQueue;
-        }
-
-        debugLog(`[AI Cancel] Canceling AI process for ${downloadKey}`, {
-          phase: aiProcess.processState.phase,
-          duration: Date.now() - aiProcess.startTime
-        });
-
+        let result = false;
         try {
-          aiProcess.abortController.abort();
-          activeAIProcesses.delete(downloadKey);
-
-          const cardData = activeDownloadCards.get(downloadKey);
-          if (cardData?.podElement) {
-            cardData.podElement.classList.remove("renaming-active");
-            cardData.podElement.classList.remove("renaming-initiated");
+          const wasInQueue = removeFromAIRenameQueue(downloadKey);
+          if (wasInQueue) {
+            debugLog(`[AI Cancel] Removed ${downloadKey} from AI rename queue`);
           }
 
-          const masterTooltipDOMElement = getMasterTooltip();
-          if (downloadKey === focusedKeyRef.current && masterTooltipDOMElement) {
-            const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-            if (statusEl && (statusEl.textContent.includes("Analyzing") || statusEl.textContent.includes("Generating"))) {
-              const download = cardData?.download;
-              if (download?.succeeded) {
-                statusEl.textContent = "Download completed";
-                statusEl.style.color = "#1dd1a1";
-              } else if (download?.error) {
-                statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
-                statusEl.style.color = "#ff6b6b";
+          const aiProcess = activeAIProcesses.get(downloadKey);
+          if (!aiProcess) {
+            debugLog(`[AI Cancel] No active AI process found for ${downloadKey}`);
+            result = wasInQueue;
+            return result;
+          }
+
+          debugLog(`[AI Cancel] Canceling AI process for ${downloadKey}`, {
+            phase: aiProcess.processState.phase,
+            duration: Date.now() - aiProcess.startTime
+          });
+
+          try {
+            aiProcess.abortController.abort();
+            activeAIProcesses.delete(downloadKey);
+
+            const cardData = activeDownloadCards.get(downloadKey);
+            if (cardData?.podElement) {
+              cardData.podElement.classList.remove("renaming-active");
+              cardData.podElement.classList.remove("renaming-initiated");
+            }
+
+            const masterTooltipDOMElement = getMasterTooltip();
+            if (downloadKey === focusedKeyRef.current && masterTooltipDOMElement) {
+              const statusEl = masterTooltipDOMElement.querySelector(".card-status");
+              if (statusEl && (statusEl.textContent.includes("Analyzing") || statusEl.textContent.includes("Generating"))) {
+                const download = cardData?.download;
+                if (download?.succeeded) {
+                  statusEl.textContent = "Download completed";
+                  statusEl.style.color = "#1dd1a1";
+                } else if (download?.error) {
+                  statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
+                  statusEl.style.color = "#ff6b6b";
+                }
               }
             }
-          }
 
-          debugLog(`[AI Cancel] Successfully canceled AI process for ${downloadKey}`);
-          return true;
-        } catch (error) {
-          debugLog(`[AI Cancel] Error canceling AI process for ${downloadKey}:`, error);
-          activeAIProcesses.delete(downloadKey);
-          return false;
+            debugLog(`[AI Cancel] Successfully canceled AI process for ${downloadKey}`);
+            result = true;
+          } catch (error) {
+            debugLog(`[AI Cancel] Error canceling AI process for ${downloadKey}:`, error);
+            activeAIProcesses.delete(downloadKey);
+            result = false;
+          }
+        } finally {
+          releasePileHoverExpandBlockForKey(downloadKey);
         }
+        return result;
       }
 
       return {

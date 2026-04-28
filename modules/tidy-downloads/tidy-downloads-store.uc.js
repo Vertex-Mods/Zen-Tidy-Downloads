@@ -70,7 +70,14 @@
          * hover — the master rename-success tooltip is intentionally shown.
          * Toggled only from tidy-downloads-tooltip-layout (not inferred from DOM).
          */
-        pileHoverBlockedByRenameTooltip: false
+        pileHoverBlockedByRenameTooltip: false,
+        /**
+         * Download keys for which the sticky pod has appeared and AI rename may
+         * still run; zen-stuff must not expand the dismissed pile from library/sticky
+         * hover until AI finishes (see lifecycle + ai-rename release paths).
+         * @type {Set<string>}
+         */
+        pileHoverExpandBlockedUntilAIDoneKeys: new Set()
       };
     }
   };

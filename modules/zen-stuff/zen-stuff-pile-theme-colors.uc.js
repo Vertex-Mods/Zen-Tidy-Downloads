@@ -201,8 +201,6 @@
         textElements.forEach((el) => {
           el.style.color = textColor;
         });
-
-        console.log("[ShowPile] Updated text colors to:", textColor, "for background:", blendedColor);
       }
 
       return {
