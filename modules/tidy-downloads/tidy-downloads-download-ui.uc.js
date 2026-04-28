@@ -113,24 +113,16 @@
 
         const masterCloseBtn = masterTooltipDOMElement.querySelector(".card-close-button");
         if (masterCloseBtn) {
+          /** Match tooltip-layout + chrome.css: transition delay 0.15s + duration 0.3s */
+          const MASTER_TOOLTIP_FADEOUT_MS = 450;
           const masterCloseHandler = (e) => {
             e.preventDefault();
             e.stopPropagation();
-            window.zenTidyDownloads?.clearRenameTooltipPileHoverBlock?.();
             const focusedKey = getFocusedKey();
             if (!focusedKey) return;
             const cardData = getActiveCardByKey(focusedKey);
-            if (masterTooltipDOMElement) {
-              masterTooltipDOMElement.style.opacity = "0";
-              masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-              masterTooltipDOMElement.style.pointerEvents = "none";
-            }
-            if (downloadCardsContainer) {
-              downloadCardsContainer.style.display = "none";
-              downloadCardsContainer.style.opacity = "0";
-              downloadCardsContainer.style.visibility = "hidden";
-              downloadCardsContainer.style.pointerEvents = "none";
-            }
+            /* Shared fade path (do not set parent display:none here — it kills CSS transitions). */
+            window.zenTidyDownloads?.dismissMasterRenameTooltip?.();
             setTimeout(async () => {
               if (!cardData?.download) return;
               try {
@@ -149,7 +141,7 @@
               } catch (_error) {
                 removeCard(focusedKey, true);
               }
-            }, 300);
+            }, MASTER_TOOLTIP_FADEOUT_MS);
           };
           masterCloseBtn.addEventListener("click", masterCloseHandler);
           masterCloseBtn.addEventListener("keydown", (e) => {

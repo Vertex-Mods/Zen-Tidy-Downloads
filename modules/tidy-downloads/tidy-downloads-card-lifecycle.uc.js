@@ -322,11 +322,23 @@
       const MASTER_TOOLTIP_FADEOUT_MS = 450;
 
       function collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer) {
+        store.masterTooltipFadeoutActive = false;
         if (!downloadCardsContainer) return;
         downloadCardsContainer.style.display = "none";
         downloadCardsContainer.style.opacity = "0";
         downloadCardsContainer.style.visibility = "hidden";
         downloadCardsContainer.style.pointerEvents = "none";
+      }
+
+      /**
+       * Keep cards container mounted and painted while `.master-tooltip` CSS opacity/transform run.
+       * @param {HTMLElement|null|undefined} downloadCardsContainer
+       */
+      function beginMasterTooltipFadeout(downloadCardsContainer) {
+        store.masterTooltipFadeoutActive = true;
+        if (downloadCardsContainer) {
+          downloadCardsContainer.style.pointerEvents = "none";
+        }
       }
 
       /**
@@ -346,12 +358,12 @@
         const masterTooltipDOMElement = getMasterTooltip();
         const downloadCardsContainer = getDownloadCardsContainer();
 
+        beginMasterTooltipFadeout(downloadCardsContainer);
         if (masterTooltipDOMElement) {
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
         }
-        collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
 
         setTimeout(() => {
           if (masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === "0") {
@@ -369,6 +381,9 @@
             updateDownloadCardsVisibility();
           }
         }, MASTER_TOOLTIP_FADEOUT_MS);
+        if (typeof updateDownloadCardsVisibility === "function") {
+          updateDownloadCardsVisibility();
+        }
       }
 
       async function performAutohideSequence(downloadKey) {
@@ -468,10 +483,10 @@
         }
 
         if (wasFocused && masterTooltipDOMElement) {
+          beginMasterTooltipFadeout(downloadCardsContainer);
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
-          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {
@@ -479,6 +494,13 @@
             }
             collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           }, MASTER_TOOLTIP_FADEOUT_MS);
+        }
+
+        if (
+          layoutAfterTooltipFadeMs > 0 &&
+          typeof updateDownloadCardsVisibility === "function"
+        ) {
+          updateDownloadCardsVisibility();
         }
 
         updateUIForFocusedDownload(focusedKeyRef.current, false);
@@ -568,10 +590,10 @@
         const downloadCardsContainer = getDownloadCardsContainer();
         let layoutAfterTooltipFadeMs = 0;
         if (focusedKeyRef.current === downloadKey && masterTooltipDOMElement) {
+          beginMasterTooltipFadeout(downloadCardsContainer);
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
-          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {
@@ -580,6 +602,13 @@
             collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           }, MASTER_TOOLTIP_FADEOUT_MS);
           focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
+        }
+
+        if (
+          layoutAfterTooltipFadeMs > 0 &&
+          typeof updateDownloadCardsVisibility === "function"
+        ) {
+          updateDownloadCardsVisibility();
         }
 
         const runLayout = () => {

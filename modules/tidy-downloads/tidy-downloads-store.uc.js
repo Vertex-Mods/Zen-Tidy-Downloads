@@ -78,6 +78,12 @@
          */
         masterRenameTooltipSuppressed: false,
         /**
+         * While true, `#userchrome-download-cards-container` and `.master-tooltip` must stay painted
+         * (display flex / visible) so CSS opacity/transform transitions run; callers clear after
+         * MASTER_TOOLTIP_FADEOUT_MS and then apply display:none.
+         */
+        masterTooltipFadeoutActive: false,
+        /**
          * Download keys for which the sticky pod has appeared and AI rename may
          * still run; zen-stuff must not expand the dismissed pile from library/sticky
          * hover until AI finishes (see lifecycle + ai-rename release paths).

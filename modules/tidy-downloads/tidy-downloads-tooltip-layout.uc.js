@@ -78,9 +78,18 @@
         return !!(download.succeeded && download.aiName);
       }
 
+      /** Match card-lifecycle + chrome.css `.details-tooltip`: delay 0.15s + duration 0.3s → 450ms */
+      const MASTER_TOOLTIP_FADEOUT_MS = 450;
+
+      /**
+       * Hard-hide rename tooltip chrome (instant). Use when swapping focus/UI state — not for user-dismiss.
+       * @param {HTMLElement} masterTooltipDOMElement
+       * @param {HTMLElement|null|undefined} downloadCardsContainer
+       */
       function hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer) {
         store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
+        store.masterTooltipFadeoutActive = false;
         masterTooltipDOMElement.style.display = "none";
         masterTooltipDOMElement.style.opacity = "0";
         masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
@@ -94,12 +103,40 @@
         }
       }
 
+      /**
+       * Fade out tooltip then finalize hide. Caller must guard against re-entrancy.
+       * @param {HTMLElement} masterTooltipDOMElement
+       * @param {HTMLElement|null|undefined} downloadCardsContainer
+       */
+      function hideMasterTooltipChromeWithFade(masterTooltipDOMElement, downloadCardsContainer) {
+        store.masterRenameTooltipSuppressed = true;
+        store.pileHoverBlockedByRenameTooltip = false;
+        store.masterTooltipFadeoutActive = true;
+        masterTooltipDOMElement.style.opacity = "0";
+        masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+        masterTooltipDOMElement.style.pointerEvents = "none";
+        if (downloadCardsContainer) {
+          downloadCardsContainer.style.pointerEvents = "none";
+        }
+        window.setTimeout(() => {
+          store.masterTooltipFadeoutActive = false;
+          hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
+        }, MASTER_TOOLTIP_FADEOUT_MS);
+      }
+
       function dismissMasterRenameTooltip() {
         const masterTooltipDOMElement = getMasterTooltip();
         const downloadCardsContainer = getDownloadCardsContainer();
         if (!masterTooltipDOMElement) return false;
-        hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
+        hideMasterTooltipChromeWithFade(masterTooltipDOMElement, downloadCardsContainer);
         updateDownloadCardsVisibility();
+        window.setTimeout(() => {
+          try {
+            updateDownloadCardsVisibility();
+          } catch (_e) {
+            /* ignore */
+          }
+        }, MASTER_TOOLTIP_FADEOUT_MS);
         return true;
       }
 
@@ -161,20 +198,27 @@
             );
 
             if (!keepRenameSuccessTooltip) {
-              // Collapse the master tooltip when nothing jukebox-focused needs it.
-              // Sticky pods after AI rename keep the rename-success tooltip visible
-              // even though orderedPodKeys is empty (see updateUIForFocusedDownload).
-              masterTooltipDOMElement.style.display = "none";
-              masterTooltipDOMElement.style.opacity = "0";
-              masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-              masterTooltipDOMElement.style.pointerEvents = "none";
-              masterTooltipDOMElement.style.visibility = "hidden";
+              if (!store.masterTooltipFadeoutActive) {
+                // Collapse the master tooltip when nothing jukebox-focused needs it.
+                // Sticky pods after AI rename keep the rename-success tooltip visible
+                // even though orderedPodKeys is empty (see updateUIForFocusedDownload).
+                masterTooltipDOMElement.style.display = "none";
+                masterTooltipDOMElement.style.opacity = "0";
+                masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+                masterTooltipDOMElement.style.pointerEvents = "none";
+                masterTooltipDOMElement.style.visibility = "hidden";
 
-              if (downloadCardsContainer) {
-                downloadCardsContainer.style.display = "none";
-                downloadCardsContainer.style.opacity = "0";
-                downloadCardsContainer.style.visibility = "hidden";
-                downloadCardsContainer.style.pointerEvents = "none";
+                if (downloadCardsContainer) {
+                  downloadCardsContainer.style.display = "none";
+                  downloadCardsContainer.style.opacity = "0";
+                  downloadCardsContainer.style.visibility = "hidden";
+                  downloadCardsContainer.style.pointerEvents = "none";
+                }
+              } else {
+                masterTooltipDOMElement.style.pointerEvents = "none";
+                if (downloadCardsContainer) {
+                  downloadCardsContainer.style.pointerEvents = "none";
+                }
               }
 
               store.pileHoverBlockedByRenameTooltip = false;
@@ -513,17 +557,19 @@
           debugLog(`[UIUPDATE_NO_CARD_DATA] No card data or podElement for key ${focusedKeyRef.current}. Hiding master tooltip. CardData:`, cardDataToFocus);
           store.masterRenameTooltipSuppressed = true;
           store.pileHoverBlockedByRenameTooltip = false;
-          if (downloadCardsContainer) {
-            downloadCardsContainer.style.display = "none";
-            downloadCardsContainer.style.opacity = "0";
-            downloadCardsContainer.style.visibility = "hidden";
-            downloadCardsContainer.style.pointerEvents = "none";
+          if (!store.masterTooltipFadeoutActive) {
+            if (downloadCardsContainer) {
+              downloadCardsContainer.style.display = "none";
+              downloadCardsContainer.style.opacity = "0";
+              downloadCardsContainer.style.visibility = "hidden";
+              downloadCardsContainer.style.pointerEvents = "none";
+            }
+            masterTooltipDOMElement.style.display = "none";
+            masterTooltipDOMElement.style.opacity = "0";
+            masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+            masterTooltipDOMElement.style.pointerEvents = "none";
+            masterTooltipDOMElement.style.visibility = "hidden";
           }
-          masterTooltipDOMElement.style.display = "none";
-          masterTooltipDOMElement.style.opacity = "0";
-          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-          masterTooltipDOMElement.style.pointerEvents = "none";
-          masterTooltipDOMElement.style.visibility = "hidden";
         } else {
           const download = cardDataToFocus.download;
           const showRenameTooltip = shouldShowMasterRenameTooltip(cardDataToFocus, download);

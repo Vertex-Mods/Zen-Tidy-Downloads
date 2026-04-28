@@ -134,6 +134,17 @@
                 masterTooltipDOMElement.style.pointerEvents = "auto";
               }
               if (store) store.pileHoverBlockedByRenameTooltip = true;
+            } else if (store?.masterTooltipFadeoutActive) {
+              /* Fade-out in progress — keep subtree painted so `.details-tooltip` transitions run. */
+              downloadCardsContainer.style.display = "flex";
+              downloadCardsContainer.style.opacity = "1";
+              downloadCardsContainer.style.visibility = "visible";
+              downloadCardsContainer.style.pointerEvents = "none";
+              if (masterTooltipDOMElement) {
+                masterTooltipDOMElement.style.display = "flex";
+                masterTooltipDOMElement.style.visibility = "visible";
+                masterTooltipDOMElement.style.pointerEvents = "none";
+              }
             } else {
               downloadCardsContainer.style.display = "none";
               downloadCardsContainer.style.opacity = "0";
