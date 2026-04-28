@@ -20,6 +20,7 @@
      * @param {Object} ctx.store
      * @param {function} ctx.debugLog
      * @param {function} ctx.getPref
+     * @param {function} ctx.getAutohideDelayMs
      * @param {function} ctx.getSafeFilename
      * @param {function} ctx.fireCustomEvent
      * @param {function} ctx.updateUIForFocusedDownload
@@ -41,6 +42,7 @@
         store,
         debugLog,
         getPref,
+        getAutohideDelayMs,
         getSafeFilename,
         formatBytes: formatBytesFn = (n) => `${n} B`,
         fireCustomEvent,
@@ -283,11 +285,10 @@
           const cardData = activeDownloadCards.get(downloadKey);
           if (!cardData) return;
           seedPileEntryForLivePod(downloadKey);
+          const delayMs = typeof getAutohideDelayMs === "function" ? getAutohideDelayMs() : 10000;
+          if (delayMs <= 0) return;
           if (cardData.autohideTimeoutId) clearTimeout(cardData.autohideTimeoutId);
-          cardData.autohideTimeoutId = setTimeout(
-            () => performAutohideSequence(downloadKey),
-            AUTOHIDE_DELAY_MS
-          );
+          cardData.autohideTimeoutId = setTimeout(() => performAutohideSequence(downloadKey), delayMs);
         } catch (error) {
           console.error("Error scheduling card removal:", error);
         }
@@ -295,7 +296,7 @@
 
       /**
        * When a download reaches a terminal jukebox state (success/error), move it
-       * to sticky immediately instead of waiting for AUTOHIDE_DELAY_MS.
+       * to sticky immediately instead of waiting for autohide delay (see getAutohideDelayMs).
        * @param {string} downloadKey
        */
       function scheduleImmediateSticky(downloadKey) {
@@ -317,14 +318,7 @@
 
       /** Match chrome.css `.details-tooltip`: transition delay 0.15s + duration 0.3s */
       const MASTER_TOOLTIP_FADEOUT_MS = 450;
-      /** Fixed delay before live-pod → sticky/absorb after download completes (no pref). */
-      const AUTOHIDE_DELAY_MS = 10000;
 
-      /**
-       * Final hidden state for the cards wrapper. Call only after the master-tooltip CSS
-       * fade (~450ms); setting display:none sooner would clip the transition because the
-       * tooltip lives inside this container.
-       */
       function collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer) {
         if (!downloadCardsContainer) return;
         downloadCardsContainer.style.display = "none";
@@ -355,6 +349,7 @@
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
         }
+        collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
 
         setTimeout(() => {
           if (masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === "0") {
@@ -474,6 +469,7 @@
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
+          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {
@@ -573,6 +569,7 @@
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
+          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {

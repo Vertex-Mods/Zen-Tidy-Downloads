@@ -10,6 +10,13 @@
     "label": "Download Behavior"
   },
   {
+    "property": "extensions.downloads.autohide_delay_seconds",
+    "type": "string",
+    "value": "number",
+    "label": "Seconds before completed download cards auto-hide (0 = never)",
+    "default": 10
+  },
+  {
     "property": "extensions.downloads.enable_ai_renaming",
     "type": "checkbox", 
     "label": "Enable AI-powered file renaming",
