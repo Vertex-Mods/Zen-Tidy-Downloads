@@ -382,9 +382,130 @@
         }
       }
 
+      function shouldAbsorbInsteadOfStickyPod() {
+        try {
+          const api = window.__zenDismissedPileIntegration;
+          const sup = api?.shouldSuppressStickyPod;
+          if (typeof sup === "function") return sup() === true;
+          const leg = api?.isHoveringPileArea;
+          return typeof leg === "function" && leg() === true;
+        } catch (_e) {
+          return false;
+        }
+      }
+
+      /**
+       * Download finished while the user hovers the dismissed pile or the
+       * library/downloads control: keep the completed row in the pile only (no sticky in the toolbar).
+       */
+      async function absorbIntoPileWithoutSticky(downloadKey) {
+        const cardData = activeDownloadCards.get(downloadKey);
+        if (!cardData || cardData.isSticky || cardData.isBeingRemoved) return;
+
+        store.pileHoverBlockedByRenameTooltip = false;
+
+        if (cardData.autohideTimeoutId) {
+          clearTimeout(cardData.autohideTimeoutId);
+          cardData.autohideTimeoutId = null;
+        }
+
+        const dismissedData = capturePodDataForDismissal(downloadKey);
+        if (dismissedData) {
+          dismissedPodsData.set(downloadKey, dismissedData);
+          dismissEventListeners.forEach((cb) => {
+            try {
+              cb(dismissedData);
+            } catch (_error) {}
+          });
+          fireCustomEvent("pod-dismissed", { podKey: downloadKey, podData: dismissedData, wasManual: false });
+        }
+
+        dismissedDownloads.add(downloadKey);
+        cardData.isBeingRemoved = true;
+        cardData.phase = "dismissed";
+
+        const wasFocused = focusedKeyRef.current === downloadKey;
+        const masterTooltipDOMElement = getMasterTooltip();
+        const downloadCardsContainer = getDownloadCardsContainer();
+        let layoutAfterTooltipFadeMs = 0;
+
+        await cancelAIProcessForDownload(downloadKey);
+
+        const podElement = cardData.podElement;
+        if (podElement?.parentNode) podElement.parentNode.removeChild(podElement);
+
+        activeDownloadCards.delete(downloadKey);
+        cardUpdateThrottle.delete(downloadKey);
+
+        const removedPodIndex = orderedPodKeys.indexOf(downloadKey);
+        if (removedPodIndex > -1) orderedPodKeys.splice(removedPodIndex, 1);
+
+        if (focusedKeyRef.current === downloadKey) {
+          focusedKeyRef.current = null;
+          if (orderedPodKeys.length > 0) {
+            let newFocusKey = null;
+            if (removedPodIndex < orderedPodKeys.length) newFocusKey = orderedPodKeys[removedPodIndex];
+            else if (removedPodIndex > 0 && orderedPodKeys.length > 0) {
+              newFocusKey = orderedPodKeys[removedPodIndex - 1];
+            } else if (orderedPodKeys.length > 0) {
+              newFocusKey = orderedPodKeys[orderedPodKeys.length - 1];
+            }
+            focusedKeyRef.current = newFocusKey;
+          }
+        }
+
+        const podsRowContainerElement = getPodsRowContainer();
+        if (podsRowContainerElement && stickyPods.size === 0) {
+          podsRowContainerElement.style.pointerEvents = "";
+        }
+
+        if (wasFocused && masterTooltipDOMElement) {
+          masterTooltipDOMElement.style.opacity = "0";
+          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+          masterTooltipDOMElement.style.pointerEvents = "none";
+          layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
+          setTimeout(() => {
+            if (masterTooltipDOMElement.style.opacity === "0") {
+              masterTooltipDOMElement.style.display = "none";
+            }
+            if (downloadCardsContainer) {
+              downloadCardsContainer.style.display = "none";
+              downloadCardsContainer.style.opacity = "0";
+              downloadCardsContainer.style.visibility = "hidden";
+              downloadCardsContainer.style.pointerEvents = "none";
+            }
+          }, MASTER_TOOLTIP_FADEOUT_MS);
+        }
+
+        updateUIForFocusedDownload(focusedKeyRef.current, false);
+
+        const runLayout = () => {
+          if (typeof managePodVisibilityAndAnimations === "function") {
+            try {
+              managePodVisibilityAndAnimations();
+            } catch (err) {
+              debugLog("[Lifecycle] managePod after absorbIntoPileWithoutSticky", err);
+            }
+          }
+          if (typeof updateDownloadCardsVisibility === "function") {
+            updateDownloadCardsVisibility();
+          }
+        };
+        if (layoutAfterTooltipFadeMs > 0) {
+          setTimeout(runLayout, layoutAfterTooltipFadeMs);
+        } else {
+          runLayout();
+        }
+      }
+
       async function makePodSticky(downloadKey) {
         const cardData = activeDownloadCards.get(downloadKey);
         if (!cardData || cardData.isSticky || cardData.isBeingRemoved) return;
+
+        if (shouldAbsorbInsteadOfStickyPod()) {
+          await absorbIntoPileWithoutSticky(downloadKey);
+          return;
+        }
 
         store.pileHoverBlockedByRenameTooltip = false;
 

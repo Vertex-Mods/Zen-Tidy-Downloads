@@ -244,6 +244,9 @@
                 }
                 filenameEl.textContent = displayFilename;
               }
+              if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
+                setTimeout(() => updatePodTextColors(), 50);
+              }
               return;
             }
           }
@@ -270,6 +273,9 @@
             }, 50);
           } else {
             updatePileVisibility(animate);
+            if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
+              setTimeout(() => updatePodTextColors(), 50);
+            }
           }
           schedulePileLayoutRepair("refresh-pod", 120);
           maybeRedockLibraryPieAfterPileDomChange();
@@ -302,6 +308,9 @@
           }, 50);
         } else {
           updatePileVisibility(animate);
+          if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
+            setTimeout(() => updatePodTextColors(), 50);
+          }
         }
 
         schedulePileLayoutRepair("add-pod", 120);

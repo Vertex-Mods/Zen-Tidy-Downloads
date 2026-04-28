@@ -406,6 +406,14 @@
     showPile
   });
 
+  /** Tidy Downloads: skip sticky toolbar pod while user hovers pile chrome or the library/downloads button. */
+  window.__zenDismissedPileIntegration = {
+    isHoveringPileArea: () => pileVisibilityApi?.isHoveringPileArea?.() === true,
+    shouldSuppressStickyPod: () =>
+      pileVisibilityApi?.isHoveringPileArea?.() === true ||
+      state.downloadButton?.matches(":hover") === true
+  };
+
   function schedulePileLayoutRepair(source, delayMs = 80) {
     return maskRepairApi.schedulePileLayoutRepair(source, delayMs);
   }
