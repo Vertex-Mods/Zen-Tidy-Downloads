@@ -36,8 +36,8 @@
       } = ctx;
 
       /**
-       * Must match tooltip-layout `shouldShowMasterRenameTooltip`: when true, sticky-only
-       * sessions still need the cards wrapper + master tooltip visible (compact mode must not hide them).
+       * Like tooltip-layout `shouldShowMasterRenameTooltip`, plus `!store.masterRenameTooltipSuppressed`
+       * so autohide/close/sticky transitions do not resurrect `#userchrome-download-cards-container`.
        * @returns {boolean}
        */
       function shouldShowRenameSuccessChromeFromStore() {
@@ -49,6 +49,7 @@
         const isProgress =
           cardData.phase === "progress" || cardData.podElement.dataset?.state === "progress";
         if (isProgress) return false;
+        if (store?.masterRenameTooltipSuppressed) return false;
         return !!(download.succeeded && download.aiName);
       }
 

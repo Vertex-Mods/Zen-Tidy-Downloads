@@ -321,12 +321,21 @@
       /** Match chrome.css `.details-tooltip`: transition delay 0.15s + duration 0.3s */
       const MASTER_TOOLTIP_FADEOUT_MS = 450;
 
+      function collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer) {
+        if (!downloadCardsContainer) return;
+        downloadCardsContainer.style.display = "none";
+        downloadCardsContainer.style.opacity = "0";
+        downloadCardsContainer.style.visibility = "hidden";
+        downloadCardsContainer.style.pointerEvents = "none";
+      }
+
       /**
        * After autohide_delay_ms, a pod may already be sticky (e.g. AI rename showed
        * rename-success chrome). Collapse master tooltip + cards without re-running makePodSticky.
        * @param {string} downloadKey
        */
       function dismissStickyPostRenameChrome(downloadKey) {
+        store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
 
         if (focusedKeyRef.current === downloadKey) {
@@ -342,17 +351,13 @@
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
         }
+        collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
 
         setTimeout(() => {
           if (masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === "0") {
             masterTooltipDOMElement.style.display = "none";
           }
-          if (downloadCardsContainer) {
-            downloadCardsContainer.style.display = "none";
-            downloadCardsContainer.style.opacity = "0";
-            downloadCardsContainer.style.visibility = "hidden";
-            downloadCardsContainer.style.pointerEvents = "none";
-          }
+          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           if (typeof managePodVisibilityAndAnimations === "function") {
             try {
               managePodVisibilityAndAnimations();
@@ -404,6 +409,7 @@
         const cardData = activeDownloadCards.get(downloadKey);
         if (!cardData || cardData.isSticky || cardData.isBeingRemoved) return;
 
+        store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
 
         if (cardData.autohideTimeoutId) {
@@ -465,17 +471,13 @@
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
+          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {
               masterTooltipDOMElement.style.display = "none";
             }
-            if (downloadCardsContainer) {
-              downloadCardsContainer.style.display = "none";
-              downloadCardsContainer.style.opacity = "0";
-              downloadCardsContainer.style.visibility = "hidden";
-              downloadCardsContainer.style.pointerEvents = "none";
-            }
+            collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           }, MASTER_TOOLTIP_FADEOUT_MS);
         }
 
@@ -518,6 +520,7 @@
           return;
         }
 
+        store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
 
         if (cardData.autohideTimeoutId) {
@@ -568,17 +571,13 @@
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
+          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {
               masterTooltipDOMElement.style.display = "none";
             }
-            if (downloadCardsContainer) {
-              downloadCardsContainer.style.display = "none";
-              downloadCardsContainer.style.opacity = "0";
-              downloadCardsContainer.style.visibility = "hidden";
-              downloadCardsContainer.style.pointerEvents = "none";
-            }
+            collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           }, MASTER_TOOLTIP_FADEOUT_MS);
           focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
         }

@@ -72,6 +72,12 @@
          */
         pileHoverBlockedByRenameTooltip: false,
         /**
+         * When true, rename-success chrome was dismissed (autohide, close, sticky transition, etc.).
+         * compact-visibility and managePod must not force the cards container back to flex until
+         * updateUIForFocusedDownload opens a new rename-tooltip session.
+         */
+        masterRenameTooltipSuppressed: false,
+        /**
          * Download keys for which the sticky pod has appeared and AI rename may
          * still run; zen-stuff must not expand the dismissed pile from library/sticky
          * hover until AI finishes (see lifecycle + ai-rename release paths).

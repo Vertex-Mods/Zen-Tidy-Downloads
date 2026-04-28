@@ -195,6 +195,7 @@
         },
 
         clearRenameTooltipPileHoverBlock() {
+          store.masterRenameTooltipSuppressed = true;
           store.pileHoverBlockedByRenameTooltip = false;
         },
 

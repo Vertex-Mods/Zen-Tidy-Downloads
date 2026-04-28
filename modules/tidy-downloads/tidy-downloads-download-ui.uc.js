@@ -125,6 +125,12 @@
               masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
               masterTooltipDOMElement.style.pointerEvents = "none";
             }
+            if (downloadCardsContainer) {
+              downloadCardsContainer.style.display = "none";
+              downloadCardsContainer.style.opacity = "0";
+              downloadCardsContainer.style.visibility = "hidden";
+              downloadCardsContainer.style.pointerEvents = "none";
+            }
             setTimeout(async () => {
               if (!cardData?.download) return;
               try {

@@ -79,6 +79,7 @@
       }
 
       function hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer) {
+        store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
         masterTooltipDOMElement.style.display = "none";
         masterTooltipDOMElement.style.opacity = "0";
@@ -178,7 +179,7 @@
 
               store.pileHoverBlockedByRenameTooltip = false;
             } else {
-              store.pileHoverBlockedByRenameTooltip = true;
+              store.pileHoverBlockedByRenameTooltip = !store.masterRenameTooltipSuppressed;
             }
 
             const hasStickyLayout = layoutStickyPodsOutsideJukebox();
@@ -405,12 +406,14 @@
                 if (
                   layoutData.isFocused &&
                   showRenameTooltip &&
+                  !store.masterRenameTooltipSuppressed &&
                   masterTooltipDOMElement &&
                   masterTooltipDOMElement.style.opacity === '0'
                 ) {
                      debugLog(`[LayoutManager_Jukebox_Tooltip] Focused pod ${key} (rename success) — animating tooltip IN.`);
                      setTimeout(() => {
                         if (focusedKeyRef.current !== key) return;
+                        if (store.masterRenameTooltipSuppressed) return;
                         const fdNow = activeDownloadCards.get(key);
                         const fdlNow = fdNow?.download;
                         if (!shouldShowMasterRenameTooltip(fdNow, fdlNow)) return;
@@ -508,6 +511,8 @@
 
         if (!cardDataToFocus || !cardDataToFocus.podElement) {
           debugLog(`[UIUPDATE_NO_CARD_DATA] No card data or podElement for key ${focusedKeyRef.current}. Hiding master tooltip. CardData:`, cardDataToFocus);
+          store.masterRenameTooltipSuppressed = true;
+          store.pileHoverBlockedByRenameTooltip = false;
           if (downloadCardsContainer) {
             downloadCardsContainer.style.display = "none";
             downloadCardsContainer.style.opacity = "0";
@@ -530,6 +535,7 @@
             );
             hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
           } else if (download) {
+            store.masterRenameTooltipSuppressed = false;
             if (downloadCardsContainer) {
               downloadCardsContainer.style.display = "flex";
               downloadCardsContainer.style.opacity = "1";
@@ -611,6 +617,7 @@
               requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                   if (focusedKeyRef.current !== keyToFocus) return;
+                  if (store.masterRenameTooltipSuppressed) return;
                   const cdNow = activeDownloadCards.get(keyToFocus);
                   const dlNow = cdNow?.download;
                   if (!shouldShowMasterRenameTooltip(cdNow, dlNow)) return;
