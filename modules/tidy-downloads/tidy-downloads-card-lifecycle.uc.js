@@ -20,6 +20,7 @@
      * @param {Object} ctx.store
      * @param {function} ctx.debugLog
      * @param {function} ctx.getPref
+     * @param {string} ctx.DISABLE_AUTOHIDE_PREF
      * @param {function} ctx.getSafeFilename
      * @param {function} ctx.fireCustomEvent
      * @param {function} ctx.updateUIForFocusedDownload
@@ -41,6 +42,7 @@
         store,
         debugLog,
         getPref,
+        DISABLE_AUTOHIDE_PREF,
         getSafeFilename,
         formatBytes: formatBytesFn = (n) => `${n} B`,
         fireCustomEvent,
@@ -283,10 +285,11 @@
           const cardData = activeDownloadCards.get(downloadKey);
           if (!cardData) return;
           seedPileEntryForLivePod(downloadKey);
+          if (getPref(DISABLE_AUTOHIDE_PREF, false)) return;
           if (cardData.autohideTimeoutId) clearTimeout(cardData.autohideTimeoutId);
           cardData.autohideTimeoutId = setTimeout(
             () => performAutohideSequence(downloadKey),
-            AUTOHIDE_DELAY_MS
+            getPref("extensions.downloads.autohide_delay_ms", 10000)
           );
         } catch (error) {
           console.error("Error scheduling card removal:", error);
@@ -295,7 +298,7 @@
 
       /**
        * When a download reaches a terminal jukebox state (success/error), move it
-       * to sticky immediately instead of waiting for AUTOHIDE_DELAY_MS.
+       * to sticky immediately instead of waiting for autohide_delay_ms.
        * @param {string} downloadKey
        */
       function scheduleImmediateSticky(downloadKey) {
@@ -317,14 +320,7 @@
 
       /** Match chrome.css `.details-tooltip`: transition delay 0.15s + duration 0.3s */
       const MASTER_TOOLTIP_FADEOUT_MS = 450;
-      /** Fixed delay before live-pod → sticky/absorb after download completes (no pref). */
-      const AUTOHIDE_DELAY_MS = 10000;
 
-      /**
-       * Final hidden state for the cards wrapper. Call only after the master-tooltip CSS
-       * fade (~450ms); setting display:none sooner would clip the transition because the
-       * tooltip lives inside this container.
-       */
       function collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer) {
         if (!downloadCardsContainer) return;
         downloadCardsContainer.style.display = "none";
@@ -334,7 +330,7 @@
       }
 
       /**
-       * After the autohide delay elapses, a pod may already be sticky (e.g. AI rename showed
+       * After autohide_delay_ms, a pod may already be sticky (e.g. AI rename showed
        * rename-success chrome). Collapse master tooltip + cards without re-running makePodSticky.
        * @param {string} downloadKey
        */
@@ -355,6 +351,7 @@
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
         }
+        collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
 
         setTimeout(() => {
           if (masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === "0") {
@@ -474,6 +471,7 @@
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
+          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {
@@ -573,6 +571,7 @@
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
+          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
             if (masterTooltipDOMElement.style.opacity === "0") {
@@ -749,13 +748,13 @@
         // terminal state. Conditions:
         //   - non-removal, terminal (succeeded, error, or canceled)
         //   - no existing card yet (we're creating a brand-new live-pod, not re-rendering)
-        //   - handoff animator available
+        //   - handoff animator available and enabled
         const isTerminalTransition = !removed && (dl.succeeded === true || !!dl.error || !!dl.canceled);
         const isHandoffTerminal = !removed && (dl.succeeded === true || !!dl.error);
         const wasAlreadyLive = activeDownloadCards.has(key);
         const animator = typeof getHandoffAnimator === "function" ? getHandoffAnimator() : null;
         const shouldCaptureSnapshot =
-          isHandoffTerminal && !wasAlreadyLive && animator;
+          isHandoffTerminal && !wasAlreadyLive && animator && animator.isEnabled?.();
 
         let handoffSnapshot = null;
         if (shouldCaptureSnapshot) {

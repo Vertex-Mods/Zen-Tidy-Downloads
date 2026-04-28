@@ -58,9 +58,13 @@
         getLifecycleApi
       } = ctx;
 
-      /** After success/error, lifecycle schedules sticky/absorb after a fixed delay (see card-lifecycle AUTOHIDE_DELAY_MS). */
       function requestStickyAfterTerminal(podKey) {
-        scheduleCardRemoval(podKey);
+        const life = typeof getLifecycleApi === "function" ? getLifecycleApi() : null;
+        if (life && typeof life.scheduleImmediateSticky === "function") {
+          life.scheduleImmediateSticky(podKey);
+        } else {
+          scheduleCardRemoval(podKey);
+        }
       }
 
       const {
@@ -341,6 +345,7 @@
               updateDownloadCardsVisibility();
             }
 
+            const stableFocusMode = getPref("extensions.downloads.stable_focus_mode", true);
             const currentFocusedData = focusedKeyRef.current
               ? activeDownloadCards.get(focusedKeyRef.current)
               : null;
@@ -350,6 +355,11 @@
               focusedKeyRef.current = key;
               debugLog(
                 `[PodFUNC] New pod created, setting as focused (no current focus): ${key}. Total pods: ${orderedPodKeys.length}`
+              );
+            } else if (!stableFocusMode) {
+              focusedKeyRef.current = key;
+              debugLog(
+                `[PodFUNC] New pod created, setting as focused (non-stable mode): ${key}. Total pods: ${orderedPodKeys.length}`
               );
             } else if (download.succeeded) {
               focusedKeyRef.current = key;

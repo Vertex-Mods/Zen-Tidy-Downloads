@@ -17,6 +17,7 @@
   // CONSTANTS
   // ============================================================================
   const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
+  const DISABLE_AUTOHIDE_PREF = "extensions.downloads.disable_autohide";
   const IMAGE_LOAD_ERROR_ICON = "🚫";
   const TEMP_LOADER_ICON = "⏳";
   const RENAMED_SUCCESS_ICON = "✓";
@@ -463,6 +464,7 @@
   window.zenTidyDownloadsUtils = {
     // Constants
     MISTRAL_API_KEY_PREF,
+    DISABLE_AUTOHIDE_PREF,
     IMAGE_LOAD_ERROR_ICON,
     TEMP_LOADER_ICON,
     RENAMED_SUCCESS_ICON,

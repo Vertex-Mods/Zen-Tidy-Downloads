@@ -15,6 +15,8 @@
 
   if (location.href !== "chrome://browser/content/browser.xhtml") return;
 
+  const PREF_ENABLE = "extensions.downloads.enable_library_pie_progress";
+
   const PIE = Object.freeze({ cx: 16, cy: 16 });
   /** Library pods row: compact ring */
   const SPEC_PIE_LIB = Object.freeze({ r: 13, sw: 2.5, svg: 16 });
@@ -77,6 +79,7 @@
   window.zenTidyDownloadsLibraryPie = {
     /**
      * @param {Object} ctx
+     * @param {function} ctx.getPref
      * @param {function} ctx.debugLog
      * @param {function} [ctx.getDownloadKey] - canonical key resolver shared with the pods module
      * @param {Object} [ctx.store] - shared state bag; when provided, active downloads
@@ -90,7 +93,7 @@
      * @returns {{ syncDownload: function, captureHandoffSnapshot: function, destroy: function(): void }}
      */
     createController(ctx) {
-      const { debugLog } = ctx;
+      const { getPref, debugLog } = ctx;
       const resolveKey = typeof ctx.getDownloadKey === "function" ? ctx.getDownloadKey : fallbackKeyForDownload;
       const getPodsRowContainer = typeof ctx.getPodsRowContainer === "function" ? ctx.getPodsRowContainer : () => null;
       const refreshContainerVisibility =
@@ -128,6 +131,14 @@
       let isPileDocked = false;
       /** Skip `zen-tidy-library-pie-updated` during reparent to avoid redocking while pile collapses. */
       let suppressPieLayoutBroadcast = false;
+
+      function isFeatureEnabled() {
+        try {
+          return getPref(PREF_ENABLE, true) !== false;
+        } catch (e) {
+          return true;
+        }
+      }
 
       function teardownArcWatcher() {
         if (arcMutationObserver) {
@@ -423,6 +434,7 @@
        */
       function dockIntoPilePreviewSlot(previewSlot) {
         if (!(previewSlot instanceof HTMLElement)) return;
+        if (!isFeatureEnabled()) return;
         if (active.size === 0 || !pieRevealed) return;
         ensureDom();
         if (!root) return;
@@ -435,6 +447,11 @@
       }
 
       function updateVisual() {
+        if (!isFeatureEnabled()) {
+          if (root) root.style.display = "none";
+          return;
+        }
+
         if (active.size === 0 || !pieRevealed) {
           if (root) {
             if (isPileDocked || root.classList.contains("zen-tidy-pie-host--pile-docked")) {

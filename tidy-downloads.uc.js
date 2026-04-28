@@ -143,6 +143,7 @@
       debugLog,
       redactSensitiveData,
       MISTRAL_API_KEY_PREF,
+      DISABLE_AUTOHIDE_PREF,
       IMAGE_LOAD_ERROR_ICON,
       TEMP_LOADER_ICON,
       RENAMED_SUCCESS_ICON,
@@ -178,12 +179,14 @@
     // extensions.downloads.enable_debug - Enable debug logging (default: false)
     // extensions.downloads.debug_ai_only - Only log AI-related messages (default: true)
     // extensions.downloads.enable_ai_renaming - Enable AI-powered file renaming (default: true)
-    // Completed download cards auto-hide to sticky/absorb after 10s (hardcoded in card-lifecycle)
+    // extensions.downloads.disable_autohide - Disable automatic hiding of completed downloads (default: false)
+    // extensions.downloads.autohide_delay_ms - Delay before auto-hiding completed downloads (default: 10000)
     // extensions.downloads.interaction_grace_period_ms - Grace period after user interaction (default: 5000)
     // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
     // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
     // extensions.downloads.mistral_api_url - Mistral API endpoint (default: "https://api.mistral.ai/v1/chat/completions")
     // extensions.downloads.mistral_model - Mistral model to use (default: "pixtral-large-latest")
+    // extensions.downloads.stable_focus_mode - Prevent focus switching during multiple downloads (default: true)
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
     // zen.tidy-downloads.use-library-button - Use zen-library-button instead of downloads-button for hover detection (default: false)
 
@@ -215,7 +218,7 @@
     let initSidebarWidthSyncFn = () => { };
     /** @type {{ syncDownload: function, captureHandoffSnapshot: function, destroy: function(): void }|null} */
     let libraryPieController = null;
-    /** @type {{ animate: function(Object): boolean }|null} */
+    /** @type {{ isEnabled: function(): boolean, animate: function(Object): boolean }|null} */
     let podHandoffAnimator = null;
     /** @type {{ start: function, stop: function }|null} */
     let downloadsListenerController = null;
@@ -416,6 +419,7 @@
       store,
       debugLog,
       getPref,
+      DISABLE_AUTOHIDE_PREF,
       getSafeFilename,
       formatBytes,
       fireCustomEvent,
@@ -572,6 +576,7 @@
 
         if (window.zenTidyDownloadsLibraryPie?.createController) {
           libraryPieController = window.zenTidyDownloadsLibraryPie.createController({
+            getPref,
             debugLog,
             getDownloadKey,
             store,
@@ -582,6 +587,7 @@
 
         if (window.zenTidyDownloadsPodHandoff?.createHandoffAnimator) {
           podHandoffAnimator = window.zenTidyDownloadsPodHandoff.createHandoffAnimator({
+            getPref,
             debugLog
           });
         }

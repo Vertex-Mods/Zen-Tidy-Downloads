@@ -365,6 +365,8 @@
     setupPileBackgroundHoverEvents: () => maskRepairApi.setupPileBackgroundHoverEvents(),
     updatePointerEvents: () => pilePrefsApi.updatePointerEvents(),
     updatePileContainerWidth: () => updatePileContainerWidth(),
+    getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
+    shouldPileBeVisible: () => pilePrefsApi.shouldPileBeVisible(),
     isContextMenuVisible: () => isContextMenuVisible()
   });
 
@@ -375,6 +377,7 @@
     updatePointerEvents: () => pilePrefsApi.updatePointerEvents(),
     updatePileHeight: () => updatePileHeight(),
     isContextMenuVisible: () => isContextMenuVisible(),
+    getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
     generateGridPosition,
     applyGridPosition,
     updatePodTextColors: () => themeColorsApi.updatePodTextColors()
@@ -383,6 +386,8 @@
   pilePrefsApi = window.zenStuffPilePrefs.createPilePrefsApi({
     state,
     debugLog,
+    getShowPile: () => pileVisibilityApi.showPile(),
+    getHidePile: () => pileVisibilityApi.hidePile(),
     findDownloadButton
   });
 
@@ -395,7 +400,10 @@
     generateGridPosition,
     applyGridPosition,
     updatePileVisibility,
-    updateDownloadsButtonVisibility: () => pilePrefsApi.updateDownloadsButtonVisibility()
+    updateDownloadsButtonVisibility: () => pilePrefsApi.updateDownloadsButtonVisibility(),
+    getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
+    shouldPileBeVisible: () => pilePrefsApi.shouldPileBeVisible(),
+    showPile
   });
 
   /** Tidy Downloads: skip sticky toolbar pod while user hovers pile chrome or the library/downloads button. */
@@ -460,6 +468,10 @@
     // Pile container hover events
     state.pileContainer.addEventListener('mouseenter', handlePileHover);
     state.pileContainer.addEventListener('mouseleave', handlePileLeave);
+
+    // Alt key listeners for always-show mode
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
 
     // Preference change listener
     pilePrefsApi.setupPreferenceListener();
@@ -539,6 +551,16 @@
 
     // Restore dismissed pods from SessionStore
     restoreDismissedPodsFromSession();
+
+    // If always-show mode is enabled and we have pods, show the pile
+    if (pilePrefsApi.getAlwaysShowPile() && existingPods.size > 0) {
+      setTimeout(() => {
+        if (pilePrefsApi.shouldPileBeVisible()) {
+          showPile();
+          debugLog("[AlwaysShow] Showing pile on startup - always-show mode enabled");
+        }
+      }, 100); // Small delay to ensure DOM is ready
+    }
   }
 
   // Add a pod to the pile
@@ -625,6 +647,31 @@
     return pileVisibilityApi.isHoveringPileArea();
   }
 
+  // Alt key handlers for always-show mode
+  function handleKeyDown(event) {
+    if (event.key === 'Alt' && !state.isAltPressed) {
+      state.isAltPressed = true;
+      debugLog("[AlwaysShow] Alt key pressed");
+
+      if (pilePrefsApi.getAlwaysShowPile() && state.dismissedPods.size > 0) {
+        // Hide pile when Alt is pressed in always-show mode
+        hidePile();
+      }
+    }
+  }
+
+  function handleKeyUp(event) {
+    if (event.key === 'Alt' && state.isAltPressed) {
+      state.isAltPressed = false;
+      debugLog("[AlwaysShow] Alt key released");
+
+      if (pilePrefsApi.getAlwaysShowPile() && state.dismissedPods.size > 0) {
+        // Show pile again when Alt is released in always-show mode
+        showPile();
+      }
+    }
+  }
+
   // Cleanup function to prevent memory leaks
   function cleanup() {
     debugLog("Cleaning up dismissed downloads pile system");
@@ -650,6 +697,7 @@
       // Remove preference observer
       if (state.prefObserver) {
         try {
+          Services.prefs.removeObserver(window.zenStuffPilePrefs.PREFS.alwaysShowPile, state.prefObserver);
           Services.prefs.removeObserver(window.zenStuffPilePrefs.PREFS.useLibraryButton, state.prefObserver);
         } catch (error) {
           console.warn('[Cleanup] Error removing preference observers:', error);
@@ -691,6 +739,7 @@
     applyGridPosition,
     hidePile,
     showPile,
+    getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
     shouldDisableHover,
     isHoveringPileArea,
     saveDismissedPodToSession,

@@ -15,6 +15,7 @@
 
   if (location.href !== "chrome://browser/content/browser.xhtml") return;
 
+  const PREF_ENABLE = "extensions.downloads.enable_pod_handoff_animation";
   const GHOST_CLASS = "zen-tidy-pod-handoff-ghost";
 
   /** Motion constants; kept local so future tuning only touches this file. */
@@ -28,13 +29,23 @@
   window.zenTidyDownloadsPodHandoff = {
     /**
      * @param {Object} ctx
+     * @param {function} ctx.getPref
      * @param {function} ctx.debugLog
      * @returns {{
+     *   isEnabled: function(): boolean,
      *   animate: function(options: { fromRect: DOMRect, iconClone?: HTMLElement|null, toElement: HTMLElement, onComplete?: function }): boolean
      * }}
      */
     createHandoffAnimator(ctx) {
-      const { debugLog } = ctx;
+      const { getPref, debugLog } = ctx;
+
+      function isEnabled() {
+        try {
+          return getPref(PREF_ENABLE, true) !== false;
+        } catch (e) {
+          return true;
+        }
+      }
 
       /**
        * Build the ghost element. We reuse the pie's cloned icon when
@@ -84,6 +95,7 @@
        * @returns {boolean}
        */
       function animate(opts) {
+        if (!isEnabled()) return false;
         const { fromRect, iconClone, toElement, onComplete } = opts || {};
 
         if (!fromRect || !toElement) {
@@ -161,6 +173,7 @@
       }
 
       return {
+        isEnabled,
         animate
       };
     }

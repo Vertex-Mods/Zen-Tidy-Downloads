@@ -52,6 +52,8 @@
         setupPileBackgroundHoverEvents,
         updatePointerEvents,
         updatePileContainerWidth,
+        getAlwaysShowPile,
+        shouldPileBeVisible,
         isContextMenuVisible,
         pileHoverDebug: pileHoverDebugFromCtx
       } = ctx;
@@ -264,9 +266,16 @@
           }
           generateGridPosition(podData.key);
           updateDownloadsButtonVisibility();
-          updatePileVisibility(animate);
-          if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
-            setTimeout(() => updatePodTextColors(), 50);
+          if (shouldPileBeVisible()) {
+            showPile();
+            setTimeout(() => {
+              updatePodTextColors();
+            }, 50);
+          } else {
+            updatePileVisibility(animate);
+            if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
+              setTimeout(() => updatePodTextColors(), 50);
+            }
           }
           schedulePileLayoutRepair("refresh-pod", 120);
           maybeRedockLibraryPieAfterPileDomChange();
@@ -292,9 +301,16 @@
         generateGridPosition(podData.key);
         updateDownloadsButtonVisibility();
 
-        updatePileVisibility(animate);
-        if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
-          setTimeout(() => updatePodTextColors(), 50);
+        if (shouldPileBeVisible()) {
+          showPile();
+          setTimeout(() => {
+            updatePodTextColors();
+          }, 50);
+        } else {
+          updatePileVisibility(animate);
+          if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
+            setTimeout(() => updatePodTextColors(), 50);
+          }
         }
 
         schedulePileLayoutRepair("add-pod", 120);
@@ -361,7 +377,7 @@
               state.recentlyRemoved = false;
               debugLog("[RemovePod] Cleared recentlyRemoved flag - pile can now hide normally");
 
-              if (!shouldDisableHover()) {
+              if (!getAlwaysShowPile() && !shouldDisableHover()) {
                 const isHoveringDownloadArea = state.downloadButton?.matches(":hover");
                 const isHoveringPile = isHoveringPileArea();
 
@@ -430,17 +446,23 @@
         }
 
         debugLog("[DownloadHover] handleDownloadButtonHover called", {
-          dismissedPodsSize: state.dismissedPods.size
+          dismissedPodsSize: state.dismissedPods.size,
+          alwaysShowMode: getAlwaysShowPile()
         });
 
         pileHoverDebug("downloadButtonHover enter", {
           dismissedPods: state.dismissedPods.size,
+          alwaysShowPile: getAlwaysShowPile(),
           compactMode: document.documentElement.getAttribute("zen-compact-mode"),
           sidebarExpanded: document.documentElement.getAttribute("zen-sidebar-expanded")
         });
 
         if (state.dismissedPods.size === 0) {
           pileHoverDebug("downloadButtonHover ABORT: no dismissed pods");
+          return;
+        }
+        if (getAlwaysShowPile()) {
+          pileHoverDebug("downloadButtonHover ABORT: always-show-pile pref (hover does not open pile)");
           return;
         }
 
@@ -454,6 +476,7 @@
       }
 
       function handleDownloadButtonLeave() {
+        if (getAlwaysShowPile()) return;
         if (shouldDisableHover()) return;
         if (isContextMenuVisible()) {
           state.pendingPileClose = true;
@@ -480,8 +503,13 @@
         }
 
         pileHoverDebug("dynamicSizerHover enter", {
+          alwaysShowPile: getAlwaysShowPile(),
           dismissedPods: state.dismissedPods.size
         });
+        if (getAlwaysShowPile()) {
+          pileHoverDebug("dynamicSizerHover ABORT: always-show");
+          return;
+        }
         clearTimeout(state.hoverTimeout);
         if (state.dismissedPods.size > 0) {
           pileHoverDebug("dynamicSizerHover → showPile");
@@ -500,6 +528,8 @@
           state.pendingPileClose = true;
           return;
         }
+        if (getAlwaysShowPile()) return;
+
         state.hoverTimeout = setTimeout(() => {
           const isHoveringDownloadArea = state.downloadButton?.matches(":hover");
           const isHoveringPile = isHoveringPileArea();
@@ -533,6 +563,8 @@
           state.pendingPileClose = true;
           return;
         }
+        if (getAlwaysShowPile()) return;
+
         state.hoverTimeout = setTimeout(() => {
           const isHoveringDownloadArea = state.downloadButton?.matches(":hover");
           if (!isHoveringDownloadArea && !isHoveringPileArea()) {

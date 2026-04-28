@@ -24,6 +24,7 @@
       this.gridPositions = new Map();
       this.isInitialized = false;
       this.isTransitioning = false;
+      this.isAltPressed = false;
       this.currentZenSidebarWidthForPile = "";
       this.retryCount = 0;
       this.eventListeners = new Map();
