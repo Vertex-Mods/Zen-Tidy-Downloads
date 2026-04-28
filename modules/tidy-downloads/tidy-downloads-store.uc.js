@@ -59,7 +59,18 @@
          * pod-lifecycle module will own it and renderers become read-only.
          * @type {Map<string, unknown>}
          */
-        progressingDownloads: new Map()
+        progressingDownloads: new Map(),
+        progressPileListeners: new Set(),
+        /** @type {Map<string, number>} throttle timestamps for progress pile upserts */
+        progressPileUpsertThrottle: new Map(),
+        /** @type {WeakMap<object, string>} last canonical pile key per Download object (rekey) */
+        progressPileKeyByDownload: new WeakMap(),
+        /**
+         * When true, zen-stuff must not open the dismissed pile from library/sizer/pod
+         * hover — the master rename-success tooltip is intentionally shown.
+         * Toggled only from tidy-downloads-tooltip-layout (not inferred from DOM).
+         */
+        pileHoverBlockedByRenameTooltip: false
       };
     }
   };

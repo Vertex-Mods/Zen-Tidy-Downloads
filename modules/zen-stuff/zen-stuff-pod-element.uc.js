@@ -50,7 +50,10 @@
         const row = document.createElement("div");
         row.className = "dismissed-pod-row";
         row.dataset.podKey = podData.key;
-        row.title = `${podData.filename}\nClick: Open file\nMiddle-click: Show in file explorer\nRight-click: Context menu`;
+        row.dataset.pilePhase = podData.inProgress ? "progress" : "completed";
+        row.title = podData.inProgress
+          ? `${podData.filename}\nDownloading…`
+          : `${podData.filename}\nClick: Open file\nMiddle-click: Show in file explorer\nRight-click: Context menu`;
 
         row.style.cssText = `
       position: absolute;
@@ -210,7 +213,11 @@
           preview.appendChild(iconSpan);
         };
 
-        renderPreview();
+        if (podData.inProgress) {
+          preview.innerHTML = "";
+        } else {
+          renderPreview();
+        }
 
         pod.appendChild(preview);
         row.appendChild(pod);
@@ -257,7 +264,9 @@
         const fileSize = document.createElement("div");
         fileSize.className = "dismissed-pod-filesize";
         const sizeBytes = podData.fileSize || 0;
-        fileSize.textContent = formatBytes(sizeBytes);
+        fileSize.textContent = podData.inProgress
+          ? podData.progressSubLabel || "…"
+          : formatBytes(sizeBytes);
         fileSize.style.cssText = `
       font-size: 10px;
       color: var(--zen-text-color-deemphasized, #a0a0a0);
@@ -268,90 +277,100 @@
         textContainer.appendChild(fileSize);
         row.appendChild(textContainer);
 
-        row.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          debugLog(`Attempting to open file: ${podData.key}`);
-          openPodFile(podData);
-        });
-
-        row.addEventListener("mousedown", (e) => {
-          if (e.button === 1) {
+        if (podData.inProgress) {
+          row.style.cursor = "default";
+          filename.style.cursor = "default";
+          row.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            debugLog(`Attempting to show file in explorer: ${podData.key}`);
-            showPodFileInExplorer(podData);
-          }
-        });
-
-        row.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          setPileContextMenuActive(true);
-          ensurePodContextMenu();
-          setPodContextMenuPodData(podData);
-          const podContextMenu = getPodContextMenu();
-          if (!podContextMenu) return;
-          if (typeof podContextMenu.openPopupAtScreen === "function") {
-            podContextMenu.openPopupAtScreen(e.screenX, e.screenY, true);
-          } else {
-            podContextMenu.openPopup(row, "after_start", 0, 0, true, false, e);
-          }
-        });
-
-        row.setAttribute("draggable", "true");
-        row.addEventListener("dragstart", async (e) => {
-          if (!podData.targetPath) {
+          });
+          row.setAttribute("draggable", "false");
+        } else {
+          row.addEventListener("click", (e) => {
             e.preventDefault();
-            return;
-          }
+            e.stopPropagation();
+            debugLog(`Attempting to open file: ${podData.key}`);
+            openPodFile(podData);
+          });
 
-          const img = pod.querySelector("img");
-          if (img && !img.complete) {
+          row.addEventListener("mousedown", (e) => {
+            if (e.button === 1) {
+              e.preventDefault();
+              e.stopPropagation();
+              debugLog(`Attempting to show file in explorer: ${podData.key}`);
+              showPodFileInExplorer(podData);
+            }
+          });
+
+          row.addEventListener("contextmenu", (e) => {
             e.preventDefault();
-            debugLog("[DragDrop] Image not loaded, preventing drag for:", podData.filename);
-            return;
-          }
+            setPileContextMenuActive(true);
+            ensurePodContextMenu();
+            setPodContextMenuPodData(podData);
+            const podContextMenu = getPodContextMenu();
+            if (!podContextMenu) return;
+            if (typeof podContextMenu.openPopupAtScreen === "function") {
+              podContextMenu.openPopupAtScreen(e.screenX, e.screenY, true);
+            } else {
+              podContextMenu.openPopup(row, "after_start", 0, 0, true, false, e);
+            }
+          });
 
-          try {
-            const file = await FileSystem.createFileInstance(podData.targetPath);
-            if (!file.exists()) {
+          row.setAttribute("draggable", "true");
+          row.addEventListener("dragstart", async (e) => {
+            if (!podData.targetPath) {
               e.preventDefault();
               return;
             }
 
+            const img = pod.querySelector("img");
+            if (img && !img.complete) {
+              e.preventDefault();
+              debugLog("[DragDrop] Image not loaded, preventing drag for:", podData.filename);
+              return;
+            }
+
             try {
-              if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === "function") {
-                e.dataTransfer.mozSetDataAt("application/x-moz-file", file, 0);
+              const file = await FileSystem.createFileInstance(podData.targetPath);
+              if (!file.exists()) {
+                e.preventDefault();
+                return;
               }
-            } catch (mozError) {
-              debugLog("[DragDrop] mozSetDataAt failed, continuing with other formats:", mozError);
-            }
 
-            const fileUrl =
-              file && file.path
-                ? file.path.startsWith("\\")
-                  ? "file:" + file.path.replace(/\\/g, "/")
-                  : "file:///" + file.path.replace(/\\/g, "/")
-                : "";
-            if (fileUrl) {
-              e.dataTransfer.setData("text/uri-list", fileUrl);
-              e.dataTransfer.setData("text/plain", fileUrl);
-            }
+              try {
+                if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === "function") {
+                  e.dataTransfer.mozSetDataAt("application/x-moz-file", file, 0);
+                }
+              } catch (mozError) {
+                debugLog("[DragDrop] mozSetDataAt failed, continuing with other formats:", mozError);
+              }
 
-            if (podData.sourceUrl) {
-              e.dataTransfer.setData(
-                "DownloadURL",
-                `${podData.contentType || "application/octet-stream"}:${podData.filename}:${podData.sourceUrl}`
-              );
-            }
+              const fileUrl =
+                file && file.path
+                  ? file.path.startsWith("\\")
+                    ? "file:" + file.path.replace(/\\/g, "/")
+                    : "file:///" + file.path.replace(/\\/g, "/")
+                  : "";
+              if (fileUrl) {
+                e.dataTransfer.setData("text/uri-list", fileUrl);
+                e.dataTransfer.setData("text/plain", fileUrl);
+              }
 
-            pod.offsetWidth;
-            e.dataTransfer.setDragImage(pod, 22, 22);
-          } catch (err) {
-            debugLog("[DragDrop] Error during dragstart:", err);
-            e.preventDefault();
-          }
-        });
+              if (podData.sourceUrl) {
+                e.dataTransfer.setData(
+                  "DownloadURL",
+                  `${podData.contentType || "application/octet-stream"}:${podData.filename}:${podData.sourceUrl}`
+                );
+              }
+
+              pod.offsetWidth;
+              e.dataTransfer.setDragImage(pod, 22, 22);
+            } catch (err) {
+              debugLog("[DragDrop] Error during dragstart:", err);
+              e.preventDefault();
+            }
+          });
+        }
 
         return row;
       }

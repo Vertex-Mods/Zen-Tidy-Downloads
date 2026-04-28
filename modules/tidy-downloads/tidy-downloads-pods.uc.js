@@ -28,7 +28,6 @@
      * @param {function} ctx.getAddToAIRenameQueue - () => addToAIRenameQueue impl
      * @param {function} ctx.getAiRenamingPossible - () => aiRenamingPossible flag
      * @param {function} ctx.scheduleCardRemoval
-     * @param {function} ctx.clearStickyPodsOnly
      * @param {function} ctx.updateDownloadCardsVisibility
      * @param {function} ctx.updateUIForFocusedDownload
      * @param {function} ctx.getPodsRowContainer - () => pods row element or null
@@ -52,13 +51,21 @@
         getAddToAIRenameQueue,
         getAiRenamingPossible,
         scheduleCardRemoval,
-        clearStickyPodsOnly,
         updateDownloadCardsVisibility,
         updateUIForFocusedDownload,
         getPodsRowContainer,
         migrateAIRenameKeys,
         getLifecycleApi
       } = ctx;
+
+      function requestStickyAfterTerminal(podKey) {
+        const life = typeof getLifecycleApi === "function" ? getLifecycleApi() : null;
+        if (life && typeof life.scheduleImmediateSticky === "function") {
+          life.scheduleImmediateSticky(podKey);
+        } else {
+          scheduleCardRemoval(podKey);
+        }
+      }
 
       const {
         activeDownloadCards,
@@ -250,6 +257,13 @@
             });
           }
 
+          /* Pile-expand on hover: wired at creation so the user can hover the pod and
+             open the dismissed pile immediately. zen-stuff handles request-pile-expand;
+             opening the pile dismisses the rename-success tooltip if needed. */
+          podElement.addEventListener("mouseenter", () => {
+            document.dispatchEvent(new CustomEvent("request-pile-expand", { bubbles: true }));
+          });
+
           podElement.setAttribute("draggable", "true");
           podElement.addEventListener("dragstart", async (e) => {
             if (!download.target?.path) {
@@ -324,7 +338,6 @@
           activeDownloadCards.set(key, cardData);
 
           if (!orderedPodKeys.includes(key)) {
-            if (stickyPods.size > 0) clearStickyPodsOnly();
             orderedPodKeys.push(key);
 
             if (orderedPodKeys.length === 1) {
@@ -428,11 +441,11 @@
             debugLog(`[PodFUNC] Not adding ${key} to AI rename queue - conditions not met (new pod)`);
           }
 
-          scheduleCardRemoval(key);
+          requestStickyAfterTerminal(key);
         }
         if (download.error) {
           podElement.classList.add("error");
-          scheduleCardRemoval(key);
+          requestStickyAfterTerminal(key);
         }
 
         return podElement;

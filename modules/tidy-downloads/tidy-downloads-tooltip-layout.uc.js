@@ -22,8 +22,8 @@
      * @param {function} [ctx.getAiRenamingPossible] - unused, kept for caller compat
      * @param {function} [ctx.addToAIRenameQueue] - unused, kept for caller compat
      * @param {function} [ctx.scheduleCardRemoval] - unused, kept for caller compat
-     * @param {function} ctx.isInQueue
-     * @param {function} ctx.updateQueueStatusInUI
+     * @param {function} [ctx.isInQueue] - unused, kept for caller compat
+     * @param {function} [ctx.updateQueueStatusInUI] - unused, kept for caller compat
      * @param {function} ctx.getMasterTooltip
      * @param {function} ctx.getPodsRowContainer
      * @param {function} ctx.getDownloadCardsContainer
@@ -36,8 +36,6 @@
         debugLog,
         formatBytes,
         previewApi,
-        isInQueue,
-        updateQueueStatusInUI,
         getMasterTooltip,
         getPodsRowContainer,
         getDownloadCardsContainer,
@@ -64,11 +62,88 @@
         return _cachedTooltipEls;
       }
 
+      /**
+       * Master tooltip is only shown after a successful on-disk AI rename
+       * (`download.aiName` set). Progress pods never get the tooltip.
+       * @param {{ phase?: string, podElement?: HTMLElement|null }|null|undefined} cardData
+       * @param {{ succeeded?: boolean, aiName?: string|null }|null|undefined} download
+       * @returns {boolean}
+       */
+      function shouldShowMasterRenameTooltip(cardData, download) {
+        if (!cardData?.podElement || !download) return false;
+        const isProgress =
+          cardData.phase === "progress" ||
+          cardData.podElement.dataset?.state === "progress";
+        if (isProgress) return false;
+        return !!(download.succeeded && download.aiName);
+      }
+
+      function hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer) {
+        store.pileHoverBlockedByRenameTooltip = false;
+        masterTooltipDOMElement.style.display = "none";
+        masterTooltipDOMElement.style.opacity = "0";
+        masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+        masterTooltipDOMElement.style.pointerEvents = "none";
+        masterTooltipDOMElement.style.visibility = "hidden";
+        if (downloadCardsContainer) {
+          downloadCardsContainer.style.display = "none";
+          downloadCardsContainer.style.opacity = "0";
+          downloadCardsContainer.style.visibility = "hidden";
+          downloadCardsContainer.style.pointerEvents = "none";
+        }
+      }
+
+      function dismissMasterRenameTooltip() {
+        const masterTooltipDOMElement = getMasterTooltip();
+        const downloadCardsContainer = getDownloadCardsContainer();
+        if (!masterTooltipDOMElement) return false;
+        hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
+        updateDownloadCardsVisibility();
+        return true;
+      }
+
       function managePodVisibilityAndAnimations() {
             const masterTooltipDOMElement = getMasterTooltip();
             const podsRowContainerElement = getPodsRowContainer();
             const downloadCardsContainer = getDownloadCardsContainer();
         if (!masterTooltipDOMElement || !podsRowContainerElement) return;
+        const podNominalWidth = 56;
+
+        /**
+         * Sticky pods normally stay in orderedPodKeys and use jukebox layout. This only
+         * covers orphan stickies (e.g. rekey race) as plain flex items in the row.
+         * @returns {boolean} true if at least one orphan sticky pod was laid out
+         */
+        function layoutStickyPodsOutsideJukebox() {
+          const sticky = store.stickyPods;
+          if (!(sticky instanceof Set) || sticky.size === 0) return false;
+          let laidOut = false;
+          for (const sk of sticky) {
+            if (orderedPodKeys.includes(sk)) continue;
+            const cd = activeDownloadCards.get(sk);
+            if (!cd?.podElement || cd.isBeingRemoved) continue;
+            laidOut = true;
+            const el = cd.podElement;
+            if (!el.parentNode && podsRowContainerElement) {
+              podsRowContainerElement.appendChild(el);
+              cd.domAppended = true;
+            }
+            el.style.position = "relative";
+            el.style.display = "flex";
+            el.style.opacity = "1";
+            el.style.transform = "none";
+            el.style.zIndex = "";
+            el.style.marginRight = "";
+            if (el.style.width === `${podNominalWidth}px`) {
+              el.style.width = "";
+            }
+            cd.isVisible = true;
+            cd.intendedTargetTransform = null;
+            cd.intendedTargetOpacity = null;
+          }
+          return laidOut;
+        }
+
         debugLog("[LayoutManager] managePodVisibilityAndAnimations Natural Stacking Style called.");
         debugLog(`[LayoutManager] Current state: orderedPodKeys=${orderedPodKeys.length}, focusedKey=${focusedKeyRef.current}, activeDownloadCards=${activeDownloadCards.size}`);
 
@@ -76,22 +151,43 @@
             const progressing =
               store.progressingDownloads instanceof Map && store.progressingDownloads.size > 0;
 
-            // Always collapse the master tooltip when no pod is focused — the
-            // tooltip belongs to the live-pod phase only. Using display:none
-            // (not just opacity:0) removes it from layout AND matches the
-            // CSS default, so it isn't visibly "in the DOM" during progress.
-            masterTooltipDOMElement.style.display = "none";
-            masterTooltipDOMElement.style.opacity = "0";
-            masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-            masterTooltipDOMElement.style.pointerEvents = "none";
-            masterTooltipDOMElement.style.visibility = "hidden";
+            const cardForFocus = focusedKeyRef.current
+              ? activeDownloadCards.get(focusedKeyRef.current)
+              : null;
+            const keepRenameSuccessTooltip = shouldShowMasterRenameTooltip(
+              cardForFocus,
+              cardForFocus?.download
+            );
 
-            if (downloadCardsContainer) {
-              downloadCardsContainer.style.display = "none";
-              downloadCardsContainer.style.opacity = "0";
-              downloadCardsContainer.style.visibility = "hidden";
-              downloadCardsContainer.style.pointerEvents = "none";
+            if (!keepRenameSuccessTooltip) {
+              // Collapse the master tooltip when nothing jukebox-focused needs it.
+              // Sticky pods after AI rename keep the rename-success tooltip visible
+              // even though orderedPodKeys is empty (see updateUIForFocusedDownload).
+              masterTooltipDOMElement.style.display = "none";
+              masterTooltipDOMElement.style.opacity = "0";
+              masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+              masterTooltipDOMElement.style.pointerEvents = "none";
+              masterTooltipDOMElement.style.visibility = "hidden";
+
+              if (downloadCardsContainer) {
+                downloadCardsContainer.style.display = "none";
+                downloadCardsContainer.style.opacity = "0";
+                downloadCardsContainer.style.visibility = "hidden";
+                downloadCardsContainer.style.pointerEvents = "none";
+              }
+
+              store.pileHoverBlockedByRenameTooltip = false;
+            } else {
+              store.pileHoverBlockedByRenameTooltip = true;
             }
+
+            const hasStickyLayout = layoutStickyPodsOutsideJukebox();
+            if (hasStickyLayout || progressing) {
+              podsRowContainerElement.style.height = `${podNominalWidth}px`;
+            } else {
+              podsRowContainerElement.style.height = "0px";
+            }
+            podsRowContainerElement.style.gap = "0px";
 
             if (progressing) {
               // Pie-only: pods shell visible; cards container stays off-layout (compact-visibility).
@@ -99,11 +195,10 @@
               debugLog("[LayoutManager] Progress-only (pie, no pods): master tooltip hidden; pods shell only.");
             } else {
               updateDownloadCardsVisibility();
-              debugLog("[LayoutManager] No pods and no progress — hiding download UI via compact visibility.");
+              debugLog("[LayoutManager] No jukebox pods — compact visibility (sticky and/or idle).");
             }
 
             debugLog(`[LayoutManager] Exiting: No OrderedPodKeys.`);
-            podsRowContainerElement.style.gap = "0px";
             return;
         }
 
@@ -120,8 +215,6 @@
                 }
             }
         }
-
-        const podNominalWidth = 56;
 
         // Ensure all pods in orderedPodKeys are in the DOM and have initial styles for animation/layout.
         // Run before tooltip width check so pods are attached even when the master tooltip still measures 0 on first show.
@@ -149,7 +242,19 @@
             }
         });
 
-        const tooltipWidth = masterTooltipDOMElement.offsetWidth;
+        let tooltipWidth = masterTooltipDOMElement.offsetWidth;
+        const tooltipCs = window.getComputedStyle(masterTooltipDOMElement);
+        if (
+          tooltipWidth === 0 &&
+          orderedPodKeys.length > 0 &&
+          (tooltipCs.display === "none" || masterTooltipDOMElement.style.display === "none")
+        ) {
+          tooltipWidth = 300;
+          debugLog("[LayoutManager] Tooltip not in layout (display:none); using fallback width for jukebox.", {
+            fallbackWidth: tooltipWidth
+          });
+        }
+
         const podOverlapAmount = 50;
         const baseZIndex = 10;
         const maxVisiblePodsInPile = Math.min(4, Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1);
@@ -293,23 +398,35 @@
                 cardData.intendedTargetOpacity = targetOpacity;
                 cardData.isVisible = true;
 
-                // Tooltip animation for focused pod
-                if (layoutData.isFocused && masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === '0') {
-                     // Pod is focused and tooltip is currently hidden, animate tooltip IN.
-                     // This relies on updateUIForFocusedDownload having set the initial opacity/transform if focus changed.
-                     debugLog(`[LayoutManager_Jukebox_Tooltip] Focused pod ${key} is visible/animating, and tooltip is hidden. Animating tooltip IN.`);
+                const fd = activeDownloadCards.get(key);
+                const fdl = fd?.download;
+                const showRenameTooltip = shouldShowMasterRenameTooltip(fd, fdl);
+
+                if (
+                  layoutData.isFocused &&
+                  showRenameTooltip &&
+                  masterTooltipDOMElement &&
+                  masterTooltipDOMElement.style.opacity === '0'
+                ) {
+                     debugLog(`[LayoutManager_Jukebox_Tooltip] Focused pod ${key} (rename success) — animating tooltip IN.`);
                      setTimeout(() => {
+                        if (focusedKeyRef.current !== key) return;
+                        const fdNow = activeDownloadCards.get(key);
+                        const fdlNow = fdNow?.download;
+                        if (!shouldShowMasterRenameTooltip(fdNow, fdlNow)) return;
                         const dc = getDownloadCardsContainer();
                         if (dc) {
                           dc.style.display = "flex";
                           dc.style.opacity = "1";
                           dc.style.visibility = "visible";
-                          dc.style.pointerEvents = "auto";
+                          /* Wrapper stays non-interactive so pods below (lower z-index) stay hoverable. */
+                          dc.style.pointerEvents = "none";
                         }
                         masterTooltipDOMElement.style.visibility = "visible";
                         masterTooltipDOMElement.style.opacity = "1";
                         masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
                         masterTooltipDOMElement.style.pointerEvents = "auto";
+                        store.pileHoverBlockedByRenameTooltip = true;
                     }, 100);
                 }
             } else {
@@ -332,10 +449,12 @@
                 cardData.isVisible = false;
             }
         });
-        
+
+        const hasStickyOutsideJukebox = layoutStickyPodsOutsideJukebox();
+
         // Set container height dynamically based on whether any pods are visible
         // This is important as pods are position:absolute now.
-        if (visiblePodsLayoutData.length > 0) {
+        if (visiblePodsLayoutData.length > 0 || hasStickyOutsideJukebox) {
             podsRowContainerElement.style.height = `${podNominalWidth}px`; // Set to pod height
           } else {
             podsRowContainerElement.style.height = '0px';
@@ -401,153 +520,109 @@
           masterTooltipDOMElement.style.pointerEvents = "none";
           masterTooltipDOMElement.style.visibility = "hidden";
         } else {
-          // cardDataToFocus and podElement are valid, proceed with UI updates for tooltip and AI.
-          if (downloadCardsContainer) {
-            downloadCardsContainer.style.display = "flex";
-            downloadCardsContainer.style.opacity = "1";
-            downloadCardsContainer.style.visibility = "visible";
-            downloadCardsContainer.style.pointerEvents = "auto";
-          }
-          masterTooltipDOMElement.style.display = "flex";
-          // Pie-only / compact-mode paths set visibility:hidden; must clear when a live pod shows the tooltip.
-          masterTooltipDOMElement.style.visibility = "visible";
+          const download = cardDataToFocus.download;
+          const showRenameTooltip = shouldShowMasterRenameTooltip(cardDataToFocus, download);
 
-          if (oldFocusedKey !== focusedKeyRef.current || isNewOrSignificantUpdate) {
-              debugLog(`[UIUPDATE_TOOLTIP_RESET] Focus changed or significant update. Resetting tooltip for animation for ${focusedKeyRef.current}. Old focus: ${oldFocusedKey}`);
-              masterTooltipDOMElement.style.opacity = "0"; 
+          if (!showRenameTooltip) {
+            debugLog(
+              `[UIUPDATE_TOOLTIP_SUPPRESSED] Master tooltip only after AI rename success; hidden for ${focusedKeyRef.current}.`,
+              { hasDownload: !!download, aiName: !!download?.aiName, succeeded: download?.succeeded }
+            );
+            hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
+          } else if (download) {
+            if (downloadCardsContainer) {
+              downloadCardsContainer.style.display = "flex";
+              downloadCardsContainer.style.opacity = "1";
+              downloadCardsContainer.style.visibility = "visible";
+              /* Full-width wrapper sits above pods (z-index); must not capture pointer events. */
+              downloadCardsContainer.style.pointerEvents = "none";
+            }
+            masterTooltipDOMElement.style.display = "flex";
+            masterTooltipDOMElement.style.visibility = "visible";
+            store.pileHoverBlockedByRenameTooltip = true;
+
+            const needsRenameTooltipEntranceAnim =
+              oldFocusedKey !== focusedKeyRef.current || isNewOrSignificantUpdate;
+            if (needsRenameTooltipEntranceAnim) {
+              debugLog(
+                `[UIUPDATE_TOOLTIP_RESET] Focus changed or significant update. Resetting tooltip for animation for ${focusedKeyRef.current}. Old focus: ${oldFocusedKey}`
+              );
+              masterTooltipDOMElement.style.opacity = "0";
               masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
               masterTooltipDOMElement.style.pointerEvents = "none";
-          }
-
-          const download = cardDataToFocus.download; 
-          const podElement = cardDataToFocus.podElement; 
-
-          if (!download) {
-            debugLog(`[UIUPDATE_ERROR] cardDataToFocus for key ${focusedKeyRef.current} is valid, but its .download property is undefined. Cannot update tooltip content or AI.`);
-            // Keep tooltip hidden or show a generic error if it was supposed to be visible
-            if (masterTooltipDOMElement.style.opacity !== '0') {
-                 masterTooltipDOMElement.style.opacity = "0";
-                 masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-                 masterTooltipDOMElement.style.pointerEvents = "none";
+            } else {
+              masterTooltipDOMElement.style.opacity = "1";
+              masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
+              masterTooltipDOMElement.style.pointerEvents = "auto";
             }
-          } else {
-            // Both cardDataToFocus, podElement, AND download object are valid. Proceed with detailed updates.
-            // Completion side effects (AI queue, scheduleCardRemoval, preview) are handled by
-            // tidy-downloads-pods.uc.js — this module only updates the tooltip display state.
 
-            // 1. Update masterTooltipDOMElement content
             const { titleEl, statusEl, progressEl, originalFilenameEl, undoBtnEl, sparkleLayer, fileSizeEl: cachedFileSizeEl } =
               getTooltipElements(masterTooltipDOMElement);
 
-            // Derive display name from actual file path if possible to catch OS renames (e.g. file(1).jpg)
             let displayName = download.aiName || cardDataToFocus.originalFilename || "File";
-            // Always attempt to get the actual filename from disk, even if AI renamed it.
-            // If AI renamed it to "foo.jpg" but OS made it "foo(1).jpg", we want "foo(1).jpg".
             if (download.target?.path) {
-                try {
-                    const pathSeparator = download.target.path.includes('\\') ? '\\' : '/';
-                    const actualFilename = download.target.path.split(pathSeparator).pop();
-                    // We prefer the actual filename if it exists and differs from what we thought
-                    if (actualFilename && actualFilename !== displayName) {
-                         // If it was AI renamed, we might want to check if the actual filename contains the AI name
-                         // But generally, the file on disk is the ultimate truth.
-                        displayName = actualFilename;
-                    }
-                } catch (e) {
-                    // Fallback
+              try {
+                const pathSeparator = download.target.path.includes("\\") ? "\\" : "/";
+                const actualFilename = download.target.path.split(pathSeparator).pop();
+                if (actualFilename && actualFilename !== displayName) {
+                  displayName = actualFilename;
                 }
+              } catch (_e) {
+                /* ignore */
+              }
             }
-            
+
             if (titleEl) {
               titleEl.textContent = displayName;
               titleEl.title = displayName;
             }
 
-            if (statusEl && originalFilenameEl && progressEl && undoBtnEl) { // Include undoBtnEl in the check
-                if (download.aiName && download.succeeded) {
-                    // AI Renamed State
-                    let finalSize = download.currentBytes;
-                    if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
-                    const fileSizeText = formatBytes(finalSize || 0);
-                    
-                    statusEl.textContent = "Download renamed to:";
-                    if (cachedFileSizeEl) {
-                        cachedFileSizeEl.textContent = fileSizeText;
-                        cachedFileSizeEl.style.display = "block";
-                    }
-                    statusEl.style.color = "#a0a0a0"; 
+            if (statusEl && originalFilenameEl && progressEl && undoBtnEl) {
+              let finalSize = download.currentBytes;
+              if (!(typeof finalSize === "number" && finalSize > 0)) finalSize = download.totalBytes;
+              const fileSizeText = formatBytes(finalSize || 0);
 
-                    originalFilenameEl.textContent = cardDataToFocus.originalFilename; 
-                    originalFilenameEl.title = cardDataToFocus.originalFilename;
-                    originalFilenameEl.style.display = "block";
+              statusEl.textContent = "Download renamed to:";
+              if (cachedFileSizeEl) {
+                cachedFileSizeEl.textContent = fileSizeText;
+                cachedFileSizeEl.style.display = "block";
+              }
+              statusEl.style.color = "#a0a0a0";
 
-                    progressEl.style.display = "none"; 
-                    undoBtnEl.style.display = "inline-flex"; // Show undo button
-                    
-                    // Show sparkles
-                    if (sparkleLayer) {
-                      sparkleLayer.classList.add("visible");
-                    }
-                } else {
-                    // Default states (completed, error) - tooltip only shows after completion
-                    originalFilenameEl.style.display = "none"; 
-                    progressEl.style.display = "block";    
-                    undoBtnEl.style.display = "none"; // Hide undo button
-                    
-                    // Hide sparkles
-                    if (sparkleLayer) {
-                      sparkleLayer.classList.remove("visible");
-                    }
-                    
-                    if (cachedFileSizeEl) cachedFileSizeEl.style.display = "none";
-                    
-                    // Reset undo button to original undo icon and title
-                    undoBtnEl.title = "Undo Rename";
-                    const svgIcon = undoBtnEl.querySelector("svg");
-                    if (svgIcon) {
-                        const pathIcon = svgIcon.querySelector("path");
-                        if (pathIcon) {
-                            pathIcon.setAttribute("d", "M30.3,12.6c10.4,0,18.9,8.4,18.9,18.9s-8.5,18.9-18.9,18.9h-8.2c-0.8,0-1.3-0.6-1.3-1.4v-3.2c0-0.8,0.6-1.5,1.4-1.5h8.1c7.1,0,12.8-5.7,12.8-12.8s-5.7-12.8-12.8-12.8H16.4c0,0-0.8,0-1.1,0.1c-0.8,0.4-0.6,1,0.1,1.7l4.9,4.9c0.6,0.6,0.5,1.5-0.1,2.1L18,29.7c-0.6,0.6-1.3,0.6-1.9,0.1l-13-13c-0.5-0.5-0.5-1.3,0-1.8L16,2.1c0.6-0.6,1.6-0.6,2.1,0l2.1,2.1c0.6,0.6,0.6,1.6,0,2.1l-4.9,4.9c-0.6,0.6-0.6,1.3,0.4,1.3c0.3,0,0.7,0,0.7,0L30.3,12.6z");
-                        }
-                    }
+              originalFilenameEl.textContent = cardDataToFocus.originalFilename;
+              originalFilenameEl.title = cardDataToFocus.originalFilename;
+              originalFilenameEl.style.display = "block";
 
-                    if (download.error) {
-                        statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
-                        statusEl.style.color = "#ff6b6b";
-                    } else {
-                        statusEl.textContent = "Download completed";
-                        statusEl.style.color = "#1dd1a1";
-                    }
-                }
+              progressEl.style.display = "none";
+              undoBtnEl.style.display = "inline-flex";
+
+              if (sparkleLayer) {
+                sparkleLayer.classList.add("visible");
+              }
             }
 
-            if (progressEl) { // This block handles the content of progressEl when it's visible (completed states only)
-                if (progressEl.style.display !== 'none') {
-                    if (download.succeeded) {
-                        let finalSize = download.currentBytes;
-                        if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
-                        progressEl.textContent = `${formatBytes(finalSize || 0)}`;
-                    } else {
-                        let size = download.currentBytes || download.totalBytes;
-                        progressEl.textContent = typeof size === 'number' && size > 0 ? formatBytes(size) : "";
-                    }
-                }
-            }
-            
-            // Use 100% width - container already has padding
-            masterTooltipDOMElement.style.width = '100%';
+            masterTooltipDOMElement.style.width = "100%";
 
-            // 5. Handle AI Renaming UI status - queue addition is handled in tidy-downloads-pods
-            //    Here we just update the UI to reflect queue status
-              const inQueueOrProcessing = isInQueue(keyToFocus);
-            
-              debugLog(`[AI Rename Status] ${keyToFocus}: inQueueOrProcessing=${inQueueOrProcessing}, succeeded=${download.succeeded}, hasAiName=${!!download.aiName}`);
-            
-            // Update UI to show queue status
-              if (inQueueOrProcessing) {
-              updateQueueStatusInUI(keyToFocus);
+            debugLog(
+              `[AI Rename Status] ${keyToFocus}: tooltip shown (rename success), hasAiName=${!!download.aiName}`
+            );
+
+            if (needsRenameTooltipEntranceAnim) {
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                  if (focusedKeyRef.current !== keyToFocus) return;
+                  const cdNow = activeDownloadCards.get(keyToFocus);
+                  const dlNow = cdNow?.download;
+                  if (!shouldShowMasterRenameTooltip(cdNow, dlNow)) return;
+                  masterTooltipDOMElement.style.opacity = "1";
+                  masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
+                  masterTooltipDOMElement.style.pointerEvents = "auto";
+                });
+              });
             }
-          } // End of a valid 'download' object check
+          } else {
+            hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
+          }
         } // End of valid 'cardDataToFocus' and 'podElement' check
 
         // 4. Call managePodVisibilityAndAnimations (always call to ensure layout is correct)
@@ -658,7 +733,8 @@
       return {
         updateUIForFocusedDownload,
         managePodVisibilityAndAnimations,
-        handlePodScrollFocus
+        handlePodScrollFocus,
+        dismissMasterRenameTooltip
       };
     }
   };

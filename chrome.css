@@ -188,7 +188,9 @@
   width: 100%;
   left: 10px;
   bottom: 0;
-  pointer-events: auto;
+  /* Row spans full width; only .download-pod (and similar) should capture pointers
+     so the library button / dismissed pile stay hoverable in empty band area. */
+  pointer-events: none;
 }
 
 /* Download pods */
@@ -495,9 +497,26 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   display: none;
   align-items: center;
   justify-content: center;
-  background-color: var(--zen-colors-hover-bg, rgba(128, 128, 128, 0.25));
-  box-shadow: var(--zen-big-shadow, 0 2px 8px rgba(0, 0, 0, 0.2));
+  background-color: transparent;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   scale: 0.9;
+}
+
+/* Dismissed pile: same host reparented into .dismissed-pod-preview (36×36) */
+#zen-tidy-download-pie-host.zen-tidy-pie-host.zen-tidy-pie-host--pile-docked {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px;
+  min-height: 36px;
+  scale: 1;
+  border-radius: 50%;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+#zen-tidy-download-pie-host.zen-tidy-pie-host--pile-docked .zen-tidy-pie-ring-svg {
+  width: 32px;
+  height: 32px;
 }
 
 #zen-tidy-download-pie-host.zen-tidy-pie-host .zen-tidy-pie-ring-svg {
@@ -511,6 +530,7 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   overflow: visible;
 }
 
+/* White disc + primary-colored arrow (Zen download.svg mask) */
 #zen-tidy-download-pie-host.zen-tidy-pie-host .zen-download-arc-animation-inner-circle {
   position: relative;
   z-index: 0;
@@ -521,8 +541,10 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   flex: 1 1 auto;
   box-sizing: border-box;
   border-radius: 50%;
-  background-color: var(--toolbar-color, rgba(200, 200, 200, 0.35));
+  background-color: #fff;
   flex-shrink: 0;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 #zen-tidy-download-pie-host.zen-tidy-pie-host .zen-download-arc-animation-icon {
@@ -533,9 +555,11 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   height: 100%;
   background-color: var(--zen-primary-color, #0a84ff);
   -webkit-mask: url("chrome://browser/content/zen-images/downloads/download.svg") no-repeat center;
-  -webkit-mask-size: 70%;
+  -webkit-mask-size: 58%;
   mask: url("chrome://browser/content/zen-images/downloads/download.svg") no-repeat center;
-  mask-size: 70%;
+  mask-size: 58%;
+  mask-position: center 52%;
+  -webkit-mask-position: center 52%;
 }
 
 @keyframes zen-tidy-pie-spin {

@@ -89,7 +89,9 @@
       function updatePodKeysInSession() {
         try {
           if (!window.SessionStore) return;
-          const podKeys = Array.from(state.dismissedPods.keys());
+          const podKeys = Array.from(state.dismissedPods.entries())
+            .filter(([, d]) => !d?.inProgress)
+            .map(([k]) => k);
           SessionStore.setCustomWindowValue(window, "zen-stuff-pod-keys", JSON.stringify(podKeys));
         } catch (error) {
           console.error("[Dismissed Pile] Error updating pod keys in SessionStore:", error);

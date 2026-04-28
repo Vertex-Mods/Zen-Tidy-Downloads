@@ -54,8 +54,21 @@
         updatePileContainerWidth,
         getAlwaysShowPile,
         shouldPileBeVisible,
-        isContextMenuVisible
+        isContextMenuVisible,
+        pileHoverDebug: pileHoverDebugFromCtx
       } = ctx;
+
+      const pileHoverDebug =
+        typeof pileHoverDebugFromCtx === "function"
+          ? pileHoverDebugFromCtx
+          : function (msg, data) {
+              if (typeof window !== "undefined" && window.__zenPileHoverDebug === false) return;
+              try {
+                console.info("[PileHoverDebug]", msg, data !== undefined ? data : "");
+              } catch (_e) {
+                /* ignore */
+              }
+            };
 
       function isHoveringPileArea() {
         return (
@@ -88,20 +101,19 @@
         if (mediaControlsToolbar) mediaControlsToolbar.classList.add("zen-pile-expanded");
       }
 
-      let _podsRowRef = null;
-
       /**
-       * True when Zen Tidy Downloads is showing the in-progress library pie
-       * (#zen-tidy-download-pie-host). In that state, hovering the library /
-       * downloads button should not expand the dismissed pile — the pie is the
-       * active download affordance in that slot.
+       * True when Tidy Downloads is showing an in-flight download on the library
+       * slot (progress pod = pie). Then hovering the library / downloads button
+       * should not expand the dismissed pile.
        * @returns {boolean}
        */
       function isTidyDownloadsLibraryPieVisible() {
         try {
-          const pie = document.getElementById("zen-tidy-download-pie-host");
-          if (!pie || !pie.isConnected) return false;
-          const cs = window.getComputedStyle(pie);
+          const pieHost = document.querySelector("#zen-tidy-download-pie-host.zen-tidy-pie-host");
+          if (!pieHost || !pieHost.isConnected) return false;
+          const podsRow = document.querySelector("#userchrome-pods-row-container");
+          if (!podsRow || !podsRow.contains(pieHost)) return false;
+          const cs = window.getComputedStyle(pieHost);
           if (cs.display === "none" || cs.visibility === "hidden") return false;
           const op = parseFloat(cs.opacity);
           return !Number.isFinite(op) || op > 0;
@@ -110,28 +122,158 @@
         }
       }
 
-      function shouldDisableHover() {
+      function restoreLibraryPieToPodsRowIfNeededFromRow(rowEl) {
         try {
-          if (!_podsRowRef || !_podsRowRef.isConnected) {
-            _podsRowRef = document.getElementById("userchrome-pods-row-container");
-          }
-          if (_podsRowRef) {
-            const activePods = _podsRowRef.querySelectorAll(".download-pod:not(.zen-tidy-sticky-pod)");
-            if (activePods.length > 0) {
-              debugLog(`[HoverCheck] Found ${activePods.length} active (non-sticky) pods - disabling pile hover`);
-              return true;
-            }
-          }
-          return false;
-        } catch (error) {
-          debugLog(`[HoverCheck] Error checking main script state:`, error);
-          return false;
+          if (!rowEl?.querySelector?.("#zen-tidy-download-pie-host")) return;
+          window.zenTidyDownloads?.getLibraryPieController?.()?.restorePieToPodsRow?.();
+        } catch (_e) {
+          /* ignore */
         }
+      }
+
+      function syncLibraryPieDockForPile() {
+        try {
+          const pie = window.zenTidyDownloads?.getLibraryPieController?.();
+          if (!pie || typeof pie.dockIntoPilePreviewSlot !== "function") return;
+          const row = state.pileContainer?.querySelector('.dismissed-pod-row[data-pile-phase="progress"]');
+          const slot = row?.querySelector(".dismissed-pod-preview");
+          if (slot) pie.dockIntoPilePreviewSlot(slot);
+        } catch (_e) {
+          /* ignore */
+        }
+      }
+
+      function maybeRedockLibraryPieAfterPileDomChange() {
+        if (!state.dynamicSizer || state.dynamicSizer.style.height === "0px") return;
+        syncLibraryPieDockForPile();
+      }
+
+      /**
+       * Inspect master rename tooltip gate (for debugging + `isTidyDownloadsMasterRenameTooltipVisible`).
+       * @returns {{ blocks: boolean, parts: Record<string, unknown> }}
+       */
+      function getMasterRenameTooltipGateDetail() {
+        const parts = {
+          tidyApi: !!window.zenTidyDownloads,
+          flagBlocks:
+            window.zenTidyDownloads?.isRenameTooltipBlockingPileHover?.() === true
+        };
+        try {
+          if (!parts.flagBlocks) {
+            parts.reason = "pileHoverBlockedByRenameTooltip flag is not true";
+            return { blocks: false, parts };
+          }
+          const dc = document.getElementById("userchrome-download-cards-container");
+          parts.dcFound = !!(dc && dc.isConnected);
+          if (!dc || !dc.isConnected) {
+            parts.reason = "no #userchrome-download-cards-container";
+            return { blocks: false, parts };
+          }
+          const dcCs = window.getComputedStyle(dc);
+          parts.dcDisplay = dcCs.display;
+          parts.dcVisibility = dcCs.visibility;
+          if (dcCs.display === "none" || dcCs.visibility === "hidden") {
+            parts.reason = "cards container hidden in layout";
+            return { blocks: false, parts };
+          }
+          const tip = dc.querySelector(".details-tooltip.master-tooltip");
+          parts.tipFound = !!(tip && tip.isConnected);
+          if (!tip || !tip.isConnected) {
+            parts.reason = "no .master-tooltip in cards container";
+            return { blocks: false, parts };
+          }
+          const tipCs = window.getComputedStyle(tip);
+          parts.tipDisplay = tipCs.display;
+          parts.tipVisibility = tipCs.visibility;
+          parts.tipOpacity = tipCs.opacity;
+          if (tipCs.display === "none" || tipCs.visibility === "hidden") {
+            parts.reason = "master tooltip hidden in layout";
+            return { blocks: false, parts };
+          }
+          parts.reason = "flag + DOM visible → blocks pile hover";
+          return { blocks: true, parts };
+        } catch (err) {
+          parts.reason = "exception";
+          parts.error = String(err);
+          return { blocks: false, parts };
+        }
+      }
+
+      /**
+       * True when tidy-downloads has the rename-success tooltip open intentionally.
+       * Uses `store.pileHoverBlockedByRenameTooltip` (authoritative) plus a quick DOM
+       * check so a stale flag cannot block the pile after chrome is torn down.
+       * @returns {boolean}
+       */
+      function isTidyDownloadsMasterRenameTooltipVisible() {
+        return getMasterRenameTooltipGateDetail().blocks;
+      }
+
+      /**
+       * In-progress downloads now add a pile row immediately; the library pie
+       * docks into that row while the pile is expanded, so hover must never be
+       * suppressed for "progress chrome" alone.
+       * @returns {boolean}
+       */
+      function shouldDisableHover() {
+        return false;
       }
 
       function addPodToPile(podData, animate = true) {
         if (!podData || !podData.key) {
           debugLog("Invalid pod data for pile addition");
+          return;
+        }
+
+        if (state.dismissedPods.has(podData.key)) {
+          if (podData.inProgress) {
+            const el = state.podElements.get(podData.key);
+            if (el && el.dataset.pilePhase === "progress") {
+              state.dismissedPods.set(podData.key, podData);
+              const sub = el.querySelector(".dismissed-pod-filesize");
+              if (sub) sub.textContent = podData.progressSubLabel || "…";
+              const filenameEl = el.querySelector(".dismissed-pod-filename");
+              if (filenameEl && podData.filename) {
+                let displayFilename = podData.filename;
+                if (podData.targetPath) {
+                  try {
+                    const pathSeparator = podData.targetPath.includes("\\") ? "\\" : "/";
+                    const base = podData.targetPath.split(pathSeparator).pop();
+                    if (base && base !== displayFilename) displayFilename = base;
+                  } catch (_e) {}
+                }
+                filenameEl.textContent = displayFilename;
+              }
+              return;
+            }
+          }
+          state.dismissedPods.set(podData.key, podData);
+          if (!podData.inProgress) {
+            saveDismissedPodToSession(podData);
+          }
+          updatePodKeysInSession();
+          const oldEl = state.podElements.get(podData.key);
+          restoreLibraryPieToPodsRowIfNeededFromRow(oldEl);
+          const podElement = createPodElement(podData);
+          state.podElements.set(podData.key, podElement);
+          if (oldEl && oldEl.parentNode) {
+            oldEl.parentNode.replaceChild(podElement, oldEl);
+          } else if (state.pileContainer) {
+            state.pileContainer.appendChild(podElement);
+          }
+          generateGridPosition(podData.key);
+          updateDownloadsButtonVisibility();
+          if (shouldPileBeVisible()) {
+            showPile();
+            setTimeout(() => {
+              updatePodTextColors();
+            }, 50);
+          } else {
+            updatePileVisibility(animate);
+          }
+          schedulePileLayoutRepair("refresh-pod", 120);
+          maybeRedockLibraryPieAfterPileDomChange();
+          debugLog(`Refreshed pile pod: ${podData.filename}`);
           return;
         }
 
@@ -141,7 +283,9 @@
         }
 
         state.dismissedPods.set(podData.key, podData);
-        saveDismissedPodToSession(podData);
+        if (!podData.inProgress) {
+          saveDismissedPodToSession(podData);
+        }
         updatePodKeysInSession();
 
         const podElement = createPodElement(podData);
@@ -161,12 +305,15 @@
         }
 
         schedulePileLayoutRepair("add-pod", 120);
+        maybeRedockLibraryPieAfterPileDomChange();
         debugLog(`Added pod to pile: ${podData.filename}`);
       }
 
       function removePodFromPile(podKey) {
         const podElement = state.podElements.get(podKey);
         const wasVisible = state.dynamicSizer && state.dynamicSizer.style.height !== "0px";
+
+        restoreLibraryPieToPodsRowIfNeededFromRow(podElement);
 
         if (podElement) {
           podElement.style.zIndex = "0";
@@ -286,24 +433,29 @@
       function handleDownloadButtonHover() {
         debugLog("[DownloadHover] handleDownloadButtonHover called", {
           dismissedPodsSize: state.dismissedPods.size,
-          shouldDisableHover: shouldDisableHover(),
           alwaysShowMode: getAlwaysShowPile()
         });
 
-        if (state.dismissedPods.size === 0) return;
-        if (getAlwaysShowPile()) return;
-        if (isTidyDownloadsLibraryPieVisible()) {
-          debugLog("[DownloadHover] Library pie visible — not opening pile from button hover");
+        pileHoverDebug("downloadButtonHover enter", {
+          dismissedPods: state.dismissedPods.size,
+          alwaysShowPile: getAlwaysShowPile(),
+          compactMode: document.documentElement.getAttribute("zen-compact-mode"),
+          sidebarExpanded: document.documentElement.getAttribute("zen-sidebar-expanded")
+        });
+
+        if (state.dismissedPods.size === 0) {
+          pileHoverDebug("downloadButtonHover ABORT: no dismissed pods");
           return;
         }
-        if (shouldDisableHover()) return;
+        if (getAlwaysShowPile()) {
+          pileHoverDebug("downloadButtonHover ABORT: always-show-pile pref (hover does not open pile)");
+          return;
+        }
 
+        pileHoverDebug("downloadButtonHover → schedule showPile", { debounceMs: CONFIG.hoverDebounceMs });
         clearTimeout(state.hoverTimeout);
         state.hoverTimeout = setTimeout(() => {
-          if (isTidyDownloadsLibraryPieVisible()) {
-            debugLog("[DownloadHover] Pie became visible during hover debounce — skipping pile open");
-            return;
-          }
+          pileHoverDebug("downloadButtonHover debounce → showPile()");
           showPile();
           schedulePileLayoutRepair("download-hover", 50);
         }, CONFIG.hoverDebounceMs);
@@ -331,12 +483,22 @@
       }
 
       function handleDynamicSizerHover() {
-        if (getAlwaysShowPile()) return;
+        pileHoverDebug("dynamicSizerHover enter", {
+          alwaysShowPile: getAlwaysShowPile(),
+          dismissedPods: state.dismissedPods.size
+        });
+        if (getAlwaysShowPile()) {
+          pileHoverDebug("dynamicSizerHover ABORT: always-show");
+          return;
+        }
         clearTimeout(state.hoverTimeout);
         if (state.dismissedPods.size > 0) {
+          pileHoverDebug("dynamicSizerHover → showPile");
           showPile();
           showPileBackground();
           schedulePileLayoutRepair("sizer-hover", 40);
+        } else {
+          pileHoverDebug("dynamicSizerHover no-op: no dismissed pods");
         }
       }
 
@@ -364,6 +526,11 @@
 
       function handlePileHover() {
         clearTimeout(state.hoverTimeout);
+        try {
+          window.zenTidyDownloads?.dismissMasterRenameTooltip?.();
+        } catch (_e) {
+          /* ignore */
+        }
         showPileBackground();
         if (state.dismissedPods.size > 0 && state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
           schedulePileLayoutRepair("pile-hover", 40);
@@ -392,16 +559,37 @@
       }
 
       function showPile() {
-        if (state.dismissedPods.size === 0 || !state.dynamicSizer) return;
+        if (state.dismissedPods.size === 0 || !state.dynamicSizer) {
+          pileHoverDebug("showPile no-op", {
+            dismissedPods: state.dismissedPods.size,
+            hasSizer: !!state.dynamicSizer
+          });
+          return;
+        }
+
+        try {
+          window.zenTidyDownloads?.dismissMasterRenameTooltip?.();
+        } catch (_e) {
+          /* ignore */
+        }
 
         const wasVisible = state.dynamicSizer.style.height !== "0px";
 
         const isCompactMode = document.documentElement.getAttribute("zen-compact-mode") === "true";
         const isSidebarExpanded = document.documentElement.getAttribute("zen-sidebar-expanded") === "true";
         if (isCompactMode && !isSidebarExpanded) {
+          pileHoverDebug("showPile ABORT: compact mode + sidebar collapsed (see showPile in zen-stuff-pile-visibility)", {
+            isCompactMode,
+            isSidebarExpanded
+          });
           state.dynamicSizer.style.display = "none";
           return;
         }
+
+        pileHoverDebug("showPile proceeding", {
+          dismissedPods: state.dismissedPods.size,
+          wasVisible
+        });
 
         state.pileUiGeneration += 1;
         const gen = state.pileUiGeneration;
@@ -482,6 +670,7 @@
             if (!state.dynamicSizer || state.dynamicSizer.style.height === "0px") return;
             syncPileMaskToCurrentLayout();
             updatePointerEvents();
+            syncLibraryPieDockForPile();
             schedulePileLayoutRepair("show-pile-verify", 0);
             debugLog("[PileMask] verification tick after expand", { gen });
           });
@@ -496,6 +685,12 @@
           return;
         }
         if (!state.dynamicSizer) return;
+
+        try {
+          window.zenTidyDownloads?.getLibraryPieController?.()?.restorePieToPodsRow?.();
+        } catch (_e) {
+          /* ignore */
+        }
 
         state.pileUiGeneration += 1;
         const gen = state.pileUiGeneration;
@@ -544,6 +739,10 @@
         );
       }
 
+      pileHoverDebug(
+        "pile-visibility API initialized — hover library with dismissed pods to trace gates; silence: window.__zenPileHoverDebug = false"
+      );
+
       return {
         addPodToPile,
         removePodFromPile,
@@ -558,7 +757,10 @@
         showPile,
         hidePile,
         shouldDisableHover,
-        isHoveringPileArea
+        isHoveringPileArea,
+        isTidyDownloadsMasterRenameTooltipVisible,
+        getMasterRenameTooltipGateDetail,
+        syncLibraryPieDockForPile
       };
     }
   };

@@ -510,13 +510,14 @@ Instructions:
 
           if (!suggestedName) {
             debugLog("No valid name suggestion received from AI");
-            if (statusElToUpdate) statusElToUpdate.textContent = "Could not generate a better name";
+            showSimpleToast("Could not generate a better name");
             renamedFiles.delete(downloadPath);
             if (podElementToStyle) {
               podElementToStyle.classList.remove("renaming-active");
               podElementToStyle.classList.remove('renaming-initiated');
             }
             activeAIProcesses.delete(key);
+            updateUIForFocusedDownload(focusedKeyRef.current || key, true);
             return false;
           }
 
@@ -549,13 +550,14 @@ Instructions:
 
           if (cleanName.length <= 2 || cleanName.toLowerCase() === currentFilename.toLowerCase()) {
             debugLog("Skipping AI rename - name too short or same as original");
-            if (statusElToUpdate) statusElToUpdate.textContent = "Original name is suitable";
+            showSimpleToast("Original name is suitable");
             renamedFiles.delete(downloadPath);
             if (podElementToStyle) {
               podElementToStyle.classList.remove("renaming-active");
               podElementToStyle.classList.remove('renaming-initiated');
             }
             activeAIProcesses.delete(key);
+            updateUIForFocusedDownload(focusedKeyRef.current || key, true);
             return false;
           }
 
@@ -605,14 +607,16 @@ Instructions:
               podElementToStyle.classList.add("renamed-by-ai");
             }
 
-            let keyForFinalUIUpdate = key;
-            if (focusedKeyRef.current === key) {
+            if (focusedKeyRef.current === key || focusedKeyRef.current === null) {
               focusedKeyRef.current = newPath;
-              keyForFinalUIUpdate = newPath;
-              debugLog(`[AI Rename] Focused item ${key} renamed to ${newPath}. Updated focusedKeyRef and keyForFinalUIUpdate.`);
+              debugLog(
+                `[AI Rename] Adopted focus for renamed pod: ${key} → ${newPath} (was key match or null after sticky).`
+              );
             }
-
-            updateUIForFocusedDownload(keyForFinalUIUpdate, true);
+            if (focusedKeyRef.current === newPath) {
+              updateUIForFocusedDownload(newPath, true);
+            }
+            scheduleCardRemoval(newPath);
             debugLog(`Successfully AI-renamed to: ${actualFilename}`);
 
             if (document.documentElement.getAttribute('zen-compact-mode') === 'true') {
@@ -668,12 +672,13 @@ Instructions:
             return true;
           } else {
             renamedFiles.delete(downloadPath);
-            if (statusElToUpdate) statusElToUpdate.textContent = "Rename failed";
+            showSimpleToast("Rename failed");
             if (podElementToStyle) {
               podElementToStyle.classList.remove("renaming-active");
               podElementToStyle.classList.remove('renaming-initiated');
             }
             activeAIProcesses.delete(key);
+            updateUIForFocusedDownload(focusedKeyRef.current || key, true);
             return false;
           }
         } catch (e) {
@@ -681,14 +686,17 @@ Instructions:
             debugLog(`[AI Process] AI rename process was aborted for ${key}`);
           } else {
             console.error("AI Rename process error:", e);
+            showSimpleToast("Rename error");
           }
           renamedFiles.delete(downloadPath);
-          if (statusElToUpdate && e.name !== 'AbortError') statusElToUpdate.textContent = "Rename error";
           if (podElementToStyle) {
             podElementToStyle.classList.remove("renaming-active");
             podElementToStyle.classList.remove('renaming-initiated');
           }
           activeAIProcesses.delete(key);
+          if (e.name !== "AbortError") {
+            updateUIForFocusedDownload(focusedKeyRef.current || key, true);
+          }
           throw e;
         } finally {
           if (previewContainerOnPod) {

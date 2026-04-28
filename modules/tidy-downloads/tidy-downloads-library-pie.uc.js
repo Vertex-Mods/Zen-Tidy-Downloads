@@ -17,18 +17,11 @@
 
   const PREF_ENABLE = "extensions.downloads.enable_library_pie_progress";
 
-  /** Geometry - host sized to match .download-pod (25x25). */
-  const PIE = Object.freeze({
-    hostPx: 16,
-    svgPx: 16,
-    padPx: 2,
-    cx: 16,
-    cy: 16,
-    r: 13,
-    stroke: 3.5
-  });
-
-  const PIE_CIRC = 2 * Math.PI * PIE.r;
+  const PIE = Object.freeze({ cx: 16, cy: 16 });
+  /** Library pods row: compact ring */
+  const SPEC_PIE_LIB = Object.freeze({ r: 13, sw: 2.5, svg: 16 });
+  /** Dismissed pile preview (36×36): modest stroke; icon disc carries weight */
+  const SPEC_PIE_DOCKED = Object.freeze({ r: 12.5, sw: 2.75, svg: 32 });
 
   /**
    * Fallback key when no external getDownloadKey is provided. Canonicalisation
@@ -121,6 +114,11 @@
       let root = null;
       let progressCircle = null;
       let indeterminateGroup = null;
+      /** @type {SVGCircleElement|null} */
+      let ringTrackEl = null;
+      /** @type {SVGCircleElement|null} */
+      let ringSpinEl = null;
+      let pieRingCirc = 2 * Math.PI * SPEC_PIE_LIB.r;
       /** @type {HTMLElement|null} clone of Zen's arc icon when arc node is removed */
       let pendingArcIconClone = null;
 
@@ -129,6 +127,10 @@
       let arcFallbackTimerId = null;
       /** @type {Array<() => void>} Resolvers waiting for the arc animation to finish. */
       const arcDoneWaiters = [];
+      /** When the pie host is reparented into the dismissed pile preview slot. */
+      let isPileDocked = false;
+      /** Skip `zen-tidy-library-pie-updated` during reparent to avoid redocking while pile collapses. */
+      let suppressPieLayoutBroadcast = false;
 
       function isFeatureEnabled() {
         try {
@@ -282,35 +284,37 @@
           root.setAttribute("role", "presentation");
 
           const svg = document.createElementNS(NS, "svg");
-          svg.setAttribute("width", String(PIE.svgPx));
-          svg.setAttribute("height", String(PIE.svgPx));
+          svg.setAttribute("width", String(SPEC_PIE_LIB.svg));
+          svg.setAttribute("height", String(SPEC_PIE_LIB.svg));
           svg.setAttribute("viewBox", "0 0 32 32");
           svg.classList.add("zen-tidy-pie-ring-svg");
 
           const cx = String(PIE.cx);
           const cy = String(PIE.cy);
-          const r = String(PIE.r);
-          const sw = String(PIE.stroke);
+          const r0 = String(SPEC_PIE_LIB.r);
+          const sw0 = String(SPEC_PIE_LIB.sw);
+          pieRingCirc = 2 * Math.PI * SPEC_PIE_LIB.r;
 
           const trackCircle = document.createElementNS(NS, "circle");
           trackCircle.setAttribute("cx", cx);
           trackCircle.setAttribute("cy", cy);
-          trackCircle.setAttribute("r", r);
+          trackCircle.setAttribute("r", r0);
           trackCircle.setAttribute("fill", "none");
           trackCircle.setAttribute("stroke", "var(--toolbar-color, rgba(200,200,200,0.35))");
-          trackCircle.setAttribute("stroke-width", sw);
+          trackCircle.setAttribute("stroke-width", sw0);
+          ringTrackEl = trackCircle;
 
           progressCircle = document.createElementNS(NS, "circle");
           progressCircle.setAttribute("cx", cx);
           progressCircle.setAttribute("cy", cy);
-          progressCircle.setAttribute("r", r);
+          progressCircle.setAttribute("r", r0);
           progressCircle.setAttribute("fill", "none");
           progressCircle.setAttribute("stroke", "var(--zen-primary-color, #0a84ff)");
-          progressCircle.setAttribute("stroke-width", sw);
+          progressCircle.setAttribute("stroke-width", sw0);
           progressCircle.setAttribute("stroke-linecap", "round");
           progressCircle.setAttribute("transform", `rotate(-90 ${PIE.cx} ${PIE.cy})`);
-          progressCircle.setAttribute("stroke-dasharray", String(PIE_CIRC));
-          progressCircle.setAttribute("stroke-dashoffset", String(PIE_CIRC));
+          progressCircle.setAttribute("stroke-dasharray", String(pieRingCirc));
+          progressCircle.setAttribute("stroke-dashoffset", String(pieRingCirc));
 
           indeterminateGroup = document.createElementNS(NS, "g");
           indeterminateGroup.style.display = "none";
@@ -320,13 +324,17 @@
           const spin = document.createElementNS(NS, "circle");
           spin.setAttribute("cx", cx);
           spin.setAttribute("cy", cy);
-          spin.setAttribute("r", r);
+          spin.setAttribute("r", r0);
           spin.setAttribute("fill", "none");
           spin.setAttribute("stroke", "var(--zen-primary-color, #0a84ff)");
-          spin.setAttribute("stroke-width", sw);
+          spin.setAttribute("stroke-width", sw0);
           spin.setAttribute("stroke-linecap", "round");
-          spin.setAttribute("stroke-dasharray", `${Math.round(PIE_CIRC * 0.25)} ${Math.round(PIE_CIRC * 0.75)}`);
+          spin.setAttribute(
+            "stroke-dasharray",
+            `${Math.round(pieRingCirc * 0.25)} ${Math.round(pieRingCirc * 0.75)}`
+          );
           spin.setAttribute("transform", `rotate(-90 ${PIE.cx} ${PIE.cy})`);
+          ringSpinEl = spin;
           indeterminateGroup.appendChild(indTrack);
           indeterminateGroup.appendChild(spin);
 
@@ -362,6 +370,82 @@
         }
       }
 
+      /**
+       * @param {{ r: number, sw: number, svg: number }} spec
+       */
+      function applyRingSpec(spec) {
+        pieRingCirc = 2 * Math.PI * spec.r;
+        const r = String(spec.r);
+        const sw = String(spec.sw);
+        const svg = root?.querySelector(".zen-tidy-pie-ring-svg");
+        if (svg) {
+          svg.setAttribute("width", String(spec.svg));
+          svg.setAttribute("height", String(spec.svg));
+        }
+        if (ringTrackEl) {
+          ringTrackEl.setAttribute("r", r);
+          ringTrackEl.setAttribute("stroke-width", sw);
+        }
+        if (progressCircle) {
+          progressCircle.setAttribute("r", r);
+          progressCircle.setAttribute("stroke-width", sw);
+          progressCircle.setAttribute("stroke-dasharray", String(pieRingCirc));
+        }
+        if (ringSpinEl) {
+          ringSpinEl.setAttribute("r", r);
+          ringSpinEl.setAttribute("stroke-width", sw);
+          ringSpinEl.setAttribute(
+            "stroke-dasharray",
+            `${Math.round(pieRingCirc * 0.25)} ${Math.round(pieRingCirc * 0.75)}`
+          );
+        }
+        const indTrackCloned = indeterminateGroup?.firstElementChild;
+        if (indTrackCloned && indTrackCloned !== ringTrackEl) {
+          indTrackCloned.setAttribute("r", r);
+          indTrackCloned.setAttribute("stroke-width", sw);
+        }
+      }
+
+      function restorePieToPodsRow() {
+        if (!root) return;
+        root.classList.remove("zen-tidy-pie-host--pile-docked");
+        isPileDocked = false;
+        const podsRow = getPodsRowContainer();
+        if (podsRow) {
+          if (root.parentNode !== podsRow) {
+            podsRow.insertBefore(root, podsRow.firstChild);
+          } else if (podsRow.firstChild !== root) {
+            podsRow.insertBefore(root, podsRow.firstChild);
+          }
+        }
+        suppressPieLayoutBroadcast = true;
+        try {
+          applyRingSpec(SPEC_PIE_LIB);
+          updateVisual();
+        } finally {
+          suppressPieLayoutBroadcast = false;
+        }
+      }
+
+      /**
+       * Move the pie host into a pile-row preview cell (36×36). Caller must
+       * `restorePieToPodsRow` when the pile collapses or when hiding the pie.
+       * @param {HTMLElement|null} previewSlot `.dismissed-pod-preview`
+       */
+      function dockIntoPilePreviewSlot(previewSlot) {
+        if (!(previewSlot instanceof HTMLElement)) return;
+        if (!isFeatureEnabled()) return;
+        if (active.size === 0 || !pieRevealed) return;
+        ensureDom();
+        if (!root) return;
+        previewSlot.replaceChildren();
+        root.classList.add("zen-tidy-pie-host--pile-docked");
+        isPileDocked = true;
+        previewSlot.appendChild(root);
+        applyRingSpec(SPEC_PIE_DOCKED);
+        updateVisual();
+      }
+
       function updateVisual() {
         if (!isFeatureEnabled()) {
           if (root) root.style.display = "none";
@@ -369,7 +453,12 @@
         }
 
         if (active.size === 0 || !pieRevealed) {
-          if (root) root.style.display = "none";
+          if (root) {
+            if (isPileDocked || root.classList.contains("zen-tidy-pie-host--pile-docked")) {
+              restorePieToPodsRow();
+            }
+            root.style.display = "none";
+          }
           return;
         }
 
@@ -386,11 +475,18 @@
             indeterminateGroup.style.display = "none";
             progressCircle.style.display = "";
             const p = fraction != null ? fraction : 0;
-            progressCircle.setAttribute("stroke-dashoffset", String(PIE_CIRC * (1 - p)));
+            progressCircle.setAttribute("stroke-dashoffset", String(pieRingCirc * (1 - p)));
           }
         }
 
         root.style.display = "flex";
+        if (!isPileDocked && !suppressPieLayoutBroadcast) {
+          try {
+            document.dispatchEvent(new CustomEvent("zen-tidy-library-pie-updated", { bubbles: true }));
+          } catch (_e) {
+            /* ignore */
+          }
+        }
         refreshContainerVisibility();
       }
 
@@ -442,12 +538,19 @@
         active.clear();
         pieRevealed = false;
         pendingArcIconClone = null;
+        isPileDocked = false;
+        if (root?.classList.contains("zen-tidy-pie-host--pile-docked")) {
+          root.classList.remove("zen-tidy-pie-host--pile-docked");
+        }
         if (root?.parentNode) {
           root.parentNode.removeChild(root);
         }
         root = null;
         progressCircle = null;
         indeterminateGroup = null;
+        ringTrackEl = null;
+        ringSpinEl = null;
+        pieRingCirc = 2 * Math.PI * SPEC_PIE_LIB.r;
       }
 
       return {
@@ -490,6 +593,8 @@
         waitForArcDone() {
           return waitForArcDone();
         },
+        dockIntoPilePreviewSlot,
+        restorePieToPodsRow,
         destroy
       };
     }

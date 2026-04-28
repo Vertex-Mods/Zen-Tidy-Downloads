@@ -35,6 +35,23 @@
         store
       } = ctx;
 
+      /**
+       * Must match tooltip-layout `shouldShowMasterRenameTooltip`: when true, sticky-only
+       * sessions still need the cards wrapper + master tooltip visible (compact mode must not hide them).
+       * @returns {boolean}
+       */
+      function shouldShowRenameSuccessChromeFromStore() {
+        const fk = store?.focusedKeyRef?.current;
+        if (!fk || !store?.activeDownloadCards) return false;
+        const cardData = store.activeDownloadCards.get(fk);
+        const download = cardData?.download;
+        if (!cardData?.podElement || !download) return false;
+        const isProgress =
+          cardData.phase === "progress" || cardData.podElement.dataset?.state === "progress";
+        if (isProgress) return false;
+        return !!(download.succeeded && download.aiName);
+      }
+
       function updateDownloadCardsVisibility() {
         const downloadCardsContainer = getDownloadCardsContainer();
         const masterTooltipDOMElement = getMasterTooltip();
@@ -95,21 +112,38 @@
             podsRowContainerElement.style.display = "flex";
             podsRowContainerElement.style.visibility = "visible";
             podsRowContainerElement.style.opacity = "1";
-            podsRowContainerElement.style.pointerEvents = "auto";
+            /* Match chrome.css: row is non-interactive; pods set pointer-events: auto. */
+            podsRowContainerElement.style.pointerEvents = "none";
           }
 
-          /* Cards container + tooltip visibility: owned by tooltip-layout (shown tooltip) and
-             lifecycle (auto-hide → sticky), not by compact mode when pods merely exist. */
+          /* Cards container + tooltip: hidden when only sticky/pie unless AI rename-success
+             UI is active (orderedPodKeys empty but master tooltip must stay visible). */
           if (!hasLivePodsInJukebox && downloadCardsContainer) {
-            downloadCardsContainer.style.display = "none";
-            downloadCardsContainer.style.opacity = "0";
-            downloadCardsContainer.style.visibility = "hidden";
-            downloadCardsContainer.style.pointerEvents = "none";
-            if (masterTooltipDOMElement) {
-              masterTooltipDOMElement.style.display = "none";
-              masterTooltipDOMElement.style.opacity = "0";
-              masterTooltipDOMElement.style.visibility = "hidden";
-              masterTooltipDOMElement.style.pointerEvents = "none";
+            const keepRenameChrome = shouldShowRenameSuccessChromeFromStore();
+            if (keepRenameChrome) {
+              downloadCardsContainer.style.display = "flex";
+              downloadCardsContainer.style.opacity = "1";
+              downloadCardsContainer.style.visibility = "visible";
+              downloadCardsContainer.style.pointerEvents = "none";
+              if (masterTooltipDOMElement) {
+                masterTooltipDOMElement.style.display = "flex";
+                masterTooltipDOMElement.style.opacity = "1";
+                masterTooltipDOMElement.style.visibility = "visible";
+                masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
+                masterTooltipDOMElement.style.pointerEvents = "auto";
+              }
+              if (store) store.pileHoverBlockedByRenameTooltip = true;
+            } else {
+              downloadCardsContainer.style.display = "none";
+              downloadCardsContainer.style.opacity = "0";
+              downloadCardsContainer.style.visibility = "hidden";
+              downloadCardsContainer.style.pointerEvents = "none";
+              if (masterTooltipDOMElement) {
+                masterTooltipDOMElement.style.display = "none";
+                masterTooltipDOMElement.style.opacity = "0";
+                masterTooltipDOMElement.style.visibility = "hidden";
+                masterTooltipDOMElement.style.pointerEvents = "none";
+              }
             }
           }
           return;

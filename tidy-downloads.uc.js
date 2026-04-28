@@ -421,6 +421,7 @@
       getPref,
       DISABLE_AUTOHIDE_PREF,
       getSafeFilename,
+      formatBytes,
       fireCustomEvent,
       updateUIForFocusedDownload,
       cancelAIProcessForDownload: (key) => cancelAIProcessForDownload(key),
@@ -428,6 +429,7 @@
       getMasterTooltip: () => masterTooltipDOMElement,
       getPodsRowContainer: () => podsRowContainerElement,
       updateDownloadCardsVisibility: () => compactVisibilityApi.updateDownloadCardsVisibility(),
+      managePodVisibilityAndAnimations,
       getDownloadKey,
       // Lazy getters: the pie controller, throttled updater, and handoff
       // animator are all created later inside initDownloadManager, but
@@ -563,7 +565,6 @@
           getAddToAIRenameQueue: () => addToAIRenameQueue,
           getAiRenamingPossible: () => aiRenamingPossible,
           scheduleCardRemoval,
-          clearStickyPodsOnly,
           updateDownloadCardsVisibility,
           updateUIForFocusedDownload,
           getPodsRowContainer: () => podsRowContainerElement,
@@ -589,6 +590,11 @@
             debugLog
           });
         }
+
+        Object.assign(window.zenTidyDownloads, {
+          getLibraryPieController: () => libraryPieController,
+          dismissMasterRenameTooltip: () => tooltipLayoutRef.dismissMasterRenameTooltip?.()
+        });
 
         downloadsListenerController = window.zenTidyDownloadsDownloadsListener.createController({
           store,

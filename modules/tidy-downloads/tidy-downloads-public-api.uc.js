@@ -42,6 +42,7 @@
 
       const {
         dismissEventListeners,
+        progressPileListeners,
         actualDownloadRemovedEventListeners,
         dismissedPodsData,
         dismissedDownloads,
@@ -155,6 +156,17 @@
           debugLog("[API] Unregistered pod dismiss listener");
         },
 
+        onProgressPilePod(callback) {
+          if (typeof callback === "function" && progressPileListeners) {
+            progressPileListeners.add(callback);
+            debugLog("[API] Registered progress pile listener");
+          }
+        },
+
+        offProgressPilePod(callback) {
+          if (progressPileListeners) progressPileListeners.delete(callback);
+        },
+
         dismissedPods: {
           getAll: () => new Map(dismissedPodsData),
           get: (key) => dismissedPodsData.get(key),
@@ -171,6 +183,19 @@
 
         get stickyPods() {
           return stickyPods;
+        },
+
+        /**
+         * True while the master rename-success tooltip is intentionally shown
+         * (zen-stuff must not open the dismissed pile from hover).
+         * @returns {boolean}
+         */
+        isRenameTooltipBlockingPileHover() {
+          return store.pileHoverBlockedByRenameTooltip === true;
+        },
+
+        clearRenameTooltipPileHoverBlock() {
+          store.pileHoverBlockedByRenameTooltip = false;
         },
 
         onActualDownloadRemoved(callback) {

@@ -111,6 +111,19 @@
     }
   }
 
+  /**
+   * Pile hover gate tracing. **On by default.** Silence with `window.__zenPileHoverDebug = false`
+   * in this browser window’s console (Browser Toolbox → select the browser chrome context).
+   */
+  function pileHoverDebug(message, data) {
+    if (window.__zenPileHoverDebug === false) return;
+    try {
+      console.info("[PileHoverDebug]", message, data !== undefined ? data : "");
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+
   const {
     generatePilePosition,
     generateGridPosition,
@@ -335,6 +348,7 @@
     state,
     CONFIG,
     debugLog,
+    pileHoverDebug,
     createPodElement,
     saveDismissedPodToSession,
     removeDismissedPodFromSession,
@@ -408,10 +422,32 @@
       addPodToPile(podData);
     });
 
+    if (typeof window.zenTidyDownloads.onProgressPilePod === "function") {
+      window.zenTidyDownloads.onProgressPilePod((msg) => {
+        if (!msg || typeof msg !== "object") return;
+        if (msg.kind === "rekey" && msg.oldKey && msg.podData) {
+          removePodFromPile(msg.oldKey);
+          addPodToPile(msg.podData);
+          return;
+        }
+        if (msg.kind === "upsert" && msg.podData) {
+          addPodToPile(msg.podData);
+        }
+      });
+      debugLog("[Pile] Registered onProgressPilePod listener");
+    }
+
     // Download button hover events
     if (state.downloadButton) {
       state.downloadButton.addEventListener('mouseenter', handleDownloadButtonHover);
       state.downloadButton.addEventListener('mouseleave', handleDownloadButtonLeave);
+      pileHoverDebug("download button hover listeners attached", {
+        tag: state.downloadButton.tagName,
+        id: state.downloadButton.id,
+        localName: state.downloadButton.localName
+      });
+    } else {
+      pileHoverDebug("WARNING: no download button — library hover will never fire");
     }
 
     // Dynamic sizer hover events (keep container open when cursor is inside)
@@ -435,6 +471,16 @@
     // Window resize handler
     window.addEventListener('resize', debounce(recalculateLayout, 250));
 
+    document.addEventListener('zen-tidy-library-pie-updated', () => {
+      try {
+        if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
+          pileVisibilityApi?.syncLibraryPieDockForPile?.();
+        }
+      } catch (_e) {
+        /* ignore */
+      }
+    });
+
     // Listen for actual download removals from Firefox list (via main script)
     if (window.zenTidyDownloads && typeof window.zenTidyDownloads.onActualDownloadRemoved === 'function') {
       window.zenTidyDownloads.onActualDownloadRemoved((removedKey) => {
@@ -451,10 +497,14 @@
 
     // Sticky pod hover: expand pile when user hovers over a sticky pod
     document.addEventListener('request-pile-expand', () => {
+      pileHoverDebug("request-pile-expand fired", { dismissedPods: state.dismissedPods.size });
       if (state.dismissedPods.size > 0) {
+        pileHoverDebug("request-pile-expand → showPile");
         showPile();
         maskRepairApi.showPileBackground();
         schedulePileLayoutRepair("request-pile-expand", 60);
+      } else {
+        pileHoverDebug("request-pile-expand no-op: dismissedPods empty");
       }
     });
 

@@ -116,6 +116,7 @@
           const masterCloseHandler = (e) => {
             e.preventDefault();
             e.stopPropagation();
+            window.zenTidyDownloads?.clearRenameTooltipPileHoverBlock?.();
             const focusedKey = getFocusedKey();
             if (!focusedKey) return;
             const cardData = getActiveCardByKey(focusedKey);

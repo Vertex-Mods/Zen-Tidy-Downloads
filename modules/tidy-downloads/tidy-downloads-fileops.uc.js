@@ -217,7 +217,92 @@
         getMasterTooltip,
         migrateAIRenameKeys
       } = deps;
-      const { activeDownloadCards, orderedPodKeys, focusedKeyRef, renamedFiles, stickyPods, cardUpdateThrottle } = store;
+      const {
+        activeDownloadCards,
+        orderedPodKeys,
+        focusedKeyRef,
+        renamedFiles,
+        stickyPods,
+        cardUpdateThrottle,
+        dismissedPodsData,
+        dismissedDownloads,
+        progressPileListeners,
+        progressPileKeyByDownload
+      } = store;
+
+      /**
+       * @param {{ kind: string, oldKey?: string, podData?: Object }} payload
+       */
+      function notifyProgressPileRenameRekey(payload) {
+        if (!progressPileListeners) return;
+        progressPileListeners.forEach((callback) => {
+          try {
+            callback(payload);
+          } catch (err) {
+            debugLog("[ProgressPile] listener error (disk rename rekey)", err);
+          }
+        });
+      }
+
+      /**
+       * Pile row payload after on-disk rename (completed download, not in-progress pie row).
+       * @param {Object} cardData
+       * @param {string} newPath
+       * @param {Object} download
+       * @param {string} basenameForDisplay
+       */
+      function buildCompletedPilePodDataForRekey(cardData, newPath, download, basenameForDisplay) {
+        const podElement = cardData.podElement;
+        const filename =
+          download.aiName || basenameForDisplay || cardData.originalFilename || "";
+        const data = {
+          key: newPath,
+          filename,
+          originalFilename: cardData.originalFilename,
+          fileSize: download.currentBytes || download.totalBytes || 0,
+          contentType: download.contentType,
+          targetPath: newPath,
+          downloadId: download.id != null ? download.id : undefined,
+          sourceUrl: download.source?.url,
+          startTime: download.startTime,
+          endTime: download.endTime,
+          dismissTime: Date.now(),
+          inProgress: false,
+          wasRenamed: !!download.aiName,
+          previewData: null,
+          dominantColor: podElement?.dataset?.dominantColor || null
+        };
+        if (podElement) {
+          const previewContainer = podElement.querySelector(".card-preview-container");
+          if (previewContainer) {
+            const img = previewContainer.querySelector("img");
+            data.previewData = img?.src ? { type: "image", src: img.src } : { type: "icon" };
+          }
+        }
+        return data;
+      }
+
+      /**
+       * @param {string} oldKey
+       * @param {string} newPath
+       * @param {Object} download
+       * @param {string} basenameForDisplay
+       */
+      function migrateDismissedSidecarKeys(oldKey, newPath, download, basenameForDisplay) {
+        if (dismissedPodsData?.has(oldKey)) {
+          const d = dismissedPodsData.get(oldKey);
+          dismissedPodsData.delete(oldKey);
+          d.key = newPath;
+          d.targetPath = newPath;
+          d.filename = download.aiName || basenameForDisplay || d.filename;
+          d.wasRenamed = !!download.aiName;
+          dismissedPodsData.set(newPath, d);
+        }
+        if (dismissedDownloads?.has(oldKey)) {
+          dismissedDownloads.delete(oldKey);
+          dismissedDownloads.add(newPath);
+        }
+      }
 
       /**
        * @param {Object} download
@@ -335,6 +420,17 @@
               cardUpdateThrottle.delete(key);
               cardUpdateThrottle.set(newPath, throttledAt);
             }
+
+            if (focusedKeyRef.current === key) {
+              focusedKeyRef.current = newPath;
+            }
+            migrateDismissedSidecarKeys(key, newPath, download, finalName);
+            progressPileKeyByDownload?.set(download, newPath);
+            notifyProgressPileRenameRekey({
+              kind: "rekey",
+              oldKey: key,
+              podData: buildCompletedPilePodDataForRekey(cardData, newPath, download, finalName)
+            });
           }
 
           debugLog("File renamed successfully");
@@ -458,6 +554,19 @@
               cardUpdateThrottle.delete(keyOfAIRenamedFile);
               cardUpdateThrottle.set(targetOriginalPath, throttledUndo);
             }
+
+            migrateDismissedSidecarKeys(keyOfAIRenamedFile, targetOriginalPath, cardData.download, originalSimpleName);
+            progressPileKeyByDownload?.set(cardData.download, targetOriginalPath);
+            notifyProgressPileRenameRekey({
+              kind: "rekey",
+              oldKey: keyOfAIRenamedFile,
+              podData: buildCompletedPilePodDataForRekey(
+                cardData,
+                targetOriginalPath,
+                cardData.download,
+                originalSimpleName
+              )
+            });
           }
 
           renamedFiles.delete(originalFullPath);
