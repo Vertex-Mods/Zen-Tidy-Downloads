@@ -10,10 +10,11 @@
     "label": "Download Behavior"
   },
   {
-    "property": "extensions.downloads.disable_autohide",
-    "type": "checkbox",
-    "label": "Disable automatic card hiding after 10 seconds",
-    "defaultValue": false
+    "property": "extensions.downloads.autohide_delay_seconds",
+    "type": "string",
+    "value": "number",
+    "label": "Seconds before completed download cards auto-hide (0 = never)",
+    "default": 10
   },
   {
     "property": "extensions.downloads.enable_ai_renaming",
@@ -38,38 +39,10 @@
     "defaultValue": true
   },
   {
-    "property": "extensions.downloads.stable_focus_mode",
-    "type": "checkbox",
-    "label": "Prevent focus switching during multiple downloads",
-    "defaultValue": true
-  },
-  {
     "property": "extensions.downloads.show_old_downloads_hours",
     "type": "string",
     "value": "number",
     "label": "Show old completed downloads on startup (hours)",
     "default": 2
-  },
-    {
-    "property": "extensions.downloads.enable_library_pie_progress",
-    "type": "checkbox",
-    "label": "Show circular download progress on Library / Downloads button (after Zen arc)",
-    "defaultValue": true
-  },
-  {
-    "property": "extensions.downloads.enable_pod_handoff_animation",
-    "type": "checkbox",
-    "label": "Animate the pie into the pod card when a download completes",
-    "defaultValue": true
-  },
-  {
-    "type": "separator",
-    "label": "Zen Stuff"
-  },
-  {
-    "property": "zen.stuff-pile.always-show",
-    "type": "checkbox",
-    "label": "Makes the Stuff pile always show (Hold Alt to temporarily hide the pile)",
-    "defaultValue": true
   }
 ] 

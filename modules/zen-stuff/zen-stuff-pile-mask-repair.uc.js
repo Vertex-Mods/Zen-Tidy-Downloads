@@ -20,7 +20,6 @@
      * @param {function(): void} ctx.updatePointerEvents
      * @param {function(): void} ctx.updatePileHeight
      * @param {function(): boolean} ctx.isContextMenuVisible
-     * @param {function(): boolean} ctx.getAlwaysShowPile
      * @param {function(string): void} ctx.generateGridPosition
      * @param {function(string, number): void} ctx.applyGridPosition
      * @param {function(): void} ctx.updatePodTextColors
@@ -47,7 +46,6 @@
         updatePointerEvents,
         updatePileHeight,
         isContextMenuVisible,
-        getAlwaysShowPile,
         generateGridPosition,
         applyGridPosition,
         updatePodTextColors
@@ -108,13 +106,6 @@
         const isCompactMode = document.documentElement.getAttribute("zen-compact-mode") === "true";
         const isSidebarExpanded = document.documentElement.getAttribute("zen-sidebar-expanded") === "true";
         const compactBlocksPile = isCompactMode && !isSidebarExpanded;
-
-        if (getAlwaysShowPile() && !sizerOpen && !compactBlocksPile) {
-          debugLog("[PileRepair] always-show + pods but sizer collapsed → showPile", { source });
-          vis().showPile();
-          updatePointerEvents();
-          return;
-        }
 
         if (sizerOpen && !compactBlocksPile) {
           const maskBadNegative = Number.isFinite(maskH) && maskH < 0;
