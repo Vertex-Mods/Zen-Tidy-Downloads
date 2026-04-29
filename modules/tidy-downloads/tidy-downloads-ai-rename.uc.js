@@ -278,6 +278,28 @@
         }
       }
 
+      /** @param {string} hostname */
+      function hostnameHintsSearchEngine(hostname) {
+        const h = String(hostname).toLowerCase();
+        return (
+          h.includes("google") ||
+          h.includes("duckduckgo") ||
+          h.includes("bing") ||
+          h.includes("yahoo") ||
+          h.includes("yandex")
+        );
+      }
+
+      /** @param {string[]} urls */
+      function anyCandidateUrlLooksLikeSearchContext(urls) {
+        for (const s of urls) {
+          try {
+            if (hostnameHintsSearchEngine(new URL(s).hostname)) return true;
+          } catch (_e) {}
+        }
+        return false;
+      }
+
       async function processDownloadForAIRenaming(download, originalNameForUICard, keyOverride) {
         const key = keyOverride || getDownloadKey(download);
         const cardData = activeDownloadCards.get(key);
@@ -479,16 +501,16 @@ Some examples, in the form "original name, tab title, domain -> new name"
             domain = new URL(sourceURL).hostname;
           } catch (e) { }
 
-          const isSearchEngine = domain.includes('google') || domain.includes('duckduckgo') || domain.includes('bing') || domain.includes('yahoo') || domain.includes('yandex');
-          if (isSearchEngine) {
+          const candidateUrlsForSearchQuery = [
+            download.source?.referrer,
+            sourceURL,
+            (typeof gBrowser !== "undefined" && gBrowser.selectedBrowser?.currentURI?.spec)
+          ].filter(Boolean);
+          /* Gate on referrer/tab/host of request, not only file URL — Google Images loads from *.gstatic.com etc. */
+          if (anyCandidateUrlLooksLikeSearchContext(candidateUrlsForSearchQuery)) {
             try {
-              const urlStrings = [
-                download.source?.referrer,
-                sourceURL,
-                (typeof gBrowser !== "undefined" && gBrowser.selectedBrowser?.currentURI?.spec)
-              ].filter(Boolean);
-              debugLog("Checking URLs for search query:", urlStrings);
-              for (const urlStr of urlStrings) {
+              debugLog("Checking URLs for search query:", candidateUrlsForSearchQuery);
+              for (const urlStr of candidateUrlsForSearchQuery) {
                 try {
                   const urlObj = new URL(urlStr);
                   const q = urlObj.searchParams.get('q') || urlObj.searchParams.get('p') || urlObj.searchParams.get('text');
