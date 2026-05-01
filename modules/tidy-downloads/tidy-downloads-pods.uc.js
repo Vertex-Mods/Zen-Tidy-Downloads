@@ -402,9 +402,33 @@
             previewApi
               .setCompletedFilePreview(previewElement, download)
               .catch((e) => debugLog("Error setting completed file preview (async) for pod", { error: e, download }));
+          } else if (download.canceled) {
+            if (download.target?.path) {
+              previewApi.setCompletedFilePreview(previewElement, download).catch((e) => {
+                debugLog("Error setting canceled download preview for pod", { error: e, download });
+                previewApi.setGenericIcon(
+                  previewElement,
+                  download.contentType || "application/octet-stream"
+                );
+              });
+            } else {
+              previewApi.setGenericIcon(previewElement, download.contentType || "application/octet-stream");
+            }
           } else if (download.error) {
             previewApi.setGenericIcon(previewElement, "application/octet-stream");
           }
+        }
+
+        if (download.canceled) {
+          podElement.classList.add("canceled");
+          cardData.userCanceled = true;
+          const life = typeof getLifecycleApi === "function" ? getLifecycleApi() : null;
+          if (life?.absorbIntoPileWithoutSticky) {
+            Promise.resolve()
+              .then(() => life.absorbIntoPileWithoutSticky(key))
+              .catch((e) => debugLog("[PodFUNC] absorbIntoPileWithoutSticky (canceled) error", e));
+          }
+          return podElement;
         }
 
         if (download.succeeded && !cardData.complete) {

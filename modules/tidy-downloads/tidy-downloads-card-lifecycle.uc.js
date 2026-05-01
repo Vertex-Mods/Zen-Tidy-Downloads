@@ -35,7 +35,7 @@
      * @param {function} [ctx.getThrottledCreateOrUpdateCard] - () => pods renderer entry; apply() calls it on terminal state
      * @param {function} [ctx.getHandoffAnimator] - () => pod-handoff animator; optional visual bridge on progress → live-pod
      * @param {function} [ctx.formatBytes] - human-readable byte formatter (progress sublabel)
-     * @returns {{ capturePodDataForDismissal: function, removeCard: function, scheduleCardRemoval: function, scheduleImmediateSticky: function, performAutohideSequence: function, makePodSticky: function, clearStickyPod: function, clearAllStickyPods: function, clearStickyPodsOnly: function, apply: function, getPhase: function, reconcileDismissedForIncoming: function, destroy: function }}
+     * @returns {{ capturePodDataForDismissal: function, removeCard: function, scheduleCardRemoval: function, scheduleImmediateSticky: function, performAutohideSequence: function, makePodSticky: function, absorbIntoPileWithoutSticky: function, clearStickyPod: function, clearAllStickyPods: function, clearStickyPodsOnly: function, apply: function, getPhase: function, reconcileDismissedForIncoming: function, destroy: function }}
      */
     createCardLifecycle(ctx) {
       const {
@@ -178,6 +178,7 @@
           endTime: download.endTime,
           dismissTime: Date.now(),
           wasRenamed: !!download.aiName,
+          canceled: !!download.canceled,
           previewData: null,
           dominantColor: podElement?.dataset?.dominantColor || null
         };
@@ -305,6 +306,16 @@
         try {
           const cardData = activeDownloadCards.get(downloadKey);
           if (!cardData) return;
+          if (cardData.download?.canceled) {
+            if (cardData.autohideTimeoutId) {
+              clearTimeout(cardData.autohideTimeoutId);
+              cardData.autohideTimeoutId = null;
+            }
+            Promise.resolve()
+              .then(() => absorbIntoPileWithoutSticky(downloadKey))
+              .catch((e) => debugLog("[Lifecycle] scheduleImmediateSticky absorb (canceled) error", e));
+            return;
+          }
           seedPileEntryForLivePod(downloadKey);
           if (cardData.autohideTimeoutId) {
             clearTimeout(cardData.autohideTimeoutId);
@@ -536,6 +547,11 @@
       async function makePodSticky(downloadKey) {
         const cardData = activeDownloadCards.get(downloadKey);
         if (!cardData || cardData.isSticky || cardData.isBeingRemoved) return;
+
+        if (cardData.download?.canceled) {
+          await absorbIntoPileWithoutSticky(downloadKey);
+          return;
+        }
 
         if (shouldAbsorbInsteadOfStickyPod()) {
           await absorbIntoPileWithoutSticky(downloadKey);
@@ -916,6 +932,7 @@
         scheduleImmediateSticky,
         performAutohideSequence,
         makePodSticky,
+        absorbIntoPileWithoutSticky,
         clearStickyPod,
         clearAllStickyPods,
         clearStickyPodsOnly,

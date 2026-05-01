@@ -50,10 +50,12 @@
         const row = document.createElement("div");
         row.className = "dismissed-pod-row";
         row.dataset.podKey = podData.key;
-        row.dataset.pilePhase = podData.inProgress ? "progress" : "completed";
+        row.dataset.pilePhase = podData.inProgress ? "progress" : podData.canceled ? "canceled" : "completed";
         row.title = podData.inProgress
           ? `${podData.filename}\nDownloading…`
-          : `${podData.filename}\nClick: Open file\nMiddle-click: Show in file explorer\nRight-click: Context menu`;
+          : podData.canceled
+            ? `${podData.filename}\nCanceled`
+            : `${podData.filename}\nClick: Open file\nMiddle-click: Show in file explorer\nRight-click: Context menu`;
 
         row.style.cssText = `
       position: absolute;
@@ -220,6 +222,10 @@
         }
 
         pod.appendChild(preview);
+        if (podData.canceled) {
+          preview.style.opacity = "0.5";
+          pod.style.opacity = "0.85";
+        }
         row.appendChild(pod);
 
         const textContainer = document.createElement("div");
@@ -266,7 +272,9 @@
         const sizeBytes = podData.fileSize || 0;
         fileSize.textContent = podData.inProgress
           ? podData.progressSubLabel || "…"
-          : formatBytes(sizeBytes);
+          : podData.canceled
+            ? "Canceled"
+            : formatBytes(sizeBytes);
         fileSize.style.cssText = `
       font-size: 10px;
       color: var(--zen-text-color-deemphasized, #a0a0a0);
