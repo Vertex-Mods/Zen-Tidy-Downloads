@@ -579,7 +579,24 @@
               `[UIUPDATE_TOOLTIP_SUPPRESSED] Master tooltip only after AI rename success; hidden for ${focusedKeyRef.current}.`,
               { hasDownload: !!download, aiName: !!download?.aiName, succeeded: download?.succeeded }
             );
-            hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
+            const cs = window.getComputedStyle(masterTooltipDOMElement);
+            const tooltipIsPainted =
+              cs.display !== "none" &&
+              cs.visibility !== "hidden" &&
+              parseFloat(cs.opacity) > 0.01;
+            if (tooltipIsPainted && !store.masterTooltipFadeoutActive) {
+              hideMasterTooltipChromeWithFade(masterTooltipDOMElement, downloadCardsContainer);
+              updateDownloadCardsVisibility();
+              window.setTimeout(() => {
+                try {
+                  updateDownloadCardsVisibility();
+                } catch (_e) {
+                  /* ignore */
+                }
+              }, MASTER_TOOLTIP_FADEOUT_MS);
+            } else {
+              hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
+            }
           } else if (download) {
             store.masterRenameTooltipSuppressed = false;
             if (downloadCardsContainer) {

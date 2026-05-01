@@ -74,12 +74,44 @@
         renamedFiles
       } = store;
 
+      /**
+       * Compact ETA string from remaining seconds (download pod sublabel).
+       * @param {number} seconds
+       * @returns {string|null}
+       */
+      function formatCompactEta(seconds) {
+        if (!Number.isFinite(seconds) || seconds <= 0) return null;
+        const totalSec = Math.max(1, Math.ceil(seconds));
+        if (totalSec < 60) return `~${totalSec}s`;
+        const totalMin = Math.ceil(totalSec / 60);
+        if (totalMin < 60) return `~${totalMin}m`;
+        const h = Math.floor(totalMin / 60);
+        const m = totalMin % 60;
+        return m === 0 ? `~${h}h` : `~${h}h ${m}m`;
+      }
+
+      /**
+       * @param {unknown} dl
+       * @returns {string} suffix like " · ~3m", or ""
+       */
+      function formatEstimatedTimeSuffix(dl) {
+        const cur = dl.currentBytes || 0;
+        const total = dl.totalBytes;
+        const speed = dl.speed;
+        if (typeof total !== "number" || total <= cur || !(typeof speed === "number" && speed > 0)) {
+          return "";
+        }
+        const eta = formatCompactEta((total - cur) / speed);
+        return eta ? ` · ${eta}` : "";
+      }
+
       function formatProgressSubLabel(dl) {
         const cur = dl.currentBytes || 0;
         const total = dl.totalBytes;
+        const etaSuffix = formatEstimatedTimeSuffix(dl);
         if (typeof total === "number" && total > 0) {
           const pct = Math.round((cur / total) * 100);
-          return `${pct}% · ${formatBytesFn(cur)} / ${formatBytesFn(total)}`;
+          return `${pct}% · ${formatBytesFn(cur)} / ${formatBytesFn(total)}${etaSuffix}`;
         }
         const speed = dl.speed;
         if (typeof speed === "number" && speed > 0) {
