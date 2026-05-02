@@ -671,6 +671,29 @@
           podElement.style.display = "none";
         }
 
+        // Force-refresh the pile entry with completion data. seedPileEntryForLivePod
+        // (called earlier in scheduleImmediateSticky) early-returns if dismissedPodsData
+        // already has this key (e.g. from a prior re-download or stale sidecar), so
+        // when the pile is currently expanded we re-fire the dismiss event here to
+        // guarantee the in-progress row swaps to the completed row.
+        try {
+          const refreshed = capturePodDataForDismissal(downloadKey);
+          if (refreshed) {
+            dismissedPodsData.set(downloadKey, refreshed);
+            dismissEventListeners.forEach((cb) => {
+              try { cb(refreshed); } catch (_error) {}
+            });
+            fireCustomEvent("pod-dismissed", {
+              podKey: downloadKey,
+              podData: refreshed,
+              wasManual: false,
+              phase: "deferred-sticky"
+            });
+          }
+        } catch (err) {
+          debugLog("[Lifecycle] enterDeferredStickyPhase pile refresh error", err);
+        }
+
         const wasFocused = focusedKeyRef.current === downloadKey;
         const masterTooltipDOMElement = getMasterTooltip();
         const downloadCardsContainer = getDownloadCardsContainer();

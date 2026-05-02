@@ -265,6 +265,12 @@
             state.pileContainer.appendChild(podElement);
           }
           generateGridPosition(podData.key);
+          // Apply position immediately so the freshly-created element actually
+          // shows up while the pile is currently expanded (otherwise it sits at
+          // its CSS default coordinates until the next pile-shown / collapse).
+          if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
+            applyGridPosition(podData.key, 0, false, false);
+          }
           updateDownloadsButtonVisibility();
           if (shouldPileBeVisible()) {
             showPile();
