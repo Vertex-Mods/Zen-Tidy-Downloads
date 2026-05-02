@@ -34,8 +34,9 @@
      * @param {function} [ctx.getLibraryPieController] - () => pie controller; apply() feeds it every event
      * @param {function} [ctx.getThrottledCreateOrUpdateCard] - () => pods renderer entry; apply() calls it on terminal state
      * @param {function} [ctx.getHandoffAnimator] - () => pod-handoff animator; optional visual bridge on progress → live-pod
+     * @param {function} [ctx.getAddToAIRenameQueue] - () => addToAIRenameQueue impl (terminal enqueue, not pod-owned)
      * @param {function} [ctx.formatBytes] - human-readable byte formatter (progress sublabel)
-     * @returns {{ capturePodDataForDismissal: function, removeCard: function, scheduleCardRemoval: function, scheduleImmediateSticky: function, performAutohideSequence: function, makePodSticky: function, absorbIntoPileWithoutSticky: function, clearStickyPod: function, clearAllStickyPods: function, clearStickyPodsOnly: function, apply: function, getPhase: function, reconcileDismissedForIncoming: function, destroy: function }}
+     * @returns {{ capturePodDataForDismissal: function, removeCard: function, scheduleCardRemoval: function, scheduleImmediateSticky: function, performAutohideSequence: function, makePodSticky: function, absorbIntoPileWithoutSticky: function, clearStickyPod: function, clearAllStickyPods: function, clearStickyPodsOnly: function, apply: function, getPhase: function, reconcileDismissedForIncoming: function, onPileHidden: function, destroy: function }}
      */
     createCardLifecycle(ctx) {
       const {
@@ -57,7 +58,8 @@
         getLibraryPieController,
         getThrottledCreateOrUpdateCard,
         getHandoffAnimator,
-        getAiRenamingPossible
+        getAiRenamingPossible,
+        getAddToAIRenameQueue
       } = ctx;
 
       const {
@@ -226,6 +228,54 @@
         return dismissedData;
       }
 
+      /**
+       * Wall-clock ms when the download reached a terminal succeeded state (for autohide window math).
+       * @param {Object|undefined} dl
+       * @returns {number}
+       */
+      function getTerminalWallTimeFromDownload(dl) {
+        if (!dl) return Date.now();
+        if (dl.endTime != null) {
+          const n = typeof dl.endTime === "number" ? dl.endTime : new Date(dl.endTime).getTime();
+          if (Number.isFinite(n)) return n;
+        }
+        if (dl.startTime != null) {
+          const n = typeof dl.startTime === "number" ? dl.startTime : new Date(dl.startTime).getTime();
+          if (Number.isFinite(n)) return n;
+        }
+        return Date.now();
+      }
+
+      /**
+       * Enqueue AI rename from lifecycle (not pod renderer). Idempotent with queue dedupe.
+       * @param {string} downloadKey
+       */
+      function maybeEnqueueAIRename(downloadKey) {
+        const cardData = activeDownloadCards.get(downloadKey);
+        if (!cardData?.download?.succeeded || !cardData.download.target?.path) return;
+        if (!getPref("extensions.downloads.enable_ai_renaming", true)) return;
+        if (typeof getAiRenamingPossible === "function" && !getAiRenamingPossible()) return;
+        if (renamedFiles.has(cardData.download.target.path)) return;
+        const fn = typeof getAddToAIRenameQueue === "function" ? getAddToAIRenameQueue() : null;
+        if (typeof fn !== "function") return;
+        // Pre-arm pile-hover-block BEFORE enqueueing so a fast AI completion's
+        // releasePileHoverExpandBlockForKey runs against an existing entry.
+        // Otherwise add() in makePodStickyCore could lose the race and leave
+        // the block set non-empty forever, freezing pile expand.
+        try {
+          store.pileHoverExpandBlockedUntilAIDoneKeys?.add(downloadKey);
+        } catch (_e) {}
+        try {
+          const ok = fn(downloadKey, cardData.download, cardData.originalFilename);
+          if (ok === false) {
+            store.pileHoverExpandBlockedUntilAIDoneKeys?.delete(downloadKey);
+          }
+        } catch (e) {
+          debugLog("[Lifecycle] maybeEnqueueAIRename error", e);
+          store.pileHoverExpandBlockedUntilAIDoneKeys?.delete(downloadKey);
+        }
+      }
+
       async function removeCard(downloadKey, force = false) {
         try {
           const cardData = activeDownloadCards.get(downloadKey);
@@ -256,6 +306,10 @@
 
           cardData.isBeingRemoved = true;
           cardData.phase = "dismissed";
+          if (cardData.deferredStickyTimeoutId) {
+            clearTimeout(cardData.deferredStickyTimeoutId);
+            cardData.deferredStickyTimeoutId = null;
+          }
           await cancelAIProcessForDownload(downloadKey);
           if (cardData.autohideTimeoutId) {
             clearTimeout(cardData.autohideTimeoutId);
@@ -349,6 +403,12 @@
             return;
           }
           seedPileEntryForLivePod(downloadKey);
+          if (cardData.download?.succeeded) {
+            if (cardData.terminalCompletedAtMs == null) {
+              cardData.terminalCompletedAtMs = getTerminalWallTimeFromDownload(cardData.download);
+            }
+            maybeEnqueueAIRename(downloadKey);
+          }
           if (cardData.autohideTimeoutId) {
             clearTimeout(cardData.autohideTimeoutId);
             cardData.autohideTimeoutId = null;
@@ -392,6 +452,12 @@
       function dismissStickyPostRenameChrome(downloadKey) {
         store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
+
+        const cd = activeDownloadCards.get(downloadKey);
+        if (cd?.deferredStickyTimeoutId) {
+          clearTimeout(cd.deferredStickyTimeoutId);
+          cd.deferredStickyTimeoutId = null;
+        }
 
         if (focusedKeyRef.current === downloadKey) {
           focusedKeyRef.current =
@@ -470,6 +536,11 @@
         store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
 
+        if (cardData.deferredStickyTimeoutId) {
+          clearTimeout(cardData.deferredStickyTimeoutId);
+          cardData.deferredStickyTimeoutId = null;
+        }
+
         if (cardData.autohideTimeoutId) {
           clearTimeout(cardData.autohideTimeoutId);
           cardData.autohideTimeoutId = null;
@@ -494,8 +565,6 @@
         const masterTooltipDOMElement = getMasterTooltip();
         const downloadCardsContainer = getDownloadCardsContainer();
         let layoutAfterTooltipFadeMs = 0;
-
-        await cancelAIProcessForDownload(downloadKey);
 
         const podElement = cardData.podElement;
         if (podElement?.parentNode) podElement.parentNode.removeChild(podElement);
@@ -576,19 +645,111 @@
         return true;
       }
 
-      async function makePodSticky(downloadKey) {
+      /**
+       * Toolbar pod is hidden while pile is expanded; absorb after remaining autohide window unless pile collapses first.
+       * @param {string} downloadKey
+       */
+      function enterDeferredStickyPhase(downloadKey) {
         const cardData = activeDownloadCards.get(downloadKey);
         if (!cardData || cardData.isSticky || cardData.isBeingRemoved) return;
+        if (cardData.phase === "deferred-sticky") return;
 
-        if (cardData.download?.canceled) {
-          await absorbIntoPileWithoutSticky(downloadKey);
+        if (cardData.terminalCompletedAtMs == null) {
+          cardData.terminalCompletedAtMs = getTerminalWallTimeFromDownload(cardData.download);
+        }
+
+        if (cardData.deferredStickyTimeoutId) {
+          clearTimeout(cardData.deferredStickyTimeoutId);
+          cardData.deferredStickyTimeoutId = null;
+        }
+
+        cardData.phase = "deferred-sticky";
+        cardData.deferredStickyAt = Date.now();
+
+        const podElement = cardData.podElement;
+        if (podElement) {
+          podElement.style.display = "none";
+        }
+
+        const wasFocused = focusedKeyRef.current === downloadKey;
+        const masterTooltipDOMElement = getMasterTooltip();
+        const downloadCardsContainer = getDownloadCardsContainer();
+        let layoutAfterTooltipFadeMs = 0;
+
+        if (wasFocused && masterTooltipDOMElement) {
+          beginMasterTooltipFadeout(downloadCardsContainer);
+          masterTooltipDOMElement.style.opacity = "0";
+          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+          masterTooltipDOMElement.style.pointerEvents = "none";
+          layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
+          setTimeout(() => {
+            if (masterTooltipDOMElement.style.opacity === "0") {
+              masterTooltipDOMElement.style.display = "none";
+            }
+            collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
+          }, MASTER_TOOLTIP_FADEOUT_MS);
+          focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
+        }
+
+        if (
+          layoutAfterTooltipFadeMs > 0 &&
+          typeof updateDownloadCardsVisibility === "function"
+        ) {
+          updateDownloadCardsVisibility();
+        }
+
+        const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
+        const autohideMs = disableAutohide ? null : getPref("extensions.downloads.autohide_delay_ms", 10000);
+        const remainingMs =
+          autohideMs == null ? null : Math.max(0, autohideMs - (Date.now() - cardData.terminalCompletedAtMs));
+
+        const runLayout = () => {
+          if (typeof managePodVisibilityAndAnimations === "function") {
+            try {
+              managePodVisibilityAndAnimations();
+            } catch (err) {
+              debugLog("[Lifecycle] managePod after enterDeferredStickyPhase", err);
+            }
+          }
+          if (typeof updateDownloadCardsVisibility === "function") {
+            updateDownloadCardsVisibility();
+          }
+        };
+        if (layoutAfterTooltipFadeMs > 0) {
+          setTimeout(runLayout, layoutAfterTooltipFadeMs);
+        } else {
+          runLayout();
+        }
+
+        updateUIForFocusedDownload(focusedKeyRef.current, false);
+
+        if (remainingMs === 0) {
+          Promise.resolve()
+            .then(() => absorbIntoPileWithoutSticky(downloadKey))
+            .catch((e) => debugLog("[Lifecycle] enterDeferredStickyPhase immediate absorb error", e));
+          return;
+        }
+        if (remainingMs == null) {
           return;
         }
 
-        if (shouldAbsorbInsteadOfStickyPod()) {
-          await absorbIntoPileWithoutSticky(downloadKey);
-          return;
-        }
+        cardData.deferredStickyTimeoutId = setTimeout(() => {
+          cardData.deferredStickyTimeoutId = null;
+          Promise.resolve()
+            .then(() => absorbIntoPileWithoutSticky(downloadKey))
+            .catch((e) => debugLog("[Lifecycle] commitDeferredAbsorb error", e));
+        }, remainingMs);
+      }
+
+      /**
+       * Apply sticky toolbar pod + pile sidecar (shared by normal sticky and pile-collapse reveal).
+       * @param {string} downloadKey
+       * @param {{ fadeTooltipIfFocused?: boolean }} [opts]
+       */
+      async function makePodStickyCore(downloadKey, opts = {}) {
+        const { fadeTooltipIfFocused = true } = opts;
+        const cardData = activeDownloadCards.get(downloadKey);
+        if (!cardData || cardData.isSticky || cardData.isBeingRemoved) return;
 
         store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
@@ -596,6 +757,10 @@
         if (cardData.autohideTimeoutId) {
           clearTimeout(cardData.autohideTimeoutId);
           cardData.autohideTimeoutId = null;
+        }
+        if (cardData.deferredStickyTimeoutId) {
+          clearTimeout(cardData.deferredStickyTimeoutId);
+          cardData.deferredStickyTimeoutId = null;
         }
 
         const dismissedData = capturePodDataForDismissal(downloadKey);
@@ -615,29 +780,25 @@
         dismissedDownloads.add(downloadKey);
         if (cardData.podElement) {
           const podElement = cardData.podElement;
+          podElement.style.display = "";
           podElement.classList.add("zen-tidy-sticky-pod");
           podElement.style.pointerEvents = "auto";
           podElement.style.cursor = "pointer";
-          /* mouseenter → request-pile-expand is wired at pod-creation time in
-             tidy-downloads-pods.uc.js so the pile is hoverable from the moment
-             the pod appears, not only after sticky transition. */
         }
 
-        if (shouldPileHoverBlockForPendingAIAfterSticky(cardData)) {
-          store.pileHoverExpandBlockedUntilAIDoneKeys.add(downloadKey);
-        }
+        // Pile-hover-block is pre-armed in maybeEnqueueAIRename so a fast AI
+        // completion can't lose its release; do NOT re-add here, otherwise an
+        // already-released "suitable name"/error could leave the set non-empty.
 
         const podsRowContainerElement = getPodsRowContainer();
         if (podsRowContainerElement) {
           podsRowContainerElement.style.pointerEvents = "none";
         }
 
-        /* Keep key in orderedPodKeys so sticky pods stay in the jukebox pile with newer downloads. */
-
         const masterTooltipDOMElement = getMasterTooltip();
         const downloadCardsContainer = getDownloadCardsContainer();
         let layoutAfterTooltipFadeMs = 0;
-        if (focusedKeyRef.current === downloadKey && masterTooltipDOMElement) {
+        if (fadeTooltipIfFocused && focusedKeyRef.current === downloadKey && masterTooltipDOMElement) {
           beginMasterTooltipFadeout(downloadCardsContainer);
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
@@ -664,7 +825,7 @@
             try {
               managePodVisibilityAndAnimations();
             } catch (err) {
-              debugLog("[Lifecycle] managePodVisibilityAndAnimations after makePodSticky", err);
+              debugLog("[Lifecycle] managePodVisibilityAndAnimations after makePodStickyCore", err);
             }
           }
         };
@@ -672,6 +833,85 @@
           setTimeout(runLayout, layoutAfterTooltipFadeMs);
         } else {
           runLayout();
+        }
+      }
+
+      async function makePodSticky(downloadKey) {
+        const cardData = activeDownloadCards.get(downloadKey);
+        if (!cardData || cardData.isSticky || cardData.isBeingRemoved) return;
+
+        if (cardData.download?.canceled) {
+          await absorbIntoPileWithoutSticky(downloadKey);
+          return;
+        }
+
+        if (shouldAbsorbInsteadOfStickyPod()) {
+          if (cardData.download?.succeeded) {
+            enterDeferredStickyPhase(downloadKey);
+            return;
+          }
+          await absorbIntoPileWithoutSticky(downloadKey);
+          return;
+        }
+
+        await makePodStickyCore(downloadKey, { fadeTooltipIfFocused: true });
+      }
+
+      /**
+       * Pile collapsed: reveal deferred toolbar pods + tooltip with remaining autohide budget.
+       */
+      async function onPileHidden() {
+        const keysSnapshot = Array.from(activeDownloadCards.keys());
+        for (const downloadKey of keysSnapshot) {
+          const cardData = activeDownloadCards.get(downloadKey);
+          if (!cardData || cardData.phase !== "deferred-sticky") continue;
+
+          if (cardData.deferredStickyTimeoutId) {
+            clearTimeout(cardData.deferredStickyTimeoutId);
+            cardData.deferredStickyTimeoutId = null;
+          }
+
+          const terminalMs = cardData.terminalCompletedAtMs ?? Date.now();
+          const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
+          const autohideMs = disableAutohide ? null : getPref("extensions.downloads.autohide_delay_ms", 10000);
+          const remainingMs =
+            autohideMs == null ? null : Math.max(0, autohideMs - (Date.now() - terminalMs));
+
+          if (remainingMs === 0) {
+            await absorbIntoPileWithoutSticky(downloadKey);
+            continue;
+          }
+
+          if (cardData.podElement) {
+            cardData.podElement.style.display = "";
+          }
+
+          await makePodStickyCore(downloadKey, { fadeTooltipIfFocused: false });
+
+          const masterTooltipDOMElement = getMasterTooltip();
+          const downloadCardsContainer = getDownloadCardsContainer();
+          if (downloadCardsContainer) {
+            downloadCardsContainer.style.display = "flex";
+            downloadCardsContainer.style.visibility = "visible";
+            downloadCardsContainer.style.opacity = "1";
+            downloadCardsContainer.style.pointerEvents = "auto";
+          }
+          if (masterTooltipDOMElement) {
+            masterTooltipDOMElement.style.display = "";
+            masterTooltipDOMElement.style.opacity = "1";
+            masterTooltipDOMElement.style.transform = "";
+            masterTooltipDOMElement.style.pointerEvents = "auto";
+          }
+          store.masterTooltipFadeoutActive = false;
+
+          focusedKeyRef.current = downloadKey;
+          updateUIForFocusedDownload(downloadKey, true);
+
+          if (remainingMs != null && remainingMs > 0) {
+            cardData.autohideTimeoutId = setTimeout(() => {
+              performAutohideSequence(downloadKey);
+            }, remainingMs);
+          }
         }
       }
 
@@ -761,18 +1001,20 @@
 
       /**
        * Report the current lifecycle phase of a download key.
-       *   - "progress"  : in-flight, rendered by the library-pie
-       *   - "live-pod"  : completed, pod card visible in the pods row
-       *   - "sticky"    : autohide elapsed; pod waiting to be absorbed by the pile
-       *   - "dismissed" : fade-out in flight or already removed
+       *   - "progress"        : in-flight, rendered by the library-pie
+       *   - "live-pod"      : completed, pod card visible in the pods row
+       *   - "deferred-sticky" : completed while pile expanded; toolbar pod hidden until collapse or absorb timer
+       *   - "sticky"        : autohide elapsed; pod waiting to be absorbed by the pile
+       *   - "dismissed"     : fade-out in flight or already removed
        *   - null        : unknown key
        * @param {string} key
-       * @returns {"progress"|"live-pod"|"sticky"|"dismissed"|null}
+       * @returns {"progress"|"live-pod"|"deferred-sticky"|"sticky"|"dismissed"|null}
        */
       function getPhase(key) {
         if (!key) return null;
         const cardData = activeDownloadCards.get(key);
         if (cardData) {
+          if (cardData.phase === "deferred-sticky") return "deferred-sticky";
           return cardData.phase || "live-pod";
         }
         if (progressingDownloads && progressingDownloads.has(key)) {
@@ -954,6 +1196,10 @@
             clearTimeout(cardData.autohideTimeoutId);
             cardData.autohideTimeoutId = null;
           }
+          if (cardData?.deferredStickyTimeoutId) {
+            clearTimeout(cardData.deferredStickyTimeoutId);
+            cardData.deferredStickyTimeoutId = null;
+          }
         });
       }
 
@@ -971,6 +1217,7 @@
         apply,
         getPhase,
         reconcileDismissedForIncoming,
+        onPileHidden,
         destroy
       };
     }

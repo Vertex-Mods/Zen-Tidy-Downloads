@@ -364,6 +364,7 @@
       performAutohideSequence,
       updateUIForFocusedDownload,
       getMasterTooltip: () => masterTooltipDOMElement,
+      fireCustomEvent,
       /** @type {(oldKey: string, newKey: string) => void} */
       migrateAIRenameKeys() {}
     };
@@ -438,7 +439,8 @@
       getLibraryPieController: () => libraryPieController,
       getThrottledCreateOrUpdateCard: () => throttledCreateOrUpdateCard,
       getHandoffAnimator: () => podHandoffAnimator,
-      getAiRenamingPossible: () => aiRenamingPossible
+      getAiRenamingPossible: () => aiRenamingPossible,
+      getAddToAIRenameQueue: () => addToAIRenameQueue
     });
 
     async function init() {
@@ -500,12 +502,17 @@
           clearAllStickyPods,
           onPileHiddenRepair: () => {
             debugLog("[PileRepair] pile-hidden: restore download chrome + focus invariants");
-            updateDownloadCardsVisibility();
-            if (focusedKeyRef.current && !activeDownloadCards.has(focusedKeyRef.current)) {
-              focusedKeyRef.current =
-                orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
-              updateUIForFocusedDownload(focusedKeyRef.current, false);
-            }
+            Promise.resolve()
+              .then(() => lifecycleApi.onPileHidden?.())
+              .catch((e) => debugLog("[PileRepair] onPileHidden error", e))
+              .finally(() => {
+                updateDownloadCardsVisibility();
+                if (focusedKeyRef.current && !activeDownloadCards.has(focusedKeyRef.current)) {
+                  focusedKeyRef.current =
+                    orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
+                  updateUIForFocusedDownload(focusedKeyRef.current, false);
+                }
+              });
           },
           setupCompactModeObserver
         });
@@ -563,8 +570,6 @@
           SecurityUtils,
           Cc,
           Ci,
-          getAddToAIRenameQueue: () => addToAIRenameQueue,
-          getAiRenamingPossible: () => aiRenamingPossible,
           scheduleCardRemoval,
           updateDownloadCardsVisibility,
           updateUIForFocusedDownload,

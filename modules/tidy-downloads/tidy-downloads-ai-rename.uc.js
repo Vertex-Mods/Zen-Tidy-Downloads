@@ -333,13 +333,12 @@
         }
 
         if (!cardData) {
-          debugLog("AI Rename: Card data not found for download key:", key);
-          activeAIProcesses.delete(key);
-          releasePileHoverExpandBlockForKey(key);
-          return false;
+          debugLog("AI Rename: Card data not found for download key (continuing with queue snapshot):", key);
         }
 
-        const previewContainerOnPod = cardData.podElement ? cardData.podElement.querySelector(".card-preview-container") : null;
+        const previewContainerOnPod = cardData?.podElement
+          ? cardData.podElement.querySelector(".card-preview-container")
+          : null;
         let originalPreviewTitle = "";
         if (previewContainerOnPod) originalPreviewTitle = previewContainerOnPod.title;
 
@@ -350,7 +349,7 @@
           return false;
         }
 
-        const trueOriginalFilename = cardData.originalFilename;
+        const trueOriginalFilename = cardData?.originalFilename ?? originalNameForUICard;
 
         if (renamedFiles.has(downloadPath)) {
           debugLog(`Skipping rename - already processed: ${downloadPath}`);
@@ -623,7 +622,7 @@ Instructions:
               let finalSize = download.currentBytes;
               if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
               const fileSizeText = formatBytes(finalSize || 0);
-              const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
+              const fileSizeEl = masterTooltipDOMElement?.querySelector(".card-filesize");
               statusElToUpdate.textContent = "Download renamed to:";
               if (fileSizeEl) {
                 fileSizeEl.textContent = fileSizeText;
@@ -776,14 +775,15 @@ Instructions:
             debugLog(`[AI Queue] Processing ${downloadKey}. Remaining in queue: ${aiRenameQueue.length}`);
 
             const cardData = activeDownloadCards.get(downloadKey);
-            if (!cardData || !cardData.download) {
-              debugLog(`[AI Queue] Skipping ${downloadKey} - card data no longer exists`);
+            const dl = cardData?.download || download;
+            if (!dl) {
+              debugLog(`[AI Queue] Skipping ${downloadKey} - no download object`);
               releasePileHoverExpandBlockForKey(downloadKey);
               currentlyProcessingKey = null;
               continue;
             }
 
-            const currentPath = cardData.download.target?.path;
+            const currentPath = dl.target?.path;
             if (renamedFiles.has(currentPath)) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - already renamed`);
               releasePileHoverExpandBlockForKey(downloadKey);
@@ -791,7 +791,7 @@ Instructions:
               continue;
             }
 
-            if (!cardData.download.succeeded) {
+            if (!dl.succeeded) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - no longer in succeeded state`);
               releasePileHoverExpandBlockForKey(downloadKey);
               currentlyProcessingKey = null;
@@ -810,10 +810,10 @@ Instructions:
             aiRenameQueue.forEach(item => updateQueueStatusInUI(item.downloadKey));
 
             try {
-              const podElement = cardData.podElement;
+              const podElement = cardData?.podElement;
               if (podElement) podElement.classList.add('renaming-initiated');
 
-              await processDownloadForAIRenaming(cardData.download, originalFilename, downloadKey);
+              await processDownloadForAIRenaming(dl, originalFilename, downloadKey);
               debugLog(`[AI Queue] Successfully processed ${downloadKey}`);
             } catch (error) {
               if (error.name === 'AbortError') {

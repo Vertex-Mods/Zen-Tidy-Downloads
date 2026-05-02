@@ -25,8 +25,6 @@
      * @param {Object} ctx.SecurityUtils
      * @param {typeof Components.classes} ctx.Cc
      * @param {typeof Components.interfaces} ctx.Ci
-     * @param {function} ctx.getAddToAIRenameQueue - () => addToAIRenameQueue impl
-     * @param {function} ctx.getAiRenamingPossible - () => aiRenamingPossible flag
      * @param {function} ctx.scheduleCardRemoval
      * @param {function} ctx.updateDownloadCardsVisibility
      * @param {function} ctx.updateUIForFocusedDownload
@@ -48,8 +46,6 @@
         SecurityUtils,
         Cc,
         Ci,
-        getAddToAIRenameQueue,
-        getAiRenamingPossible,
         scheduleCardRemoval,
         updateDownloadCardsVisibility,
         updateUIForFocusedDownload,
@@ -437,34 +433,7 @@
           podElement.classList.add("completed");
           debugLog(`[PodFUNC] Download marked as complete: ${key}`);
 
-          const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
-          const aiPossible = getAiRenamingPossible();
-          debugLog(`[PodFUNC] Checking AI rename eligibility for ${key} (new pod):`, {
-            aiRenamingEnabled,
-            aiRenamingPossible: aiPossible,
-            hasPath: !!download.target?.path,
-            path: download.target?.path,
-            alreadyRenamed: renamedFiles.has(download.target?.path)
-          });
-
-          if (
-            aiRenamingEnabled &&
-            aiPossible &&
-            download.target?.path &&
-            !renamedFiles.has(download.target.path)
-          ) {
-            setTimeout(() => {
-              const currentCardData = activeDownloadCards.get(key);
-              if (currentCardData && currentCardData.download) {
-                debugLog(`[PodFUNC] Adding ${key} to AI rename queue after delay (new pod)`);
-                getAddToAIRenameQueue()(key, currentCardData.download, currentCardData.originalFilename);
-              } else {
-                debugLog(`[PodFUNC] Cannot add ${key} to queue - cardData missing after delay (new pod)`);
-              }
-            }, 1000);
-          } else {
-            debugLog(`[PodFUNC] Not adding ${key} to AI rename queue - conditions not met (new pod)`);
-          }
+          debugLog(`[PodFUNC] Download complete ${key}; AI rename is enqueued from card-lifecycle if enabled.`);
 
           requestStickyAfterTerminal(key);
         }

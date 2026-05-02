@@ -199,7 +199,7 @@
      * performAutohideSequence exist (same scope as main script), and before init() if load is synchronous.
      * @param {Object} ctx
      * @param {Object} ctx.store - zenTidyDownloadsStore.createStore() result (activeDownloadCards, orderedPodKeys, focusedKeyRef, renamedFiles)
-     * @param {Object} ctx.deps - shared callbacks/utils (SecurityUtils, debugLog, sanitizeFilename, PATH_SEPARATOR, Cc, Ci, scheduleCardRemoval, performAutohideSequence, updateUIForFocusedDownload, getMasterTooltip, migrateAIRenameKeys)
+     * @param {Object} ctx.deps - shared callbacks/utils (SecurityUtils, debugLog, sanitizeFilename, PATH_SEPARATOR, Cc, Ci, scheduleCardRemoval, performAutohideSequence, updateUIForFocusedDownload, getMasterTooltip, migrateAIRenameKeys, fireCustomEvent)
      * @returns {{ renameDownloadFileAndUpdateRecord: Function, undoRename: Function }}
      */
     createRenameHandlers(ctx) {
@@ -215,7 +215,8 @@
         performAutohideSequence,
         updateUIForFocusedDownload,
         getMasterTooltip,
-        migrateAIRenameKeys
+        migrateAIRenameKeys,
+        fireCustomEvent
       } = deps;
       const {
         activeDownloadCards,
@@ -424,12 +425,26 @@
             if (focusedKeyRef.current === key) {
               focusedKeyRef.current = newPath;
             }
-            migrateDismissedSidecarKeys(key, newPath, download, finalName);
             progressPileKeyByDownload?.set(download, newPath);
             notifyProgressPileRenameRekey({
               kind: "rekey",
               oldKey: key,
               podData: buildCompletedPilePodDataForRekey(cardData, newPath, download, finalName)
+            });
+          }
+
+          const hadDismissedSidecar = dismissedPodsData?.has(key) === true;
+          migrateDismissedSidecarKeys(key, newPath, download, finalName);
+          if (
+            hadDismissedSidecar &&
+            typeof fireCustomEvent === "function" &&
+            dismissedPodsData?.has(newPath)
+          ) {
+            const podData = dismissedPodsData.get(newPath);
+            fireCustomEvent("pod-dismissed-updated", {
+              oldKey: key,
+              newKey: newPath,
+              podData
             });
           }
 

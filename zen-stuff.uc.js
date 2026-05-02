@@ -406,10 +406,15 @@
     showPile
   });
 
-  /** Tidy Downloads: skip sticky toolbar pod while user hovers pile chrome or the library/downloads button. */
+  /** Tidy Downloads: skip sticky toolbar pod while pile is expanded (hover OR pinned/always-show), or while the user hovers the library/downloads button. */
+  function isPileCurrentlyExpanded() {
+    return !!(state.dynamicSizer && state.dynamicSizer.style.height && state.dynamicSizer.style.height !== "0px");
+  }
   window.__zenDismissedPileIntegration = {
     isHoveringPileArea: () => pileVisibilityApi?.isHoveringPileArea?.() === true,
+    isPileExpanded: () => isPileCurrentlyExpanded(),
     shouldSuppressStickyPod: () =>
+      isPileCurrentlyExpanded() ||
       pileVisibilityApi?.isHoveringPileArea?.() === true ||
       state.downloadButton?.matches(":hover") === true
   };
@@ -428,6 +433,22 @@
     window.zenTidyDownloads.onPodDismissed((podData) => {
       debugLog("Received pod dismissal:", podData);
       addPodToPile(podData);
+    });
+
+    document.addEventListener("pod-dismissed-updated", (ev) => {
+      try {
+        const d = ev?.detail;
+        if (!d || typeof d !== "object") return;
+        const { oldKey, newKey, podData } = d;
+        if (oldKey && state.dismissedPods.has(oldKey)) {
+          removePodFromPile(oldKey);
+        }
+        if (podData && newKey) {
+          addPodToPile(podData, false);
+        }
+      } catch (err) {
+        debugLog("[Pile] pod-dismissed-updated handler error", err);
+      }
     });
 
     if (typeof window.zenTidyDownloads.onProgressPilePod === "function") {

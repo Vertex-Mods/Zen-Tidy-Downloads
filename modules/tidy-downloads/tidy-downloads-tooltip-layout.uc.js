@@ -390,6 +390,12 @@
                 debugLog(`[LayoutManager_Jukebox_Skip] Skipping pod ${key}. Conditions: cardData=${!!cardData}, podElement=${!!cardData?.podElement}, domAppended=${cardData?.domAppended}, waitingZen=${cardData?.isWaitingForZenAnimation}, beingRemoved=${cardData?.isBeingRemoved}`);
                 return;
             }
+            if (cardData.phase === "deferred-sticky") {
+                cardData.podElement.style.display = "none";
+                cardData.isVisible = false;
+                debugLog(`[LayoutManager_Jukebox_Skip] Pod ${key} is in deferred-sticky phase; keeping hidden.`);
+                return;
+            }
 
             if (!cardData.podElement.parentNode) {
                 debugLog(`[LayoutManager_Jukebox_Skip] Pod ${key} not in DOM, skipping layout.`);
