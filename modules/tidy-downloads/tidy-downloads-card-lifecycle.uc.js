@@ -821,7 +821,21 @@
         const masterTooltipDOMElement = getMasterTooltip();
         const downloadCardsContainer = getDownloadCardsContainer();
         let layoutAfterTooltipFadeMs = 0;
-        if (fadeTooltipIfFocused && focusedKeyRef.current === downloadKey && masterTooltipDOMElement) {
+        // Skip the live-pod-to-sticky tooltip fadeout while AI rename is pending
+        // for this key. AI rename writes "Analyzing file..." → "Renaming to: …"
+        // → "Download renamed to:" into the same tooltip; fading it out here and
+        // relying on AI completion to fade it back in causes the tooltip to never
+        // re-appear due to a timing race between the 450ms fade-out setTimeout
+        // and updateUIForFocusedDownload() reapplying styles.
+        const aiPendingForKey =
+          store.pileHoverExpandBlockedUntilAIDoneKeys instanceof Set &&
+          store.pileHoverExpandBlockedUntilAIDoneKeys.has(downloadKey);
+        if (
+          fadeTooltipIfFocused &&
+          !aiPendingForKey &&
+          focusedKeyRef.current === downloadKey &&
+          masterTooltipDOMElement
+        ) {
           beginMasterTooltipFadeout(downloadCardsContainer);
           masterTooltipDOMElement.style.opacity = "0";
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
@@ -834,6 +848,11 @@
             collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
           }, MASTER_TOOLTIP_FADEOUT_MS);
           focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
+        } else if (aiPendingForKey) {
+          // AI is in flight; keep tooltip visible and let AI status writes / final
+          // updateUIForFocusedDownload drive its content. Don't suppress so the
+          // status text stays painted.
+          store.masterRenameTooltipSuppressed = false;
         }
 
         if (
