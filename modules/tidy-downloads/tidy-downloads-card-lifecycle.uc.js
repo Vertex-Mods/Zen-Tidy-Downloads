@@ -1007,6 +1007,14 @@
       function clearAllStickyPods() {
         const keys = Array.from(stickyPods);
         if (keys.length === 0) return;
+        /* Dismissed pile expanded: drop toolbar focus and suppress rename-success chrome
+           *before* clearing each sticky so a transient focusedKeyRef / aiName card cannot
+           * make compact-visibility show the cards container for one frame. Also clear the
+           * fade flag so the "fadeout in progress → keep subtree flex" branch does not run. */
+        store.masterRenameTooltipSuppressed = true;
+        store.pileHoverBlockedByRenameTooltip = false;
+        store.masterTooltipFadeoutActive = false;
+        focusedKeyRef.current = null;
         keys.forEach(clearStickyPod);
         if (typeof updateDownloadCardsVisibility === "function") {
           updateDownloadCardsVisibility();

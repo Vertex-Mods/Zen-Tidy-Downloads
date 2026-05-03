@@ -38,6 +38,8 @@
       /**
        * Like tooltip-layout `shouldShowMasterRenameTooltip`, plus `!store.masterRenameTooltipSuppressed`
        * so autohide/close/sticky transitions do not resurrect `#userchrome-download-cards-container`.
+       * Rename-success chrome is only for a real toolbar sticky (jukebox cleared into the pile
+       * has no stickies — do not flash the cards wrapper).
        * @returns {boolean}
        */
       function shouldShowRenameSuccessChromeFromStore() {
@@ -50,6 +52,8 @@
           cardData.phase === "progress" || cardData.podElement.dataset?.state === "progress";
         if (isProgress) return false;
         if (store?.masterRenameTooltipSuppressed) return false;
+        const inStickySet = store?.stickyPods instanceof Set && store.stickyPods.has(fk);
+        if (cardData.isSticky !== true && !inStickySet) return false;
         return !!(download.succeeded && download.aiName);
       }
 
