@@ -112,8 +112,7 @@
         const total = dl.totalBytes;
         const etaSuffix = formatEstimatedTimeSuffix(dl);
         if (typeof total === "number" && total > 0) {
-          const pct = Math.round((cur / total) * 100);
-          return `${pct}% · ${formatBytesFn(cur)} / ${formatBytesFn(total)}${etaSuffix}`;
+          return `${formatBytesFn(cur)} / ${formatBytesFn(total)}${etaSuffix}`;
         }
         const speed = dl.speed;
         if (typeof speed === "number" && speed > 0) {

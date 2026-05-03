@@ -20,8 +20,8 @@
   const PIE = Object.freeze({ cx: 16, cy: 16 });
   /** Library pods row: compact ring */
   const SPEC_PIE_LIB = Object.freeze({ r: 13, sw: 2.5, svg: 16 });
-  /** Dismissed pile preview (36×36): modest stroke; icon disc carries weight */
-  const SPEC_PIE_DOCKED = Object.freeze({ r: 12.5, sw: 2.75, svg: 32 });
+  /** Dismissed pile pod-row preview (36×36): expanded ring radius for clearer progress read */
+  const SPEC_PIE_DOCKED = Object.freeze({ r: 14, sw: 2.75, svg: 32 });
 
   /**
    * Fallback key when no external getDownloadKey is provided. Canonicalisation
