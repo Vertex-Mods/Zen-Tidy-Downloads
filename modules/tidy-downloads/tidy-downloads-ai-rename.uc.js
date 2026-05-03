@@ -644,15 +644,28 @@ Instructions:
               podElementToStyle.classList.add("renamed-by-ai");
             }
 
-            const priorFocus = focusedKeyRef.current;
-            focusedKeyRef.current = newPath;
-            if (priorFocus !== newPath) {
+            // If the card is in deferred-sticky (pile was expanded when download
+            // finished), do NOT surface tooltip/pod chrome here. The pile entry was
+            // already refreshed via the pod-dismissed-updated event from the rename,
+            // and onPileHidden() will reveal the renamed pod + tooltip when the pile
+            // collapses (using cardData.terminalCompletedAtMs for autohide budgeting).
+            const renamedCardData = activeDownloadCards.get(newPath);
+            const isDeferredSticky = renamedCardData?.phase === "deferred-sticky";
+            if (!isDeferredSticky) {
+              const priorFocus = focusedKeyRef.current;
+              focusedKeyRef.current = newPath;
+              if (priorFocus !== newPath) {
+                debugLog(
+                  `[AI Rename] Stole focus for renamed pod: ${priorFocus ?? "null"} → ${newPath} (jukebox: each fresh AI-rename success surfaces its own tooltip).`
+                );
+              }
+              updateUIForFocusedDownload(newPath, true);
+              scheduleCardRemoval(newPath);
+            } else {
               debugLog(
-                `[AI Rename] Stole focus for renamed pod: ${priorFocus ?? "null"} → ${newPath} (jukebox: each fresh AI-rename success surfaces its own tooltip).`
+                `[AI Rename] Renamed pod ${newPath} is in deferred-sticky phase; skipping tooltip/pod surfacing. Reveal will happen on pile collapse.`
               );
             }
-            updateUIForFocusedDownload(newPath, true);
-            scheduleCardRemoval(newPath);
             debugLog(`Successfully AI-renamed to: ${actualFilename}`);
 
             if (document.documentElement.getAttribute('zen-compact-mode') === 'true') {

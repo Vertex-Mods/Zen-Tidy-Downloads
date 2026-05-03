@@ -109,6 +109,33 @@
        * @param {HTMLElement|null|undefined} downloadCardsContainer
        */
       function hideMasterTooltipChromeWithFade(masterTooltipDOMElement, downloadCardsContainer) {
+        const tooltipPainted = (() => {
+          const cs = window.getComputedStyle(masterTooltipDOMElement);
+          return (
+            cs.display !== "none" &&
+            cs.visibility !== "hidden" &&
+            parseFloat(cs.opacity) > 0.01
+          );
+        })();
+        const cardsPainted =
+          !!downloadCardsContainer &&
+          (() => {
+            const cs = window.getComputedStyle(downloadCardsContainer);
+            return (
+              cs.display !== "none" &&
+              cs.visibility !== "hidden" &&
+              parseFloat(cs.opacity) > 0.01
+            );
+          })();
+        // Pile expand calls dismissMasterRenameTooltip even when no rename tooltip is
+        // visible (e.g. in-progress download). Without this guard, we set
+        // masterTooltipFadeoutActive and compact-visibility forces
+        // #userchrome-download-cards-container to display:flex for 450ms — a visible flash.
+        if (!tooltipPainted && !cardsPainted) {
+          hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
+          return;
+        }
+
         store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
         store.masterTooltipFadeoutActive = true;
