@@ -644,15 +644,14 @@ Instructions:
               podElementToStyle.classList.add("renamed-by-ai");
             }
 
-            if (focusedKeyRef.current === key || focusedKeyRef.current === null) {
-              focusedKeyRef.current = newPath;
+            const priorFocus = focusedKeyRef.current;
+            focusedKeyRef.current = newPath;
+            if (priorFocus !== newPath) {
               debugLog(
-                `[AI Rename] Adopted focus for renamed pod: ${key} → ${newPath} (was key match or null after sticky).`
+                `[AI Rename] Stole focus for renamed pod: ${priorFocus ?? "null"} → ${newPath} (jukebox: each fresh AI-rename success surfaces its own tooltip).`
               );
             }
-            if (focusedKeyRef.current === newPath) {
-              updateUIForFocusedDownload(newPath, true);
-            }
+            updateUIForFocusedDownload(newPath, true);
             scheduleCardRemoval(newPath);
             debugLog(`Successfully AI-renamed to: ${actualFilename}`);
 

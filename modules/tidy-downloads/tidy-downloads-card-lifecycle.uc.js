@@ -474,6 +474,14 @@
         }
 
         setTimeout(() => {
+          /* If a newer rename-success tooltip claimed the slot during this fade window
+             (updateUIForFocusedDownload flips masterRenameTooltipSuppressed back to false
+             when it shows the next pod), don't tear the container/tooltip down — that
+             would wipe the freshly shown jukebox successor. */
+          if (store.masterRenameTooltipSuppressed === false) {
+            store.masterTooltipFadeoutActive = false;
+            return;
+          }
           if (masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === "0") {
             masterTooltipDOMElement.style.display = "none";
           }
@@ -600,6 +608,14 @@
           masterTooltipDOMElement.style.pointerEvents = "none";
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
+            /* Jukebox-successor guard: if a newer rename-success tooltip claimed the slot
+               during this fade window (updateUIForFocusedDownload flips
+               masterRenameTooltipSuppressed back to false), don't tear the container
+               down — that would wipe the freshly shown successor. */
+            if (store.masterRenameTooltipSuppressed === false) {
+              store.masterTooltipFadeoutActive = false;
+              return;
+            }
             if (masterTooltipDOMElement.style.opacity === "0") {
               masterTooltipDOMElement.style.display = "none";
             }
@@ -705,6 +721,14 @@
           masterTooltipDOMElement.style.pointerEvents = "none";
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
+            /* Jukebox-successor guard: if a newer rename-success tooltip claimed the slot
+               during this fade window (updateUIForFocusedDownload flips
+               masterRenameTooltipSuppressed back to false), don't tear the container
+               down — that would wipe the freshly shown successor. */
+            if (store.masterRenameTooltipSuppressed === false) {
+              store.masterTooltipFadeoutActive = false;
+              return;
+            }
             if (masterTooltipDOMElement.style.opacity === "0") {
               masterTooltipDOMElement.style.display = "none";
             }
@@ -841,6 +865,14 @@
           masterTooltipDOMElement.style.pointerEvents = "none";
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           setTimeout(() => {
+            /* Jukebox-successor guard: if a newer rename-success tooltip claimed the slot
+               during this fade window (updateUIForFocusedDownload flips
+               masterRenameTooltipSuppressed back to false), don't tear the container
+               down — that would wipe the freshly shown successor. */
+            if (store.masterRenameTooltipSuppressed === false) {
+              store.masterTooltipFadeoutActive = false;
+              return;
+            }
             if (masterTooltipDOMElement.style.opacity === "0") {
               masterTooltipDOMElement.style.display = "none";
             }

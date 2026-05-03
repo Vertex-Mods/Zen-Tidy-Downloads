@@ -120,6 +120,11 @@
         }
         window.setTimeout(() => {
           store.masterTooltipFadeoutActive = false;
+          /* Jukebox-successor guard: if a newer rename-success tooltip claimed the slot
+             during this fade window (updateUIForFocusedDownload flips
+             masterRenameTooltipSuppressed back to false), don't hard-hide — that would
+             wipe the freshly shown successor. */
+          if (store.masterRenameTooltipSuppressed === false) return;
           hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
         }, MASTER_TOOLTIP_FADEOUT_MS);
       }
