@@ -78,8 +78,7 @@
         return !!(download.succeeded && download.aiName);
       }
 
-      /** Match card-lifecycle + chrome.css `.details-tooltip`: delay 0.15s + duration 0.3s → 450ms */
-      const MASTER_TOOLTIP_FADEOUT_MS = 450;
+      const MASTER_TOOLTIP_FADEOUT_MS = window.zenTidyDownloadsUtils.MASTER_TOOLTIP_FADEOUT_MS;
 
       /**
        * Hard-hide rename tooltip chrome (instant). Use when swapping focus/UI state — not for user-dismiss.
@@ -138,6 +137,23 @@
 
         store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
+        const sharedFade = window.zenTidyDownloadsUtils?.runMasterTooltipFade;
+        if (typeof sharedFade === "function") {
+          sharedFade({
+            store,
+            masterTooltipDOMElement,
+            downloadCardsContainer,
+            beginFade: (container) => {
+              store.masterTooltipFadeoutActive = true;
+              if (container) container.style.pointerEvents = "none";
+            },
+            collapseContainer: () => {
+              store.masterTooltipFadeoutActive = false;
+              hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
+            }
+          });
+          return;
+        }
         store.masterTooltipFadeoutActive = true;
         masterTooltipDOMElement.style.opacity = "0";
         masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
@@ -147,10 +163,6 @@
         }
         window.setTimeout(() => {
           store.masterTooltipFadeoutActive = false;
-          /* Jukebox-successor guard: if a newer rename-success tooltip claimed the slot
-             during this fade window (updateUIForFocusedDownload flips
-             masterRenameTooltipSuppressed back to false), don't hard-hide — that would
-             wipe the freshly shown successor. */
           if (store.masterRenameTooltipSuppressed === false) return;
           hideMasterTooltipChrome(masterTooltipDOMElement, downloadCardsContainer);
         }, MASTER_TOOLTIP_FADEOUT_MS);

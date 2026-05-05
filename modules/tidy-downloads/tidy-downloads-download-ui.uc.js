@@ -113,8 +113,7 @@
 
         const masterCloseBtn = masterTooltipDOMElement.querySelector(".card-close-button");
         if (masterCloseBtn) {
-          /** Match tooltip-layout + chrome.css: transition delay 0.15s + duration 0.3s */
-          const MASTER_TOOLTIP_FADEOUT_MS = 450;
+          const MASTER_TOOLTIP_FADEOUT_MS = window.zenTidyDownloadsUtils.MASTER_TOOLTIP_FADEOUT_MS;
           const masterCloseHandler = (e) => {
             e.preventDefault();
             e.stopPropagation();

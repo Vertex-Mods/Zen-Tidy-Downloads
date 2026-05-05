@@ -401,8 +401,10 @@
             }
 
             if (cardData.autohideTimeoutId) {
-              clearTimeout(cardData.autohideTimeoutId);
-              cardData.autohideTimeoutId = null;
+              window.zenTidyDownloadsUtils?.clearCardTimers?.(cardData, {
+                autohide: true,
+                deferredSticky: false
+              });
               debugLog(`[Rename] Cleared old autohide timeout for ${key}, rescheduling for ${newPath}`);
               scheduleCardRemoval(newPath);
             }
@@ -610,10 +612,10 @@
           const revertedCardData = activeDownloadCards.get(targetOriginalPath);
 
           if (revertedCardData) {
-            if (revertedCardData.autohideTimeoutId) {
-              clearTimeout(revertedCardData.autohideTimeoutId);
-              revertedCardData.autohideTimeoutId = null;
-            }
+            window.zenTidyDownloadsUtils?.clearCardTimers?.(revertedCardData, {
+              autohide: true,
+              deferredSticky: false
+            });
           }
 
           const shortDelay = 2000;

@@ -41,6 +41,8 @@
   ]);
   const PATH_SEPARATOR = navigator.platform.includes("Win") ? "\\" : "/";
   const DEFAULT_TEXT_PREVIEW_MAX_BYTES = 500;
+  /** Match chrome.css `.details-tooltip`: transition delay 0.15s + duration 0.3s */
+  const MASTER_TOOLTIP_FADEOUT_MS = 450;
 
   // ============================================================================
   // PREFERENCES
@@ -458,6 +460,65 @@
     });
   }
 
+  /**
+   * Clear lifecycle timer ids from a card-like object.
+   * @param {any} cardData
+   * @param {{ autohide?: boolean, deferredSticky?: boolean }} [opts]
+   */
+  function clearCardTimers(cardData, opts = {}) {
+    if (!cardData) return;
+    const { autohide = true, deferredSticky = true } = opts;
+    if (deferredSticky && cardData.deferredStickyTimeoutId) {
+      clearTimeout(cardData.deferredStickyTimeoutId);
+      cardData.deferredStickyTimeoutId = null;
+    }
+    if (autohide && cardData.autohideTimeoutId) {
+      clearTimeout(cardData.autohideTimeoutId);
+      cardData.autohideTimeoutId = null;
+    }
+  }
+
+  /**
+   * Shared master tooltip fade sequence with jukebox-successor guard.
+   * @param {{
+   *   store: any,
+   *   masterTooltipDOMElement?: HTMLElement|null,
+   *   downloadCardsContainer?: HTMLElement|null,
+   *   beginFade?: (container: HTMLElement|null|undefined) => void,
+   *   collapseContainer?: (container: HTMLElement|null|undefined) => void,
+   *   onAfterFade?: () => void
+   * }} params
+   */
+  function runMasterTooltipFade(params) {
+    const {
+      store,
+      masterTooltipDOMElement,
+      downloadCardsContainer,
+      beginFade,
+      collapseContainer,
+      onAfterFade
+    } = params || {};
+    if (!store) return;
+    if (typeof beginFade === "function") beginFade(downloadCardsContainer);
+    else store.masterTooltipFadeoutActive = true;
+    if (masterTooltipDOMElement) {
+      masterTooltipDOMElement.style.opacity = "0";
+      masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+      masterTooltipDOMElement.style.pointerEvents = "none";
+    }
+    setTimeout(() => {
+      if (store.masterRenameTooltipSuppressed === false) {
+        store.masterTooltipFadeoutActive = false;
+        return;
+      }
+      if (masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === "0") {
+        masterTooltipDOMElement.style.display = "none";
+      }
+      if (typeof collapseContainer === "function") collapseContainer(downloadCardsContainer);
+      if (typeof onAfterFade === "function") onAfterFade();
+    }, MASTER_TOOLTIP_FADEOUT_MS);
+  }
+
   // ============================================================================
   // PUBLIC API
   // ============================================================================
@@ -473,6 +534,7 @@
     SYSTEM_ICON_EXTENSIONS,
     PATH_SEPARATOR,
     DEFAULT_TEXT_PREVIEW_MAX_BYTES,
+    MASTER_TOOLTIP_FADEOUT_MS,
 
     // Preferences
     getPref,
@@ -500,7 +562,9 @@
     filenameEndsWithExtensionFromSet,
 
     // DOM
-    waitForElement
+    waitForElement,
+    clearCardTimers,
+    runMasterTooltipFade
   };
 
   console.log("[Zen Tidy Downloads] Utils loaded");

@@ -275,6 +275,71 @@
         }
       }
 
+      /**
+       * Clear lifecycle-owned timers for a card.
+       * @param {any} cardData
+       * @param {{ autohide?: boolean, deferredSticky?: boolean }} [opts]
+       */
+      function clearCardTimers(cardData, opts = {}) {
+        if (!cardData) return;
+        const { autohide = true, deferredSticky = true } = opts;
+        if (deferredSticky && cardData.deferredStickyTimeoutId) {
+          clearTimeout(cardData.deferredStickyTimeoutId);
+          cardData.deferredStickyTimeoutId = null;
+        }
+        if (autohide && cardData.autohideTimeoutId) {
+          clearTimeout(cardData.autohideTimeoutId);
+          cardData.autohideTimeoutId = null;
+        }
+      }
+
+      /**
+       * Emit pod-dismissed payload and listener callbacks.
+       * @param {string} downloadKey
+       * @param {{ wasManual?: boolean, phase?: string }} [opts]
+       * @returns {any|null}
+       */
+      function emitPodDismissed(downloadKey, opts = {}) {
+        const { wasManual = false, phase } = opts;
+        const dismissedData = capturePodDataForDismissal(downloadKey);
+        if (!dismissedData) return null;
+        dismissedPodsData.set(downloadKey, dismissedData);
+        dismissEventListeners.forEach((callback) => {
+          try {
+            callback(dismissedData);
+          } catch (_error) {}
+        });
+        const detail = { podKey: downloadKey, podData: dismissedData, wasManual };
+        if (phase) detail.phase = phase;
+        fireCustomEvent("pod-dismissed", detail);
+        return dismissedData;
+      }
+
+      /**
+       * Remove key from active maps and ordered list.
+       * @param {string} downloadKey
+       * @returns {number}
+       */
+      function removePodTracking(downloadKey) {
+        activeDownloadCards.delete(downloadKey);
+        cardUpdateThrottle.delete(downloadKey);
+        const removedPodIndex = orderedPodKeys.indexOf(downloadKey);
+        if (removedPodIndex > -1) orderedPodKeys.splice(removedPodIndex, 1);
+        return removedPodIndex;
+      }
+
+      /**
+       * Compute focus target after removing a pod index.
+       * @param {number} removedPodIndex
+       * @returns {string|null}
+       */
+      function getReplacementFocusKey(removedPodIndex) {
+        if (orderedPodKeys.length === 0) return null;
+        if (removedPodIndex < orderedPodKeys.length) return orderedPodKeys[removedPodIndex];
+        if (removedPodIndex > 0) return orderedPodKeys[removedPodIndex - 1];
+        return orderedPodKeys[orderedPodKeys.length - 1] || null;
+      }
+
       async function removeCard(downloadKey, force = false) {
         try {
           const cardData = activeDownloadCards.get(downloadKey);
@@ -292,28 +357,13 @@
             return false;
           }
 
-          const dismissedData = capturePodDataForDismissal(downloadKey);
-          if (dismissedData) {
-            dismissedPodsData.set(downloadKey, dismissedData);
-            dismissEventListeners.forEach((callback) => {
-              try {
-                callback(dismissedData);
-              } catch (_error) {}
-            });
-            fireCustomEvent("pod-dismissed", { podKey: downloadKey, podData: dismissedData, wasManual: force });
-          }
+          emitPodDismissed(downloadKey, { wasManual: force });
 
           cardData.isBeingRemoved = true;
           cardData.phase = "dismissed";
-          if (cardData.deferredStickyTimeoutId) {
-            clearTimeout(cardData.deferredStickyTimeoutId);
-            cardData.deferredStickyTimeoutId = null;
-          }
+          clearCardTimers(cardData, { autohide: false, deferredSticky: true });
           await cancelAIProcessForDownload(downloadKey);
-          if (cardData.autohideTimeoutId) {
-            clearTimeout(cardData.autohideTimeoutId);
-            cardData.autohideTimeoutId = null;
-          }
+          clearCardTimers(cardData, { autohide: true, deferredSticky: false });
 
           podElement.style.transition = "opacity 0.3s ease-out, transform 0.3s ease-in-out";
           podElement.style.opacity = "0";
@@ -323,11 +373,7 @@
             const current = activeDownloadCards.get(downloadKey);
             const download = current?.download;
             if (podElement.parentNode) podElement.parentNode.removeChild(podElement);
-            activeDownloadCards.delete(downloadKey);
-            cardUpdateThrottle.delete(downloadKey);
-
-            const removedPodIndex = orderedPodKeys.indexOf(downloadKey);
-            if (removedPodIndex > -1) orderedPodKeys.splice(removedPodIndex, 1);
+            const removedPodIndex = removePodTracking(downloadKey);
 
             if (
               force ||
@@ -339,17 +385,7 @@
             }
 
             if (focusedKeyRef.current === downloadKey) {
-              focusedKeyRef.current = null;
-              if (orderedPodKeys.length > 0) {
-                let newFocusKey = null;
-                if (removedPodIndex < orderedPodKeys.length) newFocusKey = orderedPodKeys[removedPodIndex];
-                else if (removedPodIndex > 0 && orderedPodKeys.length > 0) {
-                  newFocusKey = orderedPodKeys[removedPodIndex - 1];
-                } else if (orderedPodKeys.length > 0) {
-                  newFocusKey = orderedPodKeys[orderedPodKeys.length - 1];
-                }
-                focusedKeyRef.current = newFocusKey;
-              }
+              focusedKeyRef.current = getReplacementFocusKey(removedPodIndex);
             }
 
             updateUIForFocusedDownload(focusedKeyRef.current, false);
@@ -372,7 +408,7 @@
           if (!cardData) return;
           seedPileEntryForLivePod(downloadKey);
           if (getPref(DISABLE_AUTOHIDE_PREF, false)) return;
-          if (cardData.autohideTimeoutId) clearTimeout(cardData.autohideTimeoutId);
+          clearCardTimers(cardData, { autohide: true, deferredSticky: false });
           cardData.autohideTimeoutId = setTimeout(
             () => performAutohideSequence(downloadKey),
             getPref("extensions.downloads.autohide_delay_ms", 10000)
@@ -392,10 +428,7 @@
           const cardData = activeDownloadCards.get(downloadKey);
           if (!cardData) return;
           if (cardData.download?.canceled) {
-            if (cardData.autohideTimeoutId) {
-              clearTimeout(cardData.autohideTimeoutId);
-              cardData.autohideTimeoutId = null;
-            }
+            clearCardTimers(cardData, { autohide: true, deferredSticky: false });
             Promise.resolve()
               .then(() => absorbIntoPileWithoutSticky(downloadKey))
               .catch((e) => debugLog("[Lifecycle] scheduleImmediateSticky absorb (canceled) error", e));
@@ -408,10 +441,7 @@
             }
             maybeEnqueueAIRename(downloadKey);
           }
-          if (cardData.autohideTimeoutId) {
-            clearTimeout(cardData.autohideTimeoutId);
-            cardData.autohideTimeoutId = null;
-          }
+          clearCardTimers(cardData, { autohide: true, deferredSticky: false });
           Promise.resolve()
             .then(() => makePodSticky(downloadKey))
             .catch((e) => debugLog("[Lifecycle] scheduleImmediateSticky makePodSticky error", e));
@@ -420,8 +450,7 @@
         }
       }
 
-      /** Match chrome.css `.details-tooltip`: transition delay 0.15s + duration 0.3s */
-      const MASTER_TOOLTIP_FADEOUT_MS = 450;
+      const MASTER_TOOLTIP_FADEOUT_MS = window.zenTidyDownloadsUtils.MASTER_TOOLTIP_FADEOUT_MS;
 
       function collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer) {
         store.masterTooltipFadeoutActive = false;
@@ -444,6 +473,44 @@
       }
 
       /**
+       * Run shared master tooltip fade with jukebox-successor guard.
+       * @param {HTMLElement|null|undefined} masterTooltipDOMElement
+       * @param {HTMLElement|null|undefined} downloadCardsContainer
+       * @param {() => void} [onAfterFade]
+       */
+      function runMasterTooltipFadeout(masterTooltipDOMElement, downloadCardsContainer, onAfterFade) {
+        const sharedFade = window.zenTidyDownloadsUtils?.runMasterTooltipFade;
+        if (typeof sharedFade === "function") {
+          sharedFade({
+            store,
+            masterTooltipDOMElement,
+            downloadCardsContainer,
+            beginFade: beginMasterTooltipFadeout,
+            collapseContainer: collapseDownloadCardsContainerWithTooltipFade,
+            onAfterFade
+          });
+          return;
+        }
+        beginMasterTooltipFadeout(downloadCardsContainer);
+        if (masterTooltipDOMElement) {
+          masterTooltipDOMElement.style.opacity = "0";
+          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+          masterTooltipDOMElement.style.pointerEvents = "none";
+        }
+        setTimeout(() => {
+          if (store.masterRenameTooltipSuppressed === false) {
+            store.masterTooltipFadeoutActive = false;
+            return;
+          }
+          if (masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === "0") {
+            masterTooltipDOMElement.style.display = "none";
+          }
+          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
+          if (typeof onAfterFade === "function") onAfterFade();
+        }, MASTER_TOOLTIP_FADEOUT_MS);
+      }
+
+      /**
        * After autohide_delay_ms, a pod may already be sticky (e.g. AI rename showed
        * rename-success chrome). Collapse master tooltip + cards without re-running makePodSticky.
        * @param {string} downloadKey
@@ -453,10 +520,7 @@
         store.pileHoverBlockedByRenameTooltip = false;
 
         const cd = activeDownloadCards.get(downloadKey);
-        if (cd?.deferredStickyTimeoutId) {
-          clearTimeout(cd.deferredStickyTimeoutId);
-          cd.deferredStickyTimeoutId = null;
-        }
+        clearCardTimers(cd, { autohide: false, deferredSticky: true });
 
         if (focusedKeyRef.current === downloadKey) {
           focusedKeyRef.current =
@@ -466,26 +530,7 @@
         const masterTooltipDOMElement = getMasterTooltip();
         const downloadCardsContainer = getDownloadCardsContainer();
 
-        beginMasterTooltipFadeout(downloadCardsContainer);
-        if (masterTooltipDOMElement) {
-          masterTooltipDOMElement.style.opacity = "0";
-          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-          masterTooltipDOMElement.style.pointerEvents = "none";
-        }
-
-        setTimeout(() => {
-          /* If a newer rename-success tooltip claimed the slot during this fade window
-             (updateUIForFocusedDownload flips masterRenameTooltipSuppressed back to false
-             when it shows the next pod), don't tear the container/tooltip down — that
-             would wipe the freshly shown jukebox successor. */
-          if (store.masterRenameTooltipSuppressed === false) {
-            store.masterTooltipFadeoutActive = false;
-            return;
-          }
-          if (masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === "0") {
-            masterTooltipDOMElement.style.display = "none";
-          }
-          collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
+        runMasterTooltipFadeout(masterTooltipDOMElement, downloadCardsContainer, () => {
           if (typeof managePodVisibilityAndAnimations === "function") {
             try {
               managePodVisibilityAndAnimations();
@@ -496,7 +541,7 @@
           if (typeof updateDownloadCardsVisibility === "function") {
             updateDownloadCardsVisibility();
           }
-        }, MASTER_TOOLTIP_FADEOUT_MS);
+        });
         if (typeof updateDownloadCardsVisibility === "function") {
           updateDownloadCardsVisibility();
         }
@@ -505,10 +550,7 @@
       async function performAutohideSequence(downloadKey) {
         const cardData = activeDownloadCards.get(downloadKey);
         if (!cardData) return;
-        if (cardData.autohideTimeoutId) {
-          clearTimeout(cardData.autohideTimeoutId);
-          cardData.autohideTimeoutId = null;
-        }
+        clearCardTimers(cardData, { autohide: true, deferredSticky: false });
         try {
           if (cardData.isSticky) {
             dismissStickyPostRenameChrome(downloadKey);
@@ -543,26 +585,8 @@
         store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
 
-        if (cardData.deferredStickyTimeoutId) {
-          clearTimeout(cardData.deferredStickyTimeoutId);
-          cardData.deferredStickyTimeoutId = null;
-        }
-
-        if (cardData.autohideTimeoutId) {
-          clearTimeout(cardData.autohideTimeoutId);
-          cardData.autohideTimeoutId = null;
-        }
-
-        const dismissedData = capturePodDataForDismissal(downloadKey);
-        if (dismissedData) {
-          dismissedPodsData.set(downloadKey, dismissedData);
-          dismissEventListeners.forEach((cb) => {
-            try {
-              cb(dismissedData);
-            } catch (_error) {}
-          });
-          fireCustomEvent("pod-dismissed", { podKey: downloadKey, podData: dismissedData, wasManual: false });
-        }
+        clearCardTimers(cardData);
+        emitPodDismissed(downloadKey, { wasManual: false });
 
         dismissedDownloads.add(downloadKey);
         cardData.isBeingRemoved = true;
@@ -576,24 +600,10 @@
         const podElement = cardData.podElement;
         if (podElement?.parentNode) podElement.parentNode.removeChild(podElement);
 
-        activeDownloadCards.delete(downloadKey);
-        cardUpdateThrottle.delete(downloadKey);
-
-        const removedPodIndex = orderedPodKeys.indexOf(downloadKey);
-        if (removedPodIndex > -1) orderedPodKeys.splice(removedPodIndex, 1);
+        const removedPodIndex = removePodTracking(downloadKey);
 
         if (focusedKeyRef.current === downloadKey) {
-          focusedKeyRef.current = null;
-          if (orderedPodKeys.length > 0) {
-            let newFocusKey = null;
-            if (removedPodIndex < orderedPodKeys.length) newFocusKey = orderedPodKeys[removedPodIndex];
-            else if (removedPodIndex > 0 && orderedPodKeys.length > 0) {
-              newFocusKey = orderedPodKeys[removedPodIndex - 1];
-            } else if (orderedPodKeys.length > 0) {
-              newFocusKey = orderedPodKeys[orderedPodKeys.length - 1];
-            }
-            focusedKeyRef.current = newFocusKey;
-          }
+          focusedKeyRef.current = getReplacementFocusKey(removedPodIndex);
         }
 
         const podsRowContainerElement = getPodsRowContainer();
@@ -602,25 +612,8 @@
         }
 
         if (wasFocused && masterTooltipDOMElement) {
-          beginMasterTooltipFadeout(downloadCardsContainer);
-          masterTooltipDOMElement.style.opacity = "0";
-          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-          masterTooltipDOMElement.style.pointerEvents = "none";
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
-          setTimeout(() => {
-            /* Jukebox-successor guard: if a newer rename-success tooltip claimed the slot
-               during this fade window (updateUIForFocusedDownload flips
-               masterRenameTooltipSuppressed back to false), don't tear the container
-               down — that would wipe the freshly shown successor. */
-            if (store.masterRenameTooltipSuppressed === false) {
-              store.masterTooltipFadeoutActive = false;
-              return;
-            }
-            if (masterTooltipDOMElement.style.opacity === "0") {
-              masterTooltipDOMElement.style.display = "none";
-            }
-            collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
-          }, MASTER_TOOLTIP_FADEOUT_MS);
+          runMasterTooltipFadeout(masterTooltipDOMElement, downloadCardsContainer);
         }
 
         if (
@@ -673,10 +666,7 @@
           cardData.terminalCompletedAtMs = getTerminalWallTimeFromDownload(cardData.download);
         }
 
-        if (cardData.deferredStickyTimeoutId) {
-          clearTimeout(cardData.deferredStickyTimeoutId);
-          cardData.deferredStickyTimeoutId = null;
-        }
+        clearCardTimers(cardData, { autohide: false, deferredSticky: true });
 
         cardData.phase = "deferred-sticky";
         cardData.deferredStickyAt = Date.now();
@@ -692,19 +682,7 @@
         // when the pile is currently expanded we re-fire the dismiss event here to
         // guarantee the in-progress row swaps to the completed row.
         try {
-          const refreshed = capturePodDataForDismissal(downloadKey);
-          if (refreshed) {
-            dismissedPodsData.set(downloadKey, refreshed);
-            dismissEventListeners.forEach((cb) => {
-              try { cb(refreshed); } catch (_error) {}
-            });
-            fireCustomEvent("pod-dismissed", {
-              podKey: downloadKey,
-              podData: refreshed,
-              wasManual: false,
-              phase: "deferred-sticky"
-            });
-          }
+          emitPodDismissed(downloadKey, { wasManual: false, phase: "deferred-sticky" });
         } catch (err) {
           debugLog("[Lifecycle] enterDeferredStickyPhase pile refresh error", err);
         }
@@ -715,25 +693,8 @@
         let layoutAfterTooltipFadeMs = 0;
 
         if (wasFocused && masterTooltipDOMElement) {
-          beginMasterTooltipFadeout(downloadCardsContainer);
-          masterTooltipDOMElement.style.opacity = "0";
-          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-          masterTooltipDOMElement.style.pointerEvents = "none";
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
-          setTimeout(() => {
-            /* Jukebox-successor guard: if a newer rename-success tooltip claimed the slot
-               during this fade window (updateUIForFocusedDownload flips
-               masterRenameTooltipSuppressed back to false), don't tear the container
-               down — that would wipe the freshly shown successor. */
-            if (store.masterRenameTooltipSuppressed === false) {
-              store.masterTooltipFadeoutActive = false;
-              return;
-            }
-            if (masterTooltipDOMElement.style.opacity === "0") {
-              masterTooltipDOMElement.style.display = "none";
-            }
-            collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
-          }, MASTER_TOOLTIP_FADEOUT_MS);
+          runMasterTooltipFadeout(masterTooltipDOMElement, downloadCardsContainer);
           focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
         }
 
@@ -800,25 +761,8 @@
         store.masterRenameTooltipSuppressed = true;
         store.pileHoverBlockedByRenameTooltip = false;
 
-        if (cardData.autohideTimeoutId) {
-          clearTimeout(cardData.autohideTimeoutId);
-          cardData.autohideTimeoutId = null;
-        }
-        if (cardData.deferredStickyTimeoutId) {
-          clearTimeout(cardData.deferredStickyTimeoutId);
-          cardData.deferredStickyTimeoutId = null;
-        }
-
-        const dismissedData = capturePodDataForDismissal(downloadKey);
-        if (dismissedData) {
-          dismissedPodsData.set(downloadKey, dismissedData);
-          dismissEventListeners.forEach((cb) => {
-            try {
-              cb(dismissedData);
-            } catch (_error) {}
-          });
-          fireCustomEvent("pod-dismissed", { podKey: downloadKey, podData: dismissedData, wasManual: false });
-        }
+        clearCardTimers(cardData);
+        emitPodDismissed(downloadKey, { wasManual: false });
 
         stickyPods.add(downloadKey);
         cardData.isSticky = true;
@@ -859,25 +803,8 @@
           focusedKeyRef.current === downloadKey &&
           masterTooltipDOMElement
         ) {
-          beginMasterTooltipFadeout(downloadCardsContainer);
-          masterTooltipDOMElement.style.opacity = "0";
-          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-          masterTooltipDOMElement.style.pointerEvents = "none";
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
-          setTimeout(() => {
-            /* Jukebox-successor guard: if a newer rename-success tooltip claimed the slot
-               during this fade window (updateUIForFocusedDownload flips
-               masterRenameTooltipSuppressed back to false), don't tear the container
-               down — that would wipe the freshly shown successor. */
-            if (store.masterRenameTooltipSuppressed === false) {
-              store.masterTooltipFadeoutActive = false;
-              return;
-            }
-            if (masterTooltipDOMElement.style.opacity === "0") {
-              masterTooltipDOMElement.style.display = "none";
-            }
-            collapseDownloadCardsContainerWithTooltipFade(downloadCardsContainer);
-          }, MASTER_TOOLTIP_FADEOUT_MS);
+          runMasterTooltipFadeout(masterTooltipDOMElement, downloadCardsContainer);
           focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
         } else if (aiPendingForKey) {
           // AI is in flight; keep tooltip visible and let AI status writes / final
@@ -939,10 +866,7 @@
           const cardData = activeDownloadCards.get(downloadKey);
           if (!cardData || cardData.phase !== "deferred-sticky") continue;
 
-          if (cardData.deferredStickyTimeoutId) {
-            clearTimeout(cardData.deferredStickyTimeoutId);
-            cardData.deferredStickyTimeoutId = null;
-          }
+          clearCardTimers(cardData, { autohide: false, deferredSticky: true });
 
           const terminalMs = cardData.terminalCompletedAtMs ?? Date.now();
           const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
@@ -1130,52 +1054,34 @@
       async function apply(dl, removed = false) {
         if (!dl) return;
 
-        if (typeof getDownloadKey !== "function") {
+        function getPieController() {
+          return typeof getLibraryPieController === "function" ? getLibraryPieController() : null;
+        }
+        function syncPieDownload(pieController) {
           try {
-            getLibraryPieController?.()?.syncDownload?.(dl, removed);
+            pieController?.syncDownload?.(dl, removed);
           } catch (e) {
             debugLog("[Lifecycle] pie.syncDownload error", e);
           }
-          debugLog("[Lifecycle] apply() called without getDownloadKey; skipping pods dispatch");
-          return;
         }
-
-        const key = getDownloadKey(dl);
-        const pie = typeof getLibraryPieController === "function" ? getLibraryPieController() : null;
-
-        // Detect the about-to-happen progress → live-pod transition so we can
-        // snapshot the pie position BEFORE syncDownload auto-hides it on
-        // terminal state. Conditions:
-        //   - non-removal, terminal (succeeded, error, or canceled)
-        //   - no existing card yet (we're creating a brand-new live-pod, not re-rendering)
-        //   - handoff animator available and enabled
-        const isTerminalTransition = !removed && (dl.succeeded === true || !!dl.error || !!dl.canceled);
-        const isHandoffTerminal = !removed && (dl.succeeded === true || !!dl.error);
-        const wasAlreadyLive = activeDownloadCards.has(key);
-        const animator = typeof getHandoffAnimator === "function" ? getHandoffAnimator() : null;
-        const shouldCaptureSnapshot =
-          isHandoffTerminal && !wasAlreadyLive && animator && animator.isEnabled?.();
-
-        let handoffSnapshot = null;
-        if (shouldCaptureSnapshot) {
-          try {
-            handoffSnapshot = pie?.captureHandoffSnapshot?.() || null;
-          } catch (e) {
-            debugLog("[Lifecycle] pie.captureHandoffSnapshot error", e);
+        function captureHandoffSnapshotIfNeeded(pieController, key) {
+          const isTerminalTransition = !removed && (dl.succeeded === true || !!dl.error || !!dl.canceled);
+          const isHandoffTerminal = !removed && (dl.succeeded === true || !!dl.error);
+          const wasAlreadyLive = activeDownloadCards.has(key);
+          const animator = typeof getHandoffAnimator === "function" ? getHandoffAnimator() : null;
+          const shouldCaptureSnapshot =
+            isHandoffTerminal && !wasAlreadyLive && animator && animator.isEnabled?.();
+          let handoffSnapshot = null;
+          if (shouldCaptureSnapshot) {
+            try {
+              handoffSnapshot = pieController?.captureHandoffSnapshot?.() || null;
+            } catch (e) {
+              debugLog("[Lifecycle] pie.captureHandoffSnapshot error", e);
+            }
           }
+          return { isTerminalTransition, animator, handoffSnapshot };
         }
-
-        const prevProgressKey = store.progressPileKeyByDownload?.get(dl);
-
-        try {
-          pie?.syncDownload?.(dl, removed);
-        } catch (e) {
-          debugLog("[Lifecycle] pie.syncDownload error", e);
-        }
-
-        const canonicalKey = getDownloadKey(dl);
-
-        if (removed) {
+        async function applyRemovedBranch(key, canonicalKey, prevProgressKey) {
           store.progressPileKeyByDownload?.delete(dl);
           if (prevProgressKey) store.progressPileUpsertThrottle?.delete(prevProgressKey);
           if (canonicalKey) store.progressPileUpsertThrottle?.delete(canonicalKey);
@@ -1200,23 +1106,19 @@
             });
           }
           fireCustomEvent("actual-download-removed", { podKey: key });
-          return;
         }
-
-        store.progressPileKeyByDownload?.set(dl, canonicalKey);
-
-        let rekeyedThisApply = false;
-        if (prevProgressKey && prevProgressKey !== canonicalKey) {
-          notifyProgressPileListeners({
-            kind: "rekey",
-            oldKey: prevProgressKey,
-            podData: buildProgressPodData(dl)
-          });
-          store.progressPileUpsertThrottle?.delete(prevProgressKey);
-          rekeyedThisApply = true;
-        }
-
-        if (!isTerminalTransition) {
+        function applyProgressBranch(canonicalKey, prevProgressKey) {
+          store.progressPileKeyByDownload?.set(dl, canonicalKey);
+          let rekeyedThisApply = false;
+          if (prevProgressKey && prevProgressKey !== canonicalKey) {
+            notifyProgressPileListeners({
+              kind: "rekey",
+              oldKey: prevProgressKey,
+              podData: buildProgressPodData(dl)
+            });
+            store.progressPileUpsertThrottle?.delete(prevProgressKey);
+            rekeyedThisApply = true;
+          }
           if (!dl.canceled && !rekeyedThisApply) {
             const throttle = store.progressPileUpsertThrottle;
             const now = Date.now();
@@ -1226,44 +1128,60 @@
               notifyProgressPileListeners({ kind: "upsert", podData: buildProgressPodData(dl) });
             }
           }
-          return;
         }
-
-        // Terminal succeeded/error → transition progress → live-pod via pods renderer.
-        // On very fast downloads, Zen's arc-flight animation may still be playing;
-        // defer pod creation until it completes so the pod doesn't pop in on top.
-        if (pie?.waitForArcDone) {
-          try {
-            await pie.waitForArcDone();
-          } catch (e) {
-            debugLog("[Lifecycle] pie.waitForArcDone error", e);
-          }
-        }
-
-        const throttledUpdate = typeof getThrottledCreateOrUpdateCard === "function"
-          ? getThrottledCreateOrUpdateCard()
-          : null;
-        if (typeof throttledUpdate === "function") {
-          throttledUpdate(dl);
-        }
-
-        // Fire the handoff animation if we captured a snapshot and the new
-        // pod element is actually in the DOM and has real dimensions.
-        if (handoffSnapshot && animator) {
-          const newCardData = activeDownloadCards.get(key);
-          const podEl = newCardData?.podElement;
-          if (podEl && podEl.parentNode) {
+        async function applyTerminalBranch(key, pieController, animator, handoffSnapshot) {
+          if (pieController?.waitForArcDone) {
             try {
-              animator.animate({
-                fromRect: handoffSnapshot.rect,
-                iconClone: handoffSnapshot.iconClone,
-                toElement: podEl
-              });
+              await pieController.waitForArcDone();
             } catch (e) {
-              debugLog("[Lifecycle] handoff animator threw", e);
+              debugLog("[Lifecycle] pie.waitForArcDone error", e);
+            }
+          }
+          const throttledUpdate = typeof getThrottledCreateOrUpdateCard === "function"
+            ? getThrottledCreateOrUpdateCard()
+            : null;
+          if (typeof throttledUpdate === "function") {
+            throttledUpdate(dl);
+          }
+          if (handoffSnapshot && animator) {
+            const newCardData = activeDownloadCards.get(key);
+            const podEl = newCardData?.podElement;
+            if (podEl && podEl.parentNode) {
+              try {
+                animator.animate({
+                  fromRect: handoffSnapshot.rect,
+                  iconClone: handoffSnapshot.iconClone,
+                  toElement: podEl
+                });
+              } catch (e) {
+                debugLog("[Lifecycle] handoff animator threw", e);
+              }
             }
           }
         }
+
+        if (typeof getDownloadKey !== "function") {
+          syncPieDownload(getPieController());
+          debugLog("[Lifecycle] apply() called without getDownloadKey; skipping pods dispatch");
+          return;
+        }
+
+        const key = getDownloadKey(dl);
+        const pie = getPieController();
+        const { isTerminalTransition, animator, handoffSnapshot } = captureHandoffSnapshotIfNeeded(pie, key);
+        const prevProgressKey = store.progressPileKeyByDownload?.get(dl);
+        syncPieDownload(pie);
+        const canonicalKey = getDownloadKey(dl);
+
+        if (removed) {
+          await applyRemovedBranch(key, canonicalKey, prevProgressKey);
+          return;
+        }
+        if (!isTerminalTransition) {
+          applyProgressBranch(canonicalKey, prevProgressKey);
+          return;
+        }
+        await applyTerminalBranch(key, pie, animator, handoffSnapshot);
       }
 
       /**
@@ -1273,14 +1191,7 @@
        */
       function destroy() {
         activeDownloadCards.forEach((cardData) => {
-          if (cardData?.autohideTimeoutId) {
-            clearTimeout(cardData.autohideTimeoutId);
-            cardData.autohideTimeoutId = null;
-          }
-          if (cardData?.deferredStickyTimeoutId) {
-            clearTimeout(cardData.deferredStickyTimeoutId);
-            cardData.deferredStickyTimeoutId = null;
-          }
+          clearCardTimers(cardData);
         });
       }
 

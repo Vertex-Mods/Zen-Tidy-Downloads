@@ -693,10 +693,10 @@ Instructions:
                   }
 
                   if (revertedCardData) {
-                    if (revertedCardData.autohideTimeoutId) {
-                      clearTimeout(revertedCardData.autohideTimeoutId);
-                      revertedCardData.autohideTimeoutId = null;
-                    }
+                    window.zenTidyDownloadsUtils?.clearCardTimers?.(revertedCardData, {
+                      autohide: true,
+                      deferredSticky: false
+                    });
                     const shortDelay = 2000;
                     debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
                     revertedCardData.autohideTimeoutId = setTimeout(() => {
