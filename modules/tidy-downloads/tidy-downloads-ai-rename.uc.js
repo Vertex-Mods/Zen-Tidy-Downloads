@@ -42,6 +42,8 @@
         showRenameToast,
         showSimpleToast,
         getDownloadKey,
+        managePodVisibilityAndAnimations,
+        flushDeferredStickyIfPileCollapsed,
         Cc,
         Ci
       } = deps;
@@ -52,6 +54,35 @@
         try {
           store.pileHoverExpandBlockedUntilAIDoneKeys?.delete(k);
         } catch (_e) {}
+      }
+
+      /**
+       * Toolbar pods stay hidden while `suppressToolbarPodForAIRename` is set (enqueue → terminal outcome).
+       * Clearing suppression resets opacity and layout “intended” state so the next jukebox pass runs the same
+       * single-rAF branch + CSS transition as non-AI pods (see managePodVisibilityAndAnimations).
+       * @param {string} preKey
+       * @param {Object|null|undefined} download
+       */
+      function revealToolbarPodAfterAIRename(preKey, download) {
+        const keysToTry = [];
+        if (download?.target?.path) keysToTry.push(download.target.path);
+        if (preKey) keysToTry.push(preKey);
+        for (const k of keysToTry) {
+          const cd = activeDownloadCards.get(k);
+          if (cd) {
+            cd.suppressToolbarPodForAIRename = false;
+            break;
+          }
+        }
+        // The suppress block keeps the pod at CSS opacity:0/scale(0.3) (no inline overrides),
+        // so the "from" state has been painted every previous frame. A synchronous layout call
+        // queues one rAF to set the final values — the CSS transition fires naturally.
+        try {
+          managePodVisibilityAndAnimations?.();
+        } catch (_e) {}
+        try {
+          flushDeferredStickyIfPileCollapsed?.();
+        } catch (_e2) {}
       }
 
       /** @param {string} [p] */
@@ -346,6 +377,7 @@
         if (!downloadPath) {
           activeAIProcesses.delete(key);
           releasePileHoverExpandBlockForKey(key);
+          revealToolbarPodAfterAIRename(key, download);
           return false;
         }
 
@@ -355,6 +387,7 @@
           debugLog(`Skipping rename - already processed: ${downloadPath}`);
           activeAIProcesses.delete(key);
           releasePileHoverExpandBlockForKey(key);
+          revealToolbarPodAfterAIRename(key, download);
           return false;
         }
 
@@ -362,6 +395,7 @@
           debugLog(`[AI Process] Process aborted before file size check: ${key}`);
           activeAIProcesses.delete(key);
           releasePileHoverExpandBlockForKey(key);
+          revealToolbarPodAfterAIRename(key, download);
           throw new DOMException('AI process was aborted', 'AbortError');
         }
 
@@ -378,6 +412,7 @@
             debugLog(`File does not exist for AI rename: ${downloadPath}`);
             activeAIProcesses.delete(key);
             releasePileHoverExpandBlockForKey(key);
+            revealToolbarPodAfterAIRename(key, download);
             return false;
           }
         } catch (e) {
@@ -385,6 +420,7 @@
           debugLog(`Error checking file size: ${errorMessage}`, { path: downloadPath, error: errorMessage });
           activeAIProcesses.delete(key);
           releasePileHoverExpandBlockForKey(key);
+          revealToolbarPodAfterAIRename(key, download);
           return false;
         }
 
@@ -754,6 +790,7 @@ Instructions:
           }
           if (podElementToStyle) podElementToStyle.classList.remove("renaming-active");
           releasePileHoverExpandBlockForKey(key);
+          revealToolbarPodAfterAIRename(key, download);
         }
       }
 
@@ -791,6 +828,7 @@ Instructions:
             if (!dl) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - no download object`);
               releasePileHoverExpandBlockForKey(downloadKey);
+              revealToolbarPodAfterAIRename(downloadKey, null);
               currentlyProcessingKey = null;
               continue;
             }
@@ -799,6 +837,7 @@ Instructions:
             if (renamedFiles.has(currentPath)) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - already renamed`);
               releasePileHoverExpandBlockForKey(downloadKey);
+              revealToolbarPodAfterAIRename(downloadKey, dl);
               currentlyProcessingKey = null;
               continue;
             }
@@ -806,6 +845,7 @@ Instructions:
             if (!dl.succeeded) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - no longer in succeeded state`);
               releasePileHoverExpandBlockForKey(downloadKey);
+              revealToolbarPodAfterAIRename(downloadKey, dl);
               currentlyProcessingKey = null;
               continue;
             }
@@ -946,6 +986,8 @@ Instructions:
           }
         } finally {
           releasePileHoverExpandBlockForKey(downloadKey);
+          const cd = activeDownloadCards.get(downloadKey);
+          revealToolbarPodAfterAIRename(downloadKey, cd?.download);
         }
         return result;
       }

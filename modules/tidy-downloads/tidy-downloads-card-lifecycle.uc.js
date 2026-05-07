@@ -263,15 +263,26 @@
         // the block set non-empty forever, freezing pile expand.
         try {
           store.pileHoverExpandBlockedUntilAIDoneKeys?.add(downloadKey);
-        } catch (_e) {}
-        try {
+          cardData.suppressToolbarPodForAIRename = true;
           const ok = fn(downloadKey, cardData.download, cardData.originalFilename);
           if (ok === false) {
             store.pileHoverExpandBlockedUntilAIDoneKeys?.delete(downloadKey);
+            cardData.suppressToolbarPodForAIRename = false;
+            if (typeof managePodVisibilityAndAnimations === "function") {
+              try {
+                managePodVisibilityAndAnimations();
+              } catch (_e) {}
+            }
           }
         } catch (e) {
           debugLog("[Lifecycle] maybeEnqueueAIRename error", e);
           store.pileHoverExpandBlockedUntilAIDoneKeys?.delete(downloadKey);
+          cardData.suppressToolbarPodForAIRename = false;
+          if (typeof managePodVisibilityAndAnimations === "function") {
+            try {
+              managePodVisibilityAndAnimations();
+            } catch (_e2) {}
+          }
         }
       }
 
@@ -865,6 +876,7 @@
         for (const downloadKey of keysSnapshot) {
           const cardData = activeDownloadCards.get(downloadKey);
           if (!cardData || cardData.phase !== "deferred-sticky") continue;
+          if (cardData.suppressToolbarPodForAIRename) continue;
 
           clearCardTimers(cardData, { autohide: false, deferredSticky: true });
 

@@ -374,8 +374,12 @@
       deps: tidyDeps
     });
 
+    /** Populated after `createCardLifecycle` so AI completion can flush deferred-sticky pods. */
+    const lifecycleApiSlot = { api: null };
+
     const aiDeps = {
       ...tidyDeps,
+      managePodVisibilityAndAnimations,
       renameDownloadFileAndUpdateRecord,
       getPref,
       RateLimiter,
@@ -387,7 +391,20 @@
       previewApi,
       showRenameToast,
       showSimpleToast,
-      getDownloadKey
+      getDownloadKey,
+      flushDeferredStickyIfPileCollapsed: () => {
+        if (window.__zenDismissedPileIntegration?.isPileExpanded?.() === true) return;
+        try {
+          const run = lifecycleApiSlot.api?.onPileHidden;
+          if (typeof run !== "function") return;
+          const out = run();
+          if (out && typeof out.then === "function") {
+            out.catch((e) => debugLog("[AI] onPileHidden flush error", e));
+          }
+        } catch (e) {
+          debugLog("[AI] flushDeferredStickyIfPileCollapsed error", e);
+        }
+      }
     };
 
     (function initAIRenameModule() {
@@ -442,6 +459,7 @@
       getAiRenamingPossible: () => aiRenamingPossible,
       getAddToAIRenameQueue: () => addToAIRenameQueue
     });
+    lifecycleApiSlot.api = lifecycleApi;
 
     async function init() {
       console.log("=== DOWNLOAD PREVIEW SCRIPT STARTING ===");

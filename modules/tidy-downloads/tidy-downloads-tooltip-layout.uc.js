@@ -440,7 +440,6 @@
                 debugLog(`[LayoutManager_Jukebox_Skip] Pod ${key} is in deferred-sticky phase; keeping hidden.`);
                 return;
             }
-
             if (!cardData.podElement.parentNode) {
                 debugLog(`[LayoutManager_Jukebox_Skip] Pod ${key} not in DOM, skipping layout.`);
                 return;
@@ -448,6 +447,21 @@
 
             const podElement = cardData.podElement;
             const layoutData = layoutMap.get(key);
+
+            if (cardData.suppressToolbarPodForAIRename) {
+                // Keep the pod in the layout tree but let CSS supply the "from" state:
+                //   .download-pod { opacity: 0; transform: scale(0.3) translateY(30px); transition: ... }
+                // Clearing any inline opacity/transform lets CSS take over so that when suppression
+                // lifts and the jukebox sets inline opacity:1 / scale(1), the CSS transition fires
+                // from scale(0.3) — identical to a fresh non-AI pod appearance.
+                podElement.style.display = 'flex';
+                podElement.style.opacity = '';
+                podElement.style.transform = '';
+                podElement.style.pointerEvents = '';
+                cardData.isVisible = false;
+                debugLog(`[LayoutManager_Jukebox_Skip] Pod ${key} suppressToolbarPodForAIRename; parked via CSS from-state.`);
+                return;
+            }
 
             if (layoutData) {
                 // This pod should be visible
@@ -467,12 +481,14 @@
                     // Apply directional entrance animation for newly focused pods during rotation
                     if (layoutData.isFocused && !cardData.isVisible && store.lastRotationDirection) {
                         const entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
-                        
+
                         podElement.style.transform = entranceTransform;
                         podElement.style.opacity = '0';
-                        
-                        debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Starting ${store.lastRotationDirection} entrance from ${entranceTransform}`);
-                        
+
+                        debugLog(
+                            `[LayoutManager_DirectionalAnim] Pod ${key}: Starting ${store.lastRotationDirection} entrance from ${entranceTransform}`
+                        );
+
                         requestAnimationFrame(() => {
                             requestAnimationFrame(() => {
                                 podElement.style.opacity = targetOpacity;
@@ -481,7 +497,7 @@
                             });
                         });
                     } else {
-                        // Normal animation for non-focused pods or non-rotation scenarios
+                        // Normal animation for non-focused pods or non-rotation scenarios (includes AI rename reveal)
                         requestAnimationFrame(() => {
                             podElement.style.opacity = targetOpacity;
                             podElement.style.transform = targetTransform;
