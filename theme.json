@@ -132,10 +132,10 @@
   },
   "preferences": "preferences.json",
   "author": "Vertex",
-  "version": "4.0.2",
+  "version": "4.0.3",
   "tags": ["sine", "fx-autoconfig", "Downloads", "Tidy Pack"],
   "createdAt": "2025-05-24",
-  "updatedAt": "2026-05-07",
+  "updatedAt": "2026-05-08",
   "ai": "yes",
   "fork": ["zen"]
 }
