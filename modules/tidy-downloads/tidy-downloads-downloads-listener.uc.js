@@ -21,7 +21,6 @@
      * @param {Object} ctx.DownloadsAdapter
      * @param {function} ctx.debugLog
      * @param {function} ctx.getDownloadKey
-     * @param {function} ctx.getPref
      * @param {function(dl: unknown, removed: boolean): unknown} ctx.applyDownloadEvent - lifecycle.apply bound to the current lifecycle api
      * @param {function(): function} ctx.getThrottledCreateOrUpdateCard - () => pods renderer for startup batch only
      * @returns {{ start: function, stop: function }}
@@ -32,7 +31,6 @@
         DownloadsAdapter,
         debugLog,
         getDownloadKey,
-        getPref,
         applyDownloadEvent,
         getThrottledCreateOrUpdateCard
       } = ctx;
@@ -79,7 +77,6 @@
             list.getAll().then((all) => {
               const recentDownloads = DownloadsAdapter.filterInitialCompletedDownloads(all, {
                 getDownloadKey,
-                getPref,
                 dismissedDownloads,
                 activeDownloadCards,
                 debugLog

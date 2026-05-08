@@ -118,7 +118,7 @@
     const { validateFilePathOrThrow } = ctx;
 
     return {
-      async createFileInstance(path) {
+      createFileInstance(path) {
         try {
           const validatedPath = validateFilePathOrThrow(path);
           const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
@@ -131,7 +131,7 @@
 
       async fileExists(path) {
         try {
-          const file = await this.createFileInstance(path);
+          const file = this.createFileInstance(path);
           return file.exists();
         } catch (error) {
           console.warn(`[FileSystem] Error checking file existence: ${error.message}`);
@@ -141,14 +141,14 @@
 
       async getParentDirectory(path) {
         try {
-          const file = await this.createFileInstance(path);
+          const file = this.createFileInstance(path);
           return file.parent;
         } catch (error) {
           throw new Error(`Failed to get parent directory: ${error.message}`);
         }
       },
 
-      async getAvailableFilename(parentDir, baseName, ext) {
+      getAvailableFilename(parentDir, baseName, ext) {
         let candidate = baseName + ext;
         let counter = 1;
         let file = parentDir.clone();
@@ -164,7 +164,7 @@
 
       async renameFile(oldPath, newFilename) {
         try {
-          const oldFile = await this.createFileInstance(oldPath);
+          const oldFile = this.createFileInstance(oldPath);
           if (!oldFile.exists()) {
             throw new Error("Source file does not exist");
           }
@@ -177,7 +177,7 @@
             baseName = newFilename.substring(0, dotIdx);
             ext = newFilename.substring(dotIdx);
           }
-          const availableName = await this.getAvailableFilename(parentDir, baseName, ext);
+          const availableName = this.getAvailableFilename(parentDir, baseName, ext);
           const newFile = parentDir.clone();
           newFile.append(availableName);
           oldFile.moveTo(parentDir, availableName);
@@ -189,7 +189,7 @@
 
       async deleteFile(path) {
         try {
-          const file = await this.createFileInstance(path);
+          const file = this.createFileInstance(path);
           if (file.exists()) {
             file.remove(false);
             return true;
@@ -207,6 +207,19 @@
    */
   function createEventManagerApi(ctx) {
     const { state } = ctx;
+    let anonElementSeq = 0;
+
+    /** Registry bucket key — stable per anonymous element (`anon-N`) so two id-less nodes never collide on `unknown`. */
+    function listenerRegistryKey(element, eventName) {
+      let idPart = element.id;
+      if (!idPart) {
+        if (!element.__zenStuffListenerUid) {
+          element.__zenStuffListenerUid = `anon-${++anonElementSeq}`;
+        }
+        idPart = element.__zenStuffListenerUid;
+      }
+      return `${idPart}-${eventName}`;
+    }
 
     return {
       addEventListener(element, event, handler, options = {}) {
@@ -217,7 +230,7 @@
 
         element.addEventListener(event, handler, options);
 
-        const key = `${element.id || "unknown"}-${event}`;
+        const key = listenerRegistryKey(element, event);
         if (!state.eventListeners.has(key)) {
           state.eventListeners.set(key, []);
         }
@@ -229,7 +242,7 @@
 
         element.removeEventListener(event, handler);
 
-        const key = `${element.id || "unknown"}-${event}`;
+        const key = listenerRegistryKey(element, event);
         const listeners = state.eventListeners.get(key);
         if (listeners) {
           const index = listeners.findIndex((l) => l.handler === handler);

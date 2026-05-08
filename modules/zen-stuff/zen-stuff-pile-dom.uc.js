@@ -25,7 +25,7 @@
         setupCompactModeObserver
       } = deps;
 
-      async function createPileContainer() {
+      function createPileContainer() {
         if (!state.downloadButton) throw new Error("Download button not available");
 
         let existingSizer = document.getElementById("zen-dismissed-pile-dynamic-sizer");

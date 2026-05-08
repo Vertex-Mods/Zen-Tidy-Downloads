@@ -235,14 +235,11 @@
        * @param {{ kind: string, oldKey?: string, podData?: Object }} payload
        */
       function notifyProgressPileRenameRekey(payload) {
-        if (!progressPileListeners) return;
-        progressPileListeners.forEach((callback) => {
-          try {
-            callback(payload);
-          } catch (err) {
-            debugLog("[ProgressPile] listener error (disk rename rekey)", err);
-          }
-        });
+        window.zenTidyDownloadsUtils.notifyListeners(
+          progressPileListeners,
+          payload,
+          " (disk rename rekey)"
+        );
       }
 
       /**

@@ -48,7 +48,6 @@
     validateFilePathOrThrow,
     validatePodData,
     formatBytes,
-    waitForElement,
     TEXT_EXTENSIONS,
     SYSTEM_ICON_EXTENSIONS,
     readTextFilePreview,
@@ -163,37 +162,6 @@
     return zenStuffPodElementImpl.createPodElement(podData);
   }
 
-  // Debug function to test preference (call from browser console)
-  window.testLibraryButtonPref = function() {
-    console.log("=== Testing Library Button Preference ===");
-    console.log(`Preference name: ${window.zenStuffPilePrefs.PREFS.useLibraryButton}`);
-    
-    try {
-      const value = Services.prefs.getBoolPref(window.zenStuffPilePrefs.PREFS.useLibraryButton, false);
-      console.log(`Current preference value: ${value}`);
-    } catch (e) {
-      console.log(`Error reading preference:`, e);
-    }
-    
-    const libraryBtn = document.getElementById('zen-library-button');
-    const downloadsBtn = document.getElementById('downloads-button');
-    console.log(`zen-library-button exists: ${!!libraryBtn}`);
-    console.log(`downloads-button exists: ${!!downloadsBtn}`);
-    console.log(`Current state.downloadButton:`, state.downloadButton);
-    
-    // Test waiting for zen-library-button
-    console.log("Testing waitForElement for zen-library-button...");
-    waitForElement('zen-library-button', 3000).then(element => {
-      console.log(`waitForElement result:`, element);
-    });
-    
-    // Test re-finding the button
-    console.log("Re-finding button...");
-    findDownloadButton().then(() => {
-      console.log(`After re-find, state.downloadButton:`, state.downloadButton);
-    }).catch(e => console.error("Error re-finding:", e));
-  };
-
   // Initialize the pile system with proper error handling
   async function init() {
     if (state.isInitialized) {
@@ -267,60 +235,25 @@
     sessionApi.updatePodKeysInSession();
   }
 
-  // Find the Firefox downloads button with better error handling and retry for custom buttons
+  // Find the Firefox downloads button — shared resolver in zenTidyDownloadsUtils (zen-library-button first, same selector order).
   async function findDownloadButton() {
     try {
-      // Always try zen-library-button first (auto-detect), regardless of preference.
-      // This ensures hover works correctly when zen-library-button replaces the downloads button.
       console.log(`[Zen Stuff] Auto-detecting download button (trying zen-library-button first)...`);
-      const libraryButton = await waitForElement('zen-library-button', 2000);
-
-      if (libraryButton) {
+      const found = await Utils.findZenDownloadButton();
+      if (!found?.button) {
+        throw new Error("Download button not found after all attempts");
+      }
+      const { button, kind, detail } = found;
+      state.downloadButton = button;
+      if (kind === "zen-library") {
         console.log("[Zen Stuff] ✅ Found zen-library-button for hover detection (auto-detected)");
         debugLog("Found zen-library-button for hover detection (auto-detected)");
-        state.downloadButton = libraryButton;
-        return;
+      } else if (kind === "selector") {
+        console.log(`[Zen Stuff] ✅ Found download button using selector: ${detail}`, button);
+        debugLog(`Found download button using selector: ${detail}`);
+      } else {
+        debugLog("Found download button using fallback method", button);
       }
-      console.log("[Zen Stuff] zen-library-button not found, trying downloads button...");
-      debugLog("zen-library-button not found, falling back to downloads button");
-      
-      // Optimized selector order - most common first
-      const selectors = [
-        '#downloads-button',
-        '#downloads-indicator',
-        '[data-l10n-id="downloads-button"]',
-        '.toolbarbutton-1[command="Tools:Downloads"]'
-      ];
-
-      for (const selector of selectors) {
-        try {
-          state.downloadButton = document.querySelector(selector);
-          if (state.downloadButton) {
-            console.log(`[Zen Stuff] ✅ Found download button using selector: ${selector}`, state.downloadButton);
-            debugLog(`Found download button using selector: ${selector}`);
-            return;
-          }
-        } catch (error) {
-          console.warn(`[DownloadButton] Error with selector ${selector}:`, error);
-        }
-      }
-
-      // Fallback: look for any element with downloads-related attributes
-      try {
-        const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
-        for (const element of fallbackElements) {
-          if (element.getAttribute('command')?.includes('Downloads') ||
-            element.textContent?.toLowerCase().includes('download')) {
-            state.downloadButton = element;
-            debugLog("Found download button using fallback method", element);
-            return;
-          }
-        }
-      } catch (error) {
-        console.warn('[DownloadButton] Error in fallback search:', error);
-      }
-
-      throw new Error("Download button not found after all attempts");
     } catch (error) {
       console.error('[DownloadButton] Error finding download button:', error);
       throw error;
@@ -387,8 +320,7 @@
     state,
     debugLog,
     getShowPile: () => pileVisibilityApi.showPile(),
-    getHidePile: () => pileVisibilityApi.hidePile(),
-    findDownloadButton
+    getHidePile: () => pileVisibilityApi.hidePile()
   });
 
   sessionApi = window.zenStuffSession.createSessionApi({
@@ -604,18 +536,6 @@
     return pileVisibilityApi.updatePileHeight();
   }
 
-  // Update pile position relative to download button
-  function updatePilePosition() {
-    // This function is largely obsolete as the pile is now in-flow within dynamicSizer.
-    // Width will be handled by updatePileContainerWidth.
-    // Height will be handled by showPile/hidePile.
-    debugLog("updatePilePosition called, but largely obsolete now.");
-    // If dynamicSizer exists and we need to ensure its width is up-to-date:
-    if (typeof updatePileContainerWidth === 'function') {
-      // updatePileContainerWidth(); // Call this if needed, but it's called on showPile
-    }
-  }
-
   // Download button hover handler
   function handleDownloadButtonHover() {
     return pileVisibilityApi.handleDownloadButtonHover();
@@ -719,7 +639,6 @@
       if (state.prefObserver) {
         try {
           Services.prefs.removeObserver(window.zenStuffPilePrefs.PREFS.alwaysShowPile, state.prefObserver);
-          Services.prefs.removeObserver(window.zenStuffPilePrefs.PREFS.useLibraryButton, state.prefObserver);
         } catch (error) {
           console.warn('[Cleanup] Error removing preference observers:', error);
         }

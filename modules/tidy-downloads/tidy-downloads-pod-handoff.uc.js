@@ -40,11 +40,7 @@
       const { getPref, debugLog } = ctx;
 
       function isEnabled() {
-        try {
-          return getPref(PREF_ENABLE, true) !== false;
-        } catch (e) {
-          return true;
-        }
+        return getPref(PREF_ENABLE, true) !== false;
       }
 
       /**

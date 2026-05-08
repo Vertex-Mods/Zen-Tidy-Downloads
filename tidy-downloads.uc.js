@@ -84,35 +84,25 @@
     // Dependency order:
     // 1) core modules (utils/store/downloads-adapter), 2) feature modules (pods/tooltip/public-api/fileops/ai),
     // 3) orchestration support modules (download-ui/card-lifecycle/compact/listener), 4) this orchestrator.
+    const REQUIRED_MODULES = [
+      { name: "utils", test: () => window.zenTidyDownloadsUtils },
+      { name: "store", test: () => window.zenTidyDownloadsStore?.createStore },
+      { name: "downloadsAdapter", test: () => window.zenTidyDownloadsDownloadsAdapter },
+      { name: "pods", test: () => window.zenTidyDownloadsPods?.init },
+      { name: "tooltipLayout", test: () => window.zenTidyDownloadsTooltipLayout?.init },
+      { name: "publicApi", test: () => window.zenTidyDownloadsPublicApi?.createPublicApi },
+      { name: "fileOps", test: () => window.zenTidyDownloadsFileOps?.createRenameHandlers },
+      { name: "aiRename", test: () => window.zenTidyDownloadsAIRename?.init },
+      { name: "downloadUi", test: () => window.zenTidyDownloadsDownloadUi?.init },
+      { name: "cardLifecycle", test: () => window.zenTidyDownloadsCardLifecycle?.createCardLifecycle },
+      { name: "compactVisibility", test: () => window.zenTidyDownloadsCompactVisibility?.createCompactVisibility },
+      { name: "downloadsListener", test: () => window.zenTidyDownloadsDownloadsListener?.createController },
+      { name: "podHandoff", test: () => window.zenTidyDownloadsPodHandoff?.createHandoffAnimator }
+    ];
+
     (function tryInit(attempt) {
-      const utilsReady = window.zenTidyDownloadsUtils;
-      const storeReady = window.zenTidyDownloadsStore?.createStore;
-      const dlAdapterReady = window.zenTidyDownloadsDownloadsAdapter;
-      const podsReady = window.zenTidyDownloadsPods?.init;
-      const tooltipLayoutReady = window.zenTidyDownloadsTooltipLayout?.init;
-      const publicApiReady = window.zenTidyDownloadsPublicApi?.createPublicApi;
-      const fileopsReady = window.zenTidyDownloadsFileOps?.createRenameHandlers;
-      const aiReady = window.zenTidyDownloadsAIRename?.init;
-      const uiReady = window.zenTidyDownloadsDownloadUi?.init;
-      const lifecycleReady = window.zenTidyDownloadsCardLifecycle?.createCardLifecycle;
-      const compactReady = window.zenTidyDownloadsCompactVisibility?.createCompactVisibility;
-      const listenerReady = window.zenTidyDownloadsDownloadsListener?.createController;
-      const handoffReady = window.zenTidyDownloadsPodHandoff?.createHandoffAnimator;
-      if (
-        utilsReady &&
-        storeReady &&
-        dlAdapterReady &&
-        podsReady &&
-        tooltipLayoutReady &&
-        publicApiReady &&
-        fileopsReady &&
-        aiReady &&
-        uiReady &&
-        lifecycleReady &&
-        compactReady &&
-        listenerReady &&
-        handoffReady
-      ) {
+      const missing = REQUIRED_MODULES.filter((m) => !m.test()).map((m) => m.name);
+      if (missing.length === 0) {
         initializeMainScript();
         return;
       }
@@ -121,7 +111,7 @@
         return;
       }
       console.error(
-        "[Tidy Downloads] Missing modules after 2s. Verify all tidy-downloads modules are loaded before tidy-downloads.uc.js."
+        `[Tidy Downloads] Missing modules after 2s: ${missing.join(", ")}. Verify theme load order: tidy-downloads modules before tidy-downloads.uc.js.`
       );
     })(0);
   }, 100); // Small delay to ensure DOM elements are loaded
@@ -150,7 +140,6 @@
       IMAGE_EXTENSIONS,
       PATH_SEPARATOR,
       sanitizeFilename,
-      waitForElement,
       formatBytes
     } = Utils;
 
@@ -160,7 +149,7 @@
     const showRenameToast = Toasts?.showRenameToast || (() => null);
 
     // Animation module (downloads button detection, animation targeting, indicator patches)
-    const animationApi = window.zenTidyDownloadsAnimation?.init({ waitForElement, debugLog }) || {
+    const animationApi = window.zenTidyDownloadsAnimation?.init({ debugLog }) || {
       findDownloadsButton: async () => null,
       patchDownloadsIndicatorMethods: () => {}
     };
@@ -185,11 +174,8 @@
     // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
     // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
     // extensions.downloads.mistral_api_url - Mistral API endpoint (default: "https://api.mistral.ai/v1/chat/completions")
-    // extensions.downloads.mistral_model - Mistral model to use (default: "pixtral-large-latest")
+    // extensions.downloads.mistral_model - Mistral tier: "medium" | "large" (dropdown); legacy raw model ids still work
     // extensions.downloads.stable_focus_mode - Prevent focus switching during multiple downloads (default: true)
-    // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
-    // zen.tidy-downloads.use-library-button - Use zen-library-button instead of downloads-button for hover detection (default: false)
-
     const DownloadsAdapter = window.zenTidyDownloadsDownloadsAdapter;
     const store = window.zenTidyDownloadsStore.createStore({ getPref });
     const {
@@ -266,20 +252,14 @@
     let updateQueueStatusInUI = () => {};
     let throttledCreateOrUpdateCard = function () {};
 
-    const tooltipLayoutRef = {
-      updateUIForFocusedDownload() {},
-      managePodVisibilityAndAnimations() {},
-      handlePodScrollFocus() {}
-    };
+    /** @type {ReturnType<typeof window.zenTidyDownloadsTooltipLayout.init>|null} */
+    let tooltipLayout = null;
 
     function updateUIForFocusedDownload(keyToFocus, isNewOrSignificantUpdate = false) {
-      tooltipLayoutRef.updateUIForFocusedDownload(keyToFocus, isNewOrSignificantUpdate);
+      tooltipLayout?.updateUIForFocusedDownload(keyToFocus, isNewOrSignificantUpdate);
     }
     function managePodVisibilityAndAnimations() {
-      tooltipLayoutRef.managePodVisibilityAndAnimations();
-    }
-    function handlePodScrollFocus(event) {
-      tooltipLayoutRef.handlePodScrollFocus(event);
+      tooltipLayout?.managePodVisibilityAndAnimations();
     }
 
     function fireCustomEvent(eventName, detail) {
@@ -539,25 +519,17 @@
         podsRowContainerElement = uiApi.getPodsRow();
         podsShellElement = typeof uiApi.getPodsShell === "function" ? uiApi.getPodsShell() : null;
 
-        Object.assign(
-          tooltipLayoutRef,
-          window.zenTidyDownloadsTooltipLayout.init({
-            store,
-            getPref,
-            debugLog,
-            formatBytes,
-            previewApi,
-            getAiRenamingPossible: () => aiRenamingPossible,
-            addToAIRenameQueue,
-            scheduleCardRemoval,
-            isInQueue,
-            updateQueueStatusInUI,
-            getMasterTooltip: () => masterTooltipDOMElement,
-            getPodsRowContainer: () => podsRowContainerElement,
-            getDownloadCardsContainer: () => downloadCardsContainer,
-            updateDownloadCardsVisibility
-          })
-        );
+        tooltipLayout = window.zenTidyDownloadsTooltipLayout.init({
+          store,
+          getPref,
+          debugLog,
+          formatBytes,
+          previewApi,
+          getMasterTooltip: () => masterTooltipDOMElement,
+          getPodsRowContainer: () => podsRowContainerElement,
+          getDownloadCardsContainer: () => downloadCardsContainer,
+          updateDownloadCardsVisibility
+        });
 
         if (window.zenTidyDownloadsSync?.init && masterTooltipDOMElement && podsRowContainerElement) {
           const syncFns = window.zenTidyDownloadsSync.init({
@@ -570,10 +542,6 @@
             debugLog
           });
           initSidebarWidthSyncFn = syncFns.initSidebarWidthSync;
-        }
-
-        if (podsRowContainerElement) {
-          podsRowContainerElement.addEventListener("wheel", handlePodScrollFocus, { passive: false });
         }
 
         const podsApi = window.zenTidyDownloadsPods.init({
@@ -617,7 +585,7 @@
 
         Object.assign(window.zenTidyDownloads, {
           getLibraryPieController: () => libraryPieController,
-          dismissMasterRenameTooltip: () => tooltipLayoutRef.dismissMasterRenameTooltip?.()
+          dismissMasterRenameTooltip: () => tooltipLayout?.dismissMasterRenameTooltip?.()
         });
 
         downloadsListenerController = window.zenTidyDownloadsDownloadsListener.createController({
@@ -625,7 +593,6 @@
           DownloadsAdapter,
           debugLog,
           getDownloadKey,
-          getPref,
           applyDownloadEvent: (dl, removed) => lifecycleApi.apply(dl, removed),
           getThrottledCreateOrUpdateCard: () => throttledCreateOrUpdateCard
         });

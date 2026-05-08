@@ -136,7 +136,7 @@
           return null;
         }
 
-        const normPath = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "");
+        const normPath = window.zenTidyDownloadsUtils.normalizePathKey;
         const pathNorm = download.target?.path ? normPath(download.target.path) : "";
         if (pathNorm && permanentlyDeletedPaths.has(pathNorm)) {
           const meta = permanentlyDeletedMeta.get(pathNorm);

@@ -5,7 +5,7 @@
 // ==/UserScript==
 
 // tidy-downloads-tooltip-layout.uc.js
-// Master tooltip content + jukebox pod layout + wheel focus rotation
+// Master tooltip content + jukebox pod layout / animations
 (function () {
   "use strict";
 
@@ -19,11 +19,6 @@
      * @param {function} ctx.debugLog
      * @param {function} ctx.formatBytes
      * @param {Object} ctx.previewApi
-     * @param {function} [ctx.getAiRenamingPossible] - unused, kept for caller compat
-     * @param {function} [ctx.addToAIRenameQueue] - unused, kept for caller compat
-     * @param {function} [ctx.scheduleCardRemoval] - unused, kept for caller compat
-     * @param {function} [ctx.isInQueue] - unused, kept for caller compat
-     * @param {function} [ctx.updateQueueStatusInUI] - unused, kept for caller compat
      * @param {function} ctx.getMasterTooltip
      * @param {function} ctx.getPodsRowContainer
      * @param {function} ctx.getDownloadCardsContainer
@@ -787,91 +782,12 @@
         });
       }
 
-      function handlePodScrollFocus(event) {
-        if (!orderedPodKeys || orderedPodKeys.length <= 1) return; // Need at least 2 pods to rotate
-
-        event.preventDefault(); // Prevent page scroll
-        event.stopPropagation();
-
-        if (!focusedKeyRef.current || !orderedPodKeys.includes(focusedKeyRef.current)) {
-          debugLog("[StackRotation] No valid focused key, cannot rotate stack");
-          return;
-        }
-
-        // Get current stack arrangement: focused pod + pile in reverse chronological order
-        const currentFocused = focusedKeyRef.current;
-        const pileKeys = orderedPodKeys.slice().reverse().filter(key => key !== currentFocused);
-        
-        let newFocusedKey;
-
-        if (event.deltaY > 0) {
-          // Scroll DOWN: Current focused goes to END of pile, FIRST in pile becomes focused
-          // Current: Pod D (focused) + [Pod C, Pod B, Pod A] (pile)
-          // Result:  Pod C (focused) + [Pod B, Pod A, Pod D] (pile)
-          
-          if (pileKeys.length > 0) {
-            newFocusedKey = pileKeys[0]; // First in pile becomes focused
-            debugLog(`[StackRotation] Scroll DOWN: ${currentFocused} → end of pile, ${newFocusedKey} → focused`);
-          }
-          
-        } else if (event.deltaY < 0) {
-          // Scroll UP: Current focused goes to FRONT of pile, LAST in pile becomes focused  
-          // Current: Pod D (focused) + [Pod C, Pod B, Pod A] (pile)
-          // Result:  Pod A (focused) + [Pod D, Pod C, Pod B] (pile)
-          
-          if (pileKeys.length > 0) {
-            newFocusedKey = pileKeys[pileKeys.length - 1]; // Last in pile becomes focused
-            debugLog(`[StackRotation] Scroll UP: ${currentFocused} → front of pile, ${newFocusedKey} → focused`);
-          }
-        }
-
-        // Apply the rotation by updating the orderedPodKeys array and focus
-        if (newFocusedKey && newFocusedKey !== currentFocused) {
-          // Remove the new focused key from its current position in orderedPodKeys
-          const newFocusedIndex = orderedPodKeys.indexOf(newFocusedKey);
-          if (newFocusedIndex > -1) {
-            orderedPodKeys.splice(newFocusedIndex, 1);
-          }
-          
-          // Remove the current focused key from its position
-          const currentFocusedIndex = orderedPodKeys.indexOf(currentFocused);
-          if (currentFocusedIndex > -1) {
-            orderedPodKeys.splice(currentFocusedIndex, 1);
-          }
-
-          if (event.deltaY > 0) {
-            // Scroll DOWN: new focused goes to end (newest position), current focused goes to beginning (oldest position)
-            orderedPodKeys.unshift(currentFocused); // Add current focused to beginning (oldest)
-            orderedPodKeys.push(newFocusedKey);     // Add new focused to end (newest)
-          } else {
-            // Scroll UP: new focused goes to end (newest position), current focused goes to second-to-last
-            orderedPodKeys.push(newFocusedKey);     // Add new focused to end (newest)
-            orderedPodKeys.splice(-1, 0, currentFocused); // Insert current focused before the last element
-          }
-
-          // Track rotation direction for animation purposes
-          if (event.deltaY > 0) {
-            store.lastRotationDirection = 'forward';
-          } else {
-            store.lastRotationDirection = 'backward';
-          }
-
-          // Update focus and refresh UI
-          focusedKeyRef.current = newFocusedKey;
-          debugLog(`[StackRotation] Stack rotated ${store.lastRotationDirection}. New order:`, orderedPodKeys);
-          debugLog(`[StackRotation] New focused: ${focusedKeyRef.current}`);
-          
-          // Update UI with the new focus
-          updateUIForFocusedDownload(newFocusedKey, false);
-        }
-      }
-
       return {
         updateUIForFocusedDownload,
         managePodVisibilityAndAnimations,
-        handlePodScrollFocus,
         dismissMasterRenameTooltip
       };
+
     }
   };
 })();

@@ -76,6 +76,8 @@
         renamedFiles
       } = store;
 
+      const clearCardTimers = window.zenTidyDownloadsUtils.clearCardTimers;
+
       /**
        * Compact ETA string from remaining seconds (download pod sublabel).
        * @param {number} seconds
@@ -140,15 +142,7 @@
       }
 
       function notifyProgressPileListeners(payload) {
-        const listeners = store.progressPileListeners;
-        if (!listeners) return;
-        listeners.forEach((callback) => {
-          try {
-            callback(payload);
-          } catch (err) {
-            debugLog("[ProgressPile] listener error", err);
-          }
-        });
+        window.zenTidyDownloadsUtils.notifyListeners(store.progressPileListeners, payload, "");
       }
 
       /**
@@ -283,24 +277,6 @@
               managePodVisibilityAndAnimations();
             } catch (_e2) {}
           }
-        }
-      }
-
-      /**
-       * Clear lifecycle-owned timers for a card.
-       * @param {any} cardData
-       * @param {{ autohide?: boolean, deferredSticky?: boolean }} [opts]
-       */
-      function clearCardTimers(cardData, opts = {}) {
-        if (!cardData) return;
-        const { autohide = true, deferredSticky = true } = opts;
-        if (deferredSticky && cardData.deferredStickyTimeoutId) {
-          clearTimeout(cardData.deferredStickyTimeoutId);
-          cardData.deferredStickyTimeoutId = null;
-        }
-        if (autohide && cardData.autohideTimeoutId) {
-          clearTimeout(cardData.autohideTimeoutId);
-          cardData.autohideTimeoutId = null;
         }
       }
 

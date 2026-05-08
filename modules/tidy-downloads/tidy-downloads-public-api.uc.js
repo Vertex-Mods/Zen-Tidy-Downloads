@@ -53,13 +53,7 @@
         stickyPods
       } = store;
 
-      /**
-       * @param {string} [p]
-       * @returns {string}
-       */
-      function normPath(p) {
-        return typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "";
-      }
+      const normPath = window.zenTidyDownloadsUtils.normalizePathKey;
 
       /**
        * Match a pile snapshot to the current Firefox Downloads list (source of truth at action time).
@@ -205,12 +199,8 @@
          * @returns {boolean}
          */
         isAIRenameBlockingPileExpand() {
-          try {
-            const s = store.pileHoverExpandBlockedUntilAIDoneKeys;
-            return s instanceof Set && s.size > 0;
-          } catch (_e) {
-            return false;
-          }
+          const s = store.pileHoverExpandBlockedUntilAIDoneKeys;
+          return s instanceof Set && s.size > 0;
         },
 
         onActualDownloadRemoved(callback) {
@@ -264,14 +254,13 @@
           const podData = dismissedPodsData.get(podKey);
           const wasPresent = dismissedPodsData.delete(podKey);
 
-          const normalizePath = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "");
           dismissedDownloads.delete(podKey);
           const pathsToAllow = new Set();
           if (podData?.targetPath) {
-            pathsToAllow.add(normalizePath(podData.targetPath));
+            pathsToAllow.add(normPath(podData.targetPath));
           }
           if (podKey && !podKey.startsWith("temp_") && (podKey.includes("/") || podKey.includes("\\"))) {
-            pathsToAllow.add(normalizePath(podKey));
+            pathsToAllow.add(normPath(podKey));
           }
           for (const norm of pathsToAllow) {
             if (!norm) continue;
@@ -282,7 +271,7 @@
               debugLog("[PermanentDelete] Failed to record deletion time meta", { error: e, norm });
             }
             for (const dk of [...dismissedDownloads]) {
-              if (normalizePath(dk) === norm) dismissedDownloads.delete(dk);
+              if (normPath(dk) === norm) dismissedDownloads.delete(dk);
             }
             permanentlyDeletedPaths.add(norm);
             if (permanentlyDeletedPaths.size > MAX_PERMANENTLY_DELETED_PATHS) {

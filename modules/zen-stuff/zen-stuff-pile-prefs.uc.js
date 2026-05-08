@@ -11,10 +11,9 @@
 
   if (location.href !== "chrome://browser/content/browser.xhtml") return;
 
-  /** @type {{ alwaysShowPile: string, useLibraryButton: string }} */
+  /** @type {{ alwaysShowPile: string }} */
   const PREFS = {
-    alwaysShowPile: "zen.stuff-pile.always-show",
-    useLibraryButton: "zen.tidy-downloads.use-library-button"
+    alwaysShowPile: "zen.stuff-pile.always-show"
   };
 
   window.zenStuffPilePrefs = {
@@ -26,10 +25,8 @@
      * @param {function(string, *=): void} ctx.debugLog
      * @param {function(): void} ctx.getShowPile
      * @param {function(): void} ctx.getHidePile
-     * @param {function(): Promise<void>} ctx.findDownloadButton
      * @returns {{
      *  getAlwaysShowPile: function(): boolean,
-     *  getUseLibraryButton: function(): boolean,
      *  shouldPileBeVisible: function(): boolean,
      *  setupCompactModeObserver: function(): void,
      *  setupPreferenceListener: function(): void,
@@ -39,22 +36,13 @@
      * }}
      */
     createPilePrefsApi(ctx) {
-      const { state, debugLog, getShowPile, getHidePile, findDownloadButton } = ctx;
+      const { state, debugLog, getShowPile, getHidePile } = ctx;
 
       function getAlwaysShowPile() {
         try {
           return Services.prefs.getBoolPref(PREFS.alwaysShowPile, false);
         } catch (e) {
           debugLog("Error reading always-show-pile preference, using default (false):", e);
-          return false;
-        }
-      }
-
-      function getUseLibraryButton() {
-        try {
-          return Services.prefs.getBoolPref(PREFS.useLibraryButton, false);
-        } catch (e) {
-          debugLog("Error reading use-library-button preference, using default (false):", e);
           return false;
         }
       }
@@ -98,20 +86,12 @@
                   const newValue = getAlwaysShowPile();
                   debugLog(`[Preferences] Always-show-pile preference changed to: ${newValue}`);
                   handleAlwaysShowPileChange(newValue);
-                } else if (data === PREFS.useLibraryButton) {
-                  const newValue = getUseLibraryButton();
-                  console.log(`[Zen Stuff] Use-library-button preference changed to: ${newValue}`);
-                  debugLog(`[Preferences] Use-library-button preference changed to: ${newValue}`);
-                  findDownloadButton().catch((error) => {
-                    console.error("[Preferences] Error re-finding download button:", error);
-                  });
                 }
               }
             }
           };
 
           Services.prefs.addObserver(PREFS.alwaysShowPile, prefObserver, false);
-          Services.prefs.addObserver(PREFS.useLibraryButton, prefObserver, false);
           debugLog("[Preferences] Added observers for preferences");
 
           state.prefObserver = prefObserver;
@@ -191,7 +171,6 @@
 
       return {
         getAlwaysShowPile,
-        getUseLibraryButton,
         shouldPileBeVisible,
         setupCompactModeObserver,
         setupPreferenceListener,

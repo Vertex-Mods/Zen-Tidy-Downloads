@@ -72,18 +72,17 @@
     },
 
     /**
-     * Completed (succeeded or error) downloads to show on cold start; mutates dismissedDownloads for old items.
+     * Completed (succeeded or error) downloads to hydrate on startup; skips entries already dismissed unless a card exists.
      * @param {unknown[]} all - result of downloadList.getAll()
      * @param {Object} ctx
      * @param {function} ctx.getDownloadKey
-     * @param {function} ctx.getPref
      * @param {Set} ctx.dismissedDownloads
      * @param {Map} ctx.activeDownloadCards
      * @param {function} ctx.debugLog
      * @returns {unknown[]}
      */
     filterInitialCompletedDownloads(all, ctx) {
-      const { getDownloadKey, getPref, dismissedDownloads, activeDownloadCards, debugLog } = ctx;
+      const { getDownloadKey, dismissedDownloads, activeDownloadCards, debugLog } = ctx;
       return all.filter((dl) => {
         if (!dl.succeeded && !dl.error) {
           return false;
@@ -93,15 +92,6 @@
 
         if (dismissedDownloads.has(key) && !activeDownloadCards.has(key)) {
           debugLog(`[CreatePod] Skipping dismissed completed download: ${key}`);
-          return false;
-        }
-
-        const downloadTime = new Date(dl.startTime || 0);
-        const hoursSinceDownload = (Date.now() - downloadTime.getTime()) / (1000 * 60 * 60);
-        const showOldDownloadsHours = getPref("extensions.downloads.show_old_downloads_hours", 2);
-        if (hoursSinceDownload > showOldDownloadsHours) {
-          debugLog(`[Init] Skipping old completed download: ${key} (${hoursSinceDownload.toFixed(1)}h old)`);
-          dismissedDownloads.add(key);
           return false;
         }
 

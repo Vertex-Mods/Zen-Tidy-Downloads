@@ -32,24 +32,24 @@
         showPile
       } = deps;
 
-      async function initSessionStore(attempt = 0) {
+      async function initSessionStore() {
         const MAX_RETRIES = 50;
-        if (!window.SessionStore) {
-          if (attempt >= MAX_RETRIES) {
-            console.warn("[Dismissed Pile] SessionStore not available after max retries, giving up");
-            return;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          if (!window.SessionStore) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            continue;
           }
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          return initSessionStore(attempt + 1);
-        }
-        try {
-          if (window.SessionStore.promiseInitialized) {
-            await window.SessionStore.promiseInitialized;
+          try {
+            if (window.SessionStore.promiseInitialized) {
+              await window.SessionStore.promiseInitialized;
+            }
+            debugLog("[SessionStore] SessionStore initialized and ready");
+          } catch (error) {
+            console.error("[Dismissed Pile] Error initializing SessionStore:", error);
           }
-          debugLog("[SessionStore] SessionStore initialized and ready");
-        } catch (error) {
-          console.error("[Dismissed Pile] Error initializing SessionStore:", error);
+          return;
         }
+        console.warn("[Dismissed Pile] SessionStore not available after max retries, giving up");
       }
 
       function saveDismissedPodToSession(podData) {

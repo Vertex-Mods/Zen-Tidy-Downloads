@@ -110,7 +110,7 @@
       if (path.length > MAX_PATH_LENGTH) {
         return { valid: false, error: "Path exceeds maximum length", code: "PATH_TOO_LONG" };
       }
-      if (path.includes("\0") || path.includes("\x00")) {
+      if (path.includes("\0")) {
         return { valid: false, error: "Path contains null bytes", code: "NULL_BYTES" };
       }
 
@@ -461,6 +461,82 @@
   }
 
   /**
+   * Locate the Zen / Firefox downloads toolbar control.
+   * Tries zen-library-button first (wait up to timeout ms), then known selectors (with try/catch per selector), then heuristic scan.
+   * @returns {Promise<{ button: Element, kind: 'zen-library'|'selector'|'fallback', detail?: string }|null>}
+   */
+  async function findZenDownloadButton() {
+    try {
+      const libraryButton = await waitForElement("zen-library-button", 2000);
+      if (libraryButton) {
+        return { button: libraryButton, kind: "zen-library" };
+      }
+
+      const selectors = [
+        "#downloads-button",
+        "#downloads-indicator",
+        '[data-l10n-id="downloads-button"]',
+        '.toolbarbutton-1[command="Tools:Downloads"]'
+      ];
+      for (const selector of selectors) {
+        try {
+          const btn = document.querySelector(selector);
+          if (btn) {
+            return { button: btn, kind: "selector", detail: selector };
+          }
+        } catch (error) {
+          console.warn(`[findZenDownloadButton] Selector error (${selector}):`, error);
+        }
+      }
+
+      try {
+        const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
+        for (const element of fallbackElements) {
+          if (
+            element.getAttribute("command")?.includes("Downloads") ||
+            element.textContent?.toLowerCase().includes("download")
+          ) {
+            return { button: element, kind: "fallback" };
+          }
+        }
+      } catch (error) {
+        console.warn("[findZenDownloadButton] Fallback scan error:", error);
+      }
+
+      return null;
+    } catch (error) {
+      console.error("[findZenDownloadButton]", error);
+      return null;
+    }
+  }
+
+  /**
+   * Normalise a path for case-insensitive comparison keys (forward slashes, lowercase).
+   * @param {string} [p]
+   * @returns {string}
+   */
+  function normalizePathKey(p) {
+    return typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "";
+  }
+
+  /**
+   * Invoke every listener in a Set/iterable; swallow errors so one bad callback cannot break others.
+   * @param {Iterable<Function>|null|undefined} listeners
+   * @param {*} payload
+   * @param {string} [messageSuffix] — appended after `[ProgressPile] listener error`
+   */
+  function notifyListeners(listeners, payload, messageSuffix = "") {
+    if (!listeners) return;
+    for (const callback of listeners) {
+      try {
+        callback(payload);
+      } catch (err) {
+        debugLog(`[ProgressPile] listener error${messageSuffix}`, err);
+      }
+    }
+  }
+
+  /**
    * Clear lifecycle timer ids from a card-like object.
    * @param {any} cardData
    * @param {{ autohide?: boolean, deferredSticky?: boolean }} [opts]
@@ -561,8 +637,12 @@
     readTextFilePreview,
     filenameEndsWithExtensionFromSet,
 
+    normalizePathKey,
+    notifyListeners,
+
     // DOM
     waitForElement,
+    findZenDownloadButton,
     clearCardTimers,
     runMasterTooltipFade
   };

@@ -121,7 +121,7 @@
         }
       }
 
-      function initZenAnimationObserver(downloadKey, podElementToMonitor) {
+      function initZenAnimationObserver(downloadKey) {
         debugLog("[ZenSync] Initializing observer for key:", downloadKey);
         let observer = null;
         let fallbackTimeoutId = null;
@@ -136,7 +136,7 @@
                   if (removedNode.nodeType === Node.ELEMENT_NODE && removedNode.classList.contains("zen-download-arc-animation")) {
                     debugLog("[ZenSync] Detected .zen-download-arc-animation removal.", { key: downloadKey });
                     clearTimeout(fallbackTimeoutId);
-                    triggerCardEntrance(downloadKey, podElementToMonitor);
+                    triggerCardEntrance(downloadKey);
                     obs.disconnect();
                     observer = null;
                     return;

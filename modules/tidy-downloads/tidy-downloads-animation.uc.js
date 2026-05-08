@@ -14,13 +14,12 @@
   window.zenTidyDownloadsAnimation = {
     /**
      * Initialize animation module. Called by tidy-downloads.uc.js with context.
-     * @param {Object} ctx - Context from main script
-     * @param {function} ctx.waitForElement - waitForElement from utils
+     * @param {Object} ctx
      * @param {function} ctx.debugLog - debugLog
      * @returns {{ findDownloadsButton, patchDownloadsIndicatorMethods }}
      */
     init(ctx) {
-      const { waitForElement, debugLog } = ctx;
+      const { debugLog } = ctx;
       let _proxyButtonRef = null;
 
       function isElementVisible(element) {
@@ -35,44 +34,38 @@
         return true;
       }
 
+      /**
+       * Wrap an animation end-position resolver: prefer zen-library-button center when visible.
+       * @param {function} originalMethod
+       * @returns {function}
+       */
+      function makeLibraryButtonEndPositionPatch(originalMethod) {
+        return function () {
+          const zenLibraryButton = document.getElementById("zen-library-button");
+          if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
+            const buttonRect = zenLibraryButton.getBoundingClientRect();
+            return {
+              endPosition: {
+                clientX: buttonRect.left + buttonRect.width / 2,
+                clientY: buttonRect.top + buttonRect.height / 2,
+              },
+              isDownloadButtonVisible: true
+            };
+          }
+          return originalMethod.call(this);
+        };
+      }
+
       function patchAnimationElement(animationElement) {
         try {
           if (!document.getElementById("zen-library-button")) return;
 
           if (animationElement.determineEndPosition) {
-            const originalMethod = animationElement.determineEndPosition;
-            animationElement.determineEndPosition = function () {
-              const zenLibraryButton = document.getElementById("zen-library-button");
-              if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
-                const buttonRect = zenLibraryButton.getBoundingClientRect();
-                return {
-                  endPosition: {
-                    clientX: buttonRect.left + buttonRect.width / 2,
-                    clientY: buttonRect.top + buttonRect.height / 2,
-                  },
-                  isDownloadButtonVisible: true
-                };
-              }
-              return originalMethod.call(this);
-            };
+            animationElement.determineEndPosition = makeLibraryButtonEndPositionPatch(animationElement.determineEndPosition);
           }
 
           if (animationElement._determineEndPosition) {
-            const originalPrivateMethod = animationElement._determineEndPosition;
-            animationElement._determineEndPosition = function () {
-              const zenLibraryButton = document.getElementById("zen-library-button");
-              if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
-                const buttonRect = zenLibraryButton.getBoundingClientRect();
-                return {
-                  endPosition: {
-                    clientX: buttonRect.left + buttonRect.width / 2,
-                    clientY: buttonRect.top + buttonRect.height / 2,
-                  },
-                  isDownloadButtonVisible: true
-                };
-              }
-              return originalPrivateMethod.call(this);
-            };
+            animationElement._determineEndPosition = makeLibraryButtonEndPositionPatch(animationElement._determineEndPosition);
           }
         } catch (error) {
           console.error("[Tidy Downloads] Error patching animation element:", error);
@@ -218,6 +211,29 @@
         }
       }
 
+      /**
+       * Guard downloads-indicator internals when `_progressIcon` is missing (same try/log/return as inline patches).
+       * @param {object} indicator
+       * @param {string} name
+       */
+      function wrapProgressGuardedMethod(indicator, name) {
+        if (!indicator[name] || indicator[name]._patched) return;
+        const original = indicator[name];
+        indicator[name] = function (...args) {
+          try {
+            if (this._progressIcon && this._progressIcon.style) {
+              return original.apply(this, args);
+            }
+            console.debug(`[Tidy Downloads] Skipping ${name} - no progress icon available`);
+            return;
+          } catch (error) {
+            console.debug(`[Tidy Downloads] ${name} error handled:`, error.message);
+            return;
+          }
+        };
+        indicator[name]._patched = true;
+      }
+
       function patchDownloadsIndicatorMethods() {
         try {
           const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
@@ -226,39 +242,8 @@
             return;
           }
 
-          if (indicator._progressRaf && !indicator._progressRaf._patched) {
-            const originalProgressRaf = indicator._progressRaf;
-            indicator._progressRaf = function () {
-              try {
-                if (this._progressIcon && this._progressIcon.style) {
-                  return originalProgressRaf.call(this);
-                }
-                console.debug("[Tidy Downloads] Skipping _progressRaf - no progress icon available");
-                return;
-              } catch (error) {
-                console.debug("[Tidy Downloads] _progressRaf error handled:", error.message);
-                return;
-              }
-            };
-            indicator._progressRaf._patched = true;
-          }
-
-          if (indicator._maybeScheduleProgressUpdate && !indicator._maybeScheduleProgressUpdate._patched) {
-            const originalMaybeSchedule = indicator._maybeScheduleProgressUpdate;
-            indicator._maybeScheduleProgressUpdate = function () {
-              try {
-                if (this._progressIcon && this._progressIcon.style) {
-                  return originalMaybeSchedule.call(this);
-                }
-                console.debug("[Tidy Downloads] Skipping _maybeScheduleProgressUpdate - no progress icon available");
-                return;
-              } catch (error) {
-                console.debug("[Tidy Downloads] _maybeScheduleProgressUpdate error handled:", error.message);
-                return;
-              }
-            };
-            indicator._maybeScheduleProgressUpdate._patched = true;
-          }
+          wrapProgressGuardedMethod(indicator, "_progressRaf");
+          wrapProgressGuardedMethod(indicator, "_maybeScheduleProgressUpdate");
 
           const percentCompleteDescriptor = Object.getOwnPropertyDescriptor(indicator, "percentComplete") ||
             Object.getOwnPropertyDescriptor(Object.getPrototypeOf(indicator), "percentComplete");
@@ -284,39 +269,8 @@
             Object.defineProperty(indicator, "_percentCompletePatched", { value: true });
           }
 
-          if (indicator._updateView && !indicator._updateView._patched) {
-            const originalUpdateView = indicator._updateView;
-            indicator._updateView = function () {
-              try {
-                if (this._progressIcon && this._progressIcon.style) {
-                  return originalUpdateView.call(this);
-                }
-                console.debug("[Tidy Downloads] Skipping _updateView - no progress icon available");
-                return;
-              } catch (error) {
-                console.debug("[Tidy Downloads] _updateView error handled:", error.message);
-                return;
-              }
-            };
-            indicator._updateView._patched = true;
-          }
-
-          if (indicator.refreshView && !indicator.refreshView._patched) {
-            const originalRefreshView = indicator.refreshView;
-            indicator.refreshView = function () {
-              try {
-                if (this._progressIcon && this._progressIcon.style) {
-                  return originalRefreshView.call(this);
-                }
-                console.debug("[Tidy Downloads] Skipping refreshView - no progress icon available");
-                return;
-              } catch (error) {
-                console.debug("[Tidy Downloads] refreshView error handled:", error.message);
-                return;
-              }
-            };
-            indicator.refreshView._patched = true;
-          }
+          wrapProgressGuardedMethod(indicator, "_updateView");
+          wrapProgressGuardedMethod(indicator, "refreshView");
 
           if (indicator._ensureOperational && !indicator._ensureOperational._patched) {
             const originalEnsureOperational = indicator._ensureOperational;
@@ -473,47 +427,25 @@
       async function findDownloadsButton() {
         try {
           console.log("[Tidy Downloads] Auto-detecting download button (trying zen-library-button first)...");
-          const libraryButton = await waitForElement("zen-library-button", 2000);
-
-          if (libraryButton) {
+          const found = await window.zenTidyDownloadsUtils?.findZenDownloadButton?.();
+          if (!found?.button) {
+            console.warn("[Tidy Downloads] Downloads button not found after all attempts");
+            return null;
+          }
+          const { button, kind, detail } = found;
+          if (kind === "zen-library") {
             console.log("[Tidy Downloads] Found zen-library-button (auto-detected)");
             debugLog("Found zen-library-button for hover detection (auto-detected)");
             patchDownloadsIndicatorMethods();
-            setupLibraryButtonAnimationTarget(libraryButton);
-            return libraryButton;
+            setupLibraryButtonAnimationTarget(button);
+          } else if (kind === "selector") {
+            console.log(`[Tidy Downloads] Found downloads button using selector: ${detail}`, button);
+            debugLog(`Found downloads button using selector: ${detail}`);
+          } else {
+            console.log("[Tidy Downloads] Found downloads button using fallback method", button);
+            debugLog("Found downloads button using fallback method", button);
           }
-
-          console.log("[Tidy Downloads] zen-library-button not found, trying downloads button...");
-          debugLog("zen-library-button not found, falling back to downloads button");
-
-          const selectors = [
-            "#downloads-button",
-            "#downloads-indicator",
-            '[data-l10n-id="downloads-button"]',
-            '.toolbarbutton-1[command="Tools:Downloads"]'
-          ];
-
-          for (const selector of selectors) {
-            const button = document.querySelector(selector);
-            if (button) {
-              console.log(`[Tidy Downloads] Found downloads button using selector: ${selector}`, button);
-              debugLog(`Found downloads button using selector: ${selector}`);
-              return button;
-            }
-          }
-
-          const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
-          for (const element of fallbackElements) {
-            if (element.getAttribute("command")?.includes("Downloads") ||
-              element.textContent?.toLowerCase().includes("download")) {
-              console.log("[Tidy Downloads] Found downloads button using fallback method", element);
-              debugLog("Found downloads button using fallback method", element);
-              return element;
-            }
-          }
-
-          console.warn("[Tidy Downloads] Downloads button not found after all attempts");
-          return null;
+          return button;
         } catch (error) {
           console.error("[Tidy Downloads] Error finding downloads button:", error);
           return null;

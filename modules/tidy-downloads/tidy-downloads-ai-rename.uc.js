@@ -85,16 +85,25 @@
         } catch (_e2) {}
       }
 
-      /** @param {string} [p] */
-      function normalizePathForAiDedupe(p) {
-        return typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "";
-      }
+      const normalizePathForAiDedupe = window.zenTidyDownloadsUtils.normalizePathKey;
 
       // AI Process Management
       const activeAIProcesses = new Map();
       const aiRenameQueue = [];
       let isProcessingAIQueue = false;
       let currentlyProcessingKey = null;
+
+      /**
+       * Map Zen Mod dropdown values (`medium` / `large`, no punctuation per theme prefs rules)
+       * or pass through legacy full model ids saved in `about:config`.
+       * @returns {string} Value for Mistral Chat Completions `model` field
+       */
+      function resolveMistralChatModelId() {
+        const raw = String(getPref("extensions.downloads.mistral_model", "medium")).trim();
+        if (raw === "medium") return "mistral-medium-latest";
+        if (raw === "large") return "mistral-large-latest";
+        return raw || "mistral-medium-latest";
+      }
 
       /**
        * Call Mistral AI API with rate limiting and security measures
@@ -139,7 +148,7 @@
               "Authorization": `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-              model: "mistral-small-latest",
+              model: resolveMistralChatModelId(),
               messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt }

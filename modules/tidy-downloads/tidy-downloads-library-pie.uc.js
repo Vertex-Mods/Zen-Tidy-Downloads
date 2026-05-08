@@ -133,11 +133,7 @@
       let suppressPieLayoutBroadcast = false;
 
       function isFeatureEnabled() {
-        try {
-          return getPref(PREF_ENABLE, true) !== false;
-        } catch (e) {
-          return true;
-        }
+        return getPref(PREF_ENABLE, true) !== false;
       }
 
       function teardownArcWatcher() {
