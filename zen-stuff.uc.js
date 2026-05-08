@@ -111,11 +111,11 @@
   }
 
   /**
-   * Pile hover gate tracing. **On by default.** Silence with `window.__zenPileHoverDebug = false`
-   * in this browser window’s console (Browser Toolbox → select the browser chrome context).
+   * Pile hover gate tracing. **Off unless** `window.__zenPileHoverDebug === true` in this window
+   * (Browser Toolbox → browser chrome console).
    */
   function pileHoverDebug(message, data) {
-    if (window.__zenPileHoverDebug === false) return;
+    if (window.__zenPileHoverDebug !== true) return;
     try {
       console.info("[PileHoverDebug]", message, data !== undefined ? data : "");
     } catch (_e) {

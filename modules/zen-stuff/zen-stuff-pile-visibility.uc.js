@@ -62,7 +62,7 @@
         typeof pileHoverDebugFromCtx === "function"
           ? pileHoverDebugFromCtx
           : function (msg, data) {
-              if (typeof window !== "undefined" && window.__zenPileHoverDebug === false) return;
+              if (typeof window === "undefined" || window.__zenPileHoverDebug !== true) return;
               try {
                 console.info("[PileHoverDebug]", msg, data !== undefined ? data : "");
               } catch (_e) {
@@ -764,9 +764,7 @@
         );
       }
 
-      pileHoverDebug(
-        "pile-visibility API initialized — hover library with dismissed pods to trace gates; silence: window.__zenPileHoverDebug = false"
-      );
+      pileHoverDebug("pile-visibility API initialized");
 
       return {
         addPodToPile,
