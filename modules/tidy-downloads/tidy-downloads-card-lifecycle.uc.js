@@ -316,15 +316,63 @@
       }
 
       /**
-       * Compute focus target after removing a pod index.
+       * Next focused sticky pod when the jukebox list is empty (piled toolbar stickies only).
+       * Prefers newer stickies first (reverse insertion order).
+       * @param {string|null} [excludeKey] - omit e.g. a key just attached to stickyPods but focus should leave it
+       * @returns {string|null}
+       */
+      function pickFocusKeyFromStickySurvivors(excludeKey = null) {
+        if (!(stickyPods instanceof Set) || stickyPods.size === 0) return null;
+        const keysFromNewest = Array.from(stickyPods).reverse();
+        for (const key of keysFromNewest) {
+          if (excludeKey != null && key === excludeKey) continue;
+          const cd = activeDownloadCards.get(key);
+          if (cd && !cd.isBeingRemoved) return key;
+        }
+        return null;
+      }
+
+      /**
        * @param {number} removedPodIndex
+       * @param {string[]} hypotheticalOrdered - keys after removal (or current ordered if not yet removed)
+       * @param {string|null} [stickyExcludeKey] - passed to sticky fallback when `hypotheticalOrdered` is empty
+       * @returns {string|null}
+       */
+      function getReplacementFocusKeyWithSnapshot(removedPodIndex, hypotheticalOrdered, stickyExcludeKey = null) {
+        if (hypotheticalOrdered.length === 0) {
+          return pickFocusKeyFromStickySurvivors(stickyExcludeKey);
+        }
+        if (removedPodIndex >= 0 && removedPodIndex < hypotheticalOrdered.length) {
+          return hypotheticalOrdered[removedPodIndex];
+        }
+        if (removedPodIndex > 0 && removedPodIndex - 1 < hypotheticalOrdered.length) {
+          return hypotheticalOrdered[removedPodIndex - 1];
+        }
+        return hypotheticalOrdered[hypotheticalOrdered.length - 1] || null;
+      }
+
+      /**
+       * Compute focus target after removing a pod from ordered tracking (`removePodTracking`).
+       * Uses jukebox neighbor keys when live pods remain; falls back to a surviving sticky pile pod.
+       * @param {number} removedPodIndex - index returned by removePodTracking (before splice); may be `-1`.
        * @returns {string|null}
        */
       function getReplacementFocusKey(removedPodIndex) {
-        if (orderedPodKeys.length === 0) return null;
-        if (removedPodIndex < orderedPodKeys.length) return orderedPodKeys[removedPodIndex];
-        if (removedPodIndex > 0) return orderedPodKeys[removedPodIndex - 1];
-        return orderedPodKeys[orderedPodKeys.length - 1] || null;
+        return getReplacementFocusKeyWithSnapshot(removedPodIndex, orderedPodKeys, null);
+      }
+
+      /**
+       * Predict `focusedKeyRef` after `removeCard(key)` without mutating state (master close handoff).
+       * @param {string} downloadKey
+       * @returns {string|null}
+       */
+      function peekFocusSuccessorAfterRemove(downloadKey) {
+        const removedPodIndex = orderedPodKeys.indexOf(downloadKey);
+        const hypotheticalOrdered =
+          removedPodIndex > -1
+            ? orderedPodKeys.filter((k) => k !== downloadKey)
+            : [...orderedPodKeys];
+        return getReplacementFocusKeyWithSnapshot(removedPodIndex, hypotheticalOrdered, downloadKey);
       }
 
       async function removeCard(downloadKey, force = false) {
@@ -511,7 +559,9 @@
 
         if (focusedKeyRef.current === downloadKey) {
           focusedKeyRef.current =
-            orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
+            orderedPodKeys.length > 0
+              ? orderedPodKeys[orderedPodKeys.length - 1]
+              : pickFocusKeyFromStickySurvivors(downloadKey);
         }
 
         const masterTooltipDOMElement = getMasterTooltip();
@@ -682,7 +732,10 @@
         if (wasFocused && masterTooltipDOMElement) {
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           runMasterTooltipFadeout(masterTooltipDOMElement, downloadCardsContainer);
-          focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
+          focusedKeyRef.current =
+            orderedPodKeys.length > 0
+              ? orderedPodKeys[orderedPodKeys.length - 1]
+              : pickFocusKeyFromStickySurvivors(downloadKey);
         }
 
         if (
@@ -792,7 +845,10 @@
         ) {
           layoutAfterTooltipFadeMs = MASTER_TOOLTIP_FADEOUT_MS;
           runMasterTooltipFadeout(masterTooltipDOMElement, downloadCardsContainer);
-          focusedKeyRef.current = orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
+          focusedKeyRef.current =
+            orderedPodKeys.length > 0
+              ? orderedPodKeys[orderedPodKeys.length - 1]
+              : pickFocusKeyFromStickySurvivors(downloadKey);
         } else if (aiPendingForKey) {
           // AI is in flight; keep tooltip visible and let AI status writes / final
           // updateUIForFocusedDownload drive its content. Don't suppress so the
@@ -909,7 +965,9 @@
         if (oi > -1) orderedPodKeys.splice(oi, 1);
         if (focusedKeyRef.current === downloadKey) {
           focusedKeyRef.current =
-            orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
+            orderedPodKeys.length > 0
+              ? orderedPodKeys[orderedPodKeys.length - 1]
+              : pickFocusKeyFromStickySurvivors(null);
         }
         if (podElement && podElement.parentNode) podElement.parentNode.removeChild(podElement);
         activeDownloadCards.delete(downloadKey);
@@ -1186,6 +1244,7 @@
       return {
         capturePodDataForDismissal,
         removeCard,
+        peekFocusSuccessorAfterRemove,
         scheduleCardRemoval,
         scheduleImmediateSticky,
         performAutohideSequence,

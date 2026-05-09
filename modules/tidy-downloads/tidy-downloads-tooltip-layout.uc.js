@@ -73,6 +73,22 @@
         return !!(download.succeeded && download.aiName);
       }
 
+      /**
+       * True if any toolbar sticky still has post–AI-rename success state (`aiName`), used when
+       * `orderedPodKeys` is empty so we do not collapse the master tooltip only because `focusedKeyRef` lags.
+       * @returns {boolean}
+       */
+      function anyStickyNeedsRenameSuccessTooltip() {
+        const sticky = store.stickyPods;
+        if (!(sticky instanceof Set) || sticky.size === 0) return false;
+        for (const sk of sticky) {
+          const cd = activeDownloadCards.get(sk);
+          if (!cd || cd.isBeingRemoved) continue;
+          if (shouldShowMasterRenameTooltip(cd, cd.download)) return true;
+        }
+        return false;
+      }
+
       const MASTER_TOOLTIP_FADEOUT_MS = window.zenTidyDownloadsUtils.MASTER_TOOLTIP_FADEOUT_MS;
 
       /**
@@ -231,10 +247,13 @@
             const cardForFocus = focusedKeyRef.current
               ? activeDownloadCards.get(focusedKeyRef.current)
               : null;
-            const keepRenameSuccessTooltip = shouldShowMasterRenameTooltip(
+            const focusWantsRenameTooltip = shouldShowMasterRenameTooltip(
               cardForFocus,
               cardForFocus?.download
             );
+            const keepRenameSuccessTooltip =
+              !store.masterRenameTooltipSuppressed &&
+              (focusWantsRenameTooltip || anyStickyNeedsRenameSuccessTooltip());
 
             if (!keepRenameSuccessTooltip) {
               if (!store.masterTooltipFadeoutActive) {

@@ -24,6 +24,8 @@
      * @param {function} ctx.clearAllStickyPods
      * @param {function} ctx.onPileHiddenRepair
      * @param {function} ctx.setupCompactModeObserver
+     * @param {function} [ctx.peekFocusSuccessorAfterRemove] - (key) => next focus key if `removeCard(key)` ran now
+     * @param {function} [ctx.prepareMasterCloseHandoffToSuccessor] - (successorKey) => swap tooltip before deferred remove (patch 3)
      * @returns {{ getDownloadCardsContainer: function, getMasterTooltip: function, getPodsRow: function, getPodsShell: function }}
      */
     async init(ctx) {
@@ -37,7 +39,9 @@
         getActiveCardByKey,
         clearAllStickyPods,
         onPileHiddenRepair,
-        setupCompactModeObserver
+        setupCompactModeObserver,
+        peekFocusSuccessorAfterRemove,
+        prepareMasterCloseHandoffToSuccessor
       } = ctx;
 
       let downloadCardsContainer = document.getElementById("userchrome-download-cards-container");
@@ -111,36 +115,79 @@
         document.addEventListener("pile-shown", clearAllStickyPods);
         document.addEventListener("pile-hidden", onPileHiddenRepair);
 
+        const MASTER_TOOLTIP_FADEOUT_MS = window.zenTidyDownloadsUtils.MASTER_TOOLTIP_FADEOUT_MS;
+        /**
+         * Mirrors tooltip-layout rename-success eligibility (post–AI rename UI only).
+         * @param {string|null|undefined} successorKey
+         * @returns {boolean}
+         */
+        function successorKeepsRenameSuccessChrome(successorKey) {
+          if (!successorKey) return false;
+          const cd = getActiveCardByKey(successorKey);
+          if (!cd?.podElement || !cd.download) return false;
+          const isProgress =
+            cd.phase === "progress" || cd.podElement.dataset?.state === "progress";
+          if (isProgress) return false;
+          return !!(cd.download.succeeded && cd.download.aiName);
+        }
+
+        /**
+         * Shared by master close + undo-revert-as-close (patch 3 handoff vs dismiss).
+         * @param {string} keyUsedForSuccessorPeek - map key of the pod being dismissed
+         * @param {{ download?: unknown, permanentlyDeleted?: boolean }|undefined} cardForRemoval
+         */
+        function applyMasterTooltipDismissTail(keyUsedForSuccessorPeek, cardForRemoval) {
+          if (!keyUsedForSuccessorPeek || !cardForRemoval?.download) return;
+          let handoffSuccessor = false;
+          const successorAfterClose =
+            typeof peekFocusSuccessorAfterRemove === "function"
+              ? peekFocusSuccessorAfterRemove(keyUsedForSuccessorPeek)
+              : null;
+          if (
+            successorAfterClose &&
+            typeof prepareMasterCloseHandoffToSuccessor === "function" &&
+            cardForRemoval.download.succeeded &&
+            successorKeepsRenameSuccessChrome(successorAfterClose)
+          ) {
+            prepareMasterCloseHandoffToSuccessor(successorAfterClose);
+            handoffSuccessor = true;
+          }
+          if (!handoffSuccessor) {
+            /* Shared fade path (do not set parent display:none here — it kills CSS transitions). */
+            window.zenTidyDownloads?.dismissMasterRenameTooltip?.();
+          }
+          const keyToRemove = keyUsedForSuccessorPeek;
+          const cardSnapshot = cardForRemoval;
+          setTimeout(async () => {
+            if (!cardSnapshot?.download) return;
+            try {
+              const download = cardSnapshot.download;
+              if (download.succeeded) {
+                await cancelAIProcessForDownload(keyToRemove);
+                removeCard(keyToRemove, true);
+                return;
+              }
+              if (download.error || cardSnapshot.permanentlyDeleted) {
+                cardSnapshot.isManuallyCleaning = true;
+                await eraseDownloadFromHistory(download);
+                removeCard(keyToRemove, true);
+                return;
+              }
+            } catch (_error) {
+              removeCard(keyToRemove, true);
+            }
+          }, handoffSuccessor ? 0 : MASTER_TOOLTIP_FADEOUT_MS);
+        }
+
         const masterCloseBtn = masterTooltipDOMElement.querySelector(".card-close-button");
         if (masterCloseBtn) {
-          const MASTER_TOOLTIP_FADEOUT_MS = window.zenTidyDownloadsUtils.MASTER_TOOLTIP_FADEOUT_MS;
           const masterCloseHandler = (e) => {
             e.preventDefault();
             e.stopPropagation();
             const focusedKey = getFocusedKey();
             if (!focusedKey) return;
             const cardData = getActiveCardByKey(focusedKey);
-            /* Shared fade path (do not set parent display:none here — it kills CSS transitions). */
-            window.zenTidyDownloads?.dismissMasterRenameTooltip?.();
-            setTimeout(async () => {
-              if (!cardData?.download) return;
-              try {
-                const download = cardData.download;
-                if (download.succeeded) {
-                  await cancelAIProcessForDownload(focusedKey);
-                  removeCard(focusedKey, true);
-                  return;
-                }
-                if (download.error || cardData.permanentlyDeleted) {
-                  cardData.isManuallyCleaning = true;
-                  await eraseDownloadFromHistory(download);
-                  removeCard(focusedKey, true);
-                  return;
-                }
-              } catch (_error) {
-                removeCard(focusedKey, true);
-              }
-            }, MASTER_TOOLTIP_FADEOUT_MS);
+            applyMasterTooltipDismissTail(focusedKey, cardData);
           };
           masterCloseBtn.addEventListener("click", masterCloseHandler);
           masterCloseBtn.addEventListener("keydown", (e) => {
@@ -154,7 +201,13 @@
             e.preventDefault();
             e.stopPropagation();
             const focusedKey = getFocusedKey();
-            if (focusedKey) await undoRename(focusedKey);
+            if (!focusedKey) return;
+            const ok = await undoRename(focusedKey, { skipAutohideAfterSuccess: true });
+            if (!ok) return;
+            const keyAfterUndo = getFocusedKey();
+            if (!keyAfterUndo) return;
+            const cardAfterUndo = getActiveCardByKey(keyAfterUndo);
+            applyMasterTooltipDismissTail(keyAfterUndo, cardAfterUndo);
           };
           masterUndoBtn.addEventListener("click", masterUndoHandler);
           masterUndoBtn.addEventListener("keydown", async (e) => {

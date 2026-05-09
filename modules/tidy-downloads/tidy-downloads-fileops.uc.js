@@ -469,9 +469,11 @@
 
       /**
        * @param {string} keyOfAIRenamedFile
+       * @param {{ skipAutohideAfterSuccess?: boolean }} [opts]
        * @returns {Promise<boolean>}
        */
-      async function undoRename(keyOfAIRenamedFile) {
+      async function undoRename(keyOfAIRenamedFile, opts = {}) {
+        const { skipAutohideAfterSuccess = false } = opts;
         debugLog("[UndoRename] Attempting to undo rename for key:", keyOfAIRenamedFile);
         const cardData = activeDownloadCards.get(keyOfAIRenamedFile);
 
@@ -615,13 +617,15 @@
             });
           }
 
-          const shortDelay = 2000;
+          if (!skipAutohideAfterSuccess) {
+            const shortDelay = 2000;
 
-          debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
-          if (revertedCardData) {
-            revertedCardData.autohideTimeoutId = setTimeout(() => {
-              performAutohideSequence(targetOriginalPath);
-            }, shortDelay);
+            debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
+            if (revertedCardData) {
+              revertedCardData.autohideTimeoutId = setTimeout(() => {
+                performAutohideSequence(targetOriginalPath);
+              }, shortDelay);
+            }
           }
 
           debugLog("[UndoRename] Rename undone successfully.");

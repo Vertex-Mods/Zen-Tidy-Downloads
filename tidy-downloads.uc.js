@@ -483,6 +483,19 @@
       await new Promise((resolve) => setTimeout(resolve, 300));
       debugLog("Creating download manager UI elements...");
 
+      function prepareMasterCloseHandoffToSuccessor(successorKey) {
+        if (!successorKey || !activeDownloadCards.has(successorKey)) return;
+        focusedKeyRef.current = successorKey;
+        store.masterRenameTooltipSuppressed = false;
+        store.masterTooltipFadeoutActive = false;
+        store.pileHoverBlockedByRenameTooltip = false;
+        updateUIForFocusedDownload(successorKey, true);
+        try {
+          managePodVisibilityAndAnimations();
+        } catch (_e) {}
+        compactVisibilityApi.updateDownloadCardsVisibility();
+      }
+
       try {
         const downloadsButton = await findDownloadsButton();
         if (!downloadsButton) {
@@ -497,6 +510,8 @@
           eraseDownloadFromHistory,
           getFocusedKey: () => focusedKeyRef.current,
           getActiveCardByKey: (key) => activeDownloadCards.get(key),
+          peekFocusSuccessorAfterRemove: (key) => lifecycleApi.peekFocusSuccessorAfterRemove(key),
+          prepareMasterCloseHandoffToSuccessor,
           clearAllStickyPods,
           onPileHiddenRepair: () => {
             debugLog("[PileRepair] pile-hidden: restore download chrome + focus invariants");
@@ -585,7 +600,9 @@
 
         Object.assign(window.zenTidyDownloads, {
           getLibraryPieController: () => libraryPieController,
-          dismissMasterRenameTooltip: () => tooltipLayout?.dismissMasterRenameTooltip?.()
+          dismissMasterRenameTooltip: () => tooltipLayout?.dismissMasterRenameTooltip?.(),
+          peekFocusSuccessorAfterRemove: (key) => lifecycleApi.peekFocusSuccessorAfterRemove(key),
+          prepareMasterCloseHandoffToSuccessor
         });
 
         downloadsListenerController = window.zenTidyDownloadsDownloadsListener.createController({

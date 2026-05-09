@@ -36,25 +36,41 @@
       } = ctx;
 
       /**
-       * Like tooltip-layout `shouldShowMasterRenameTooltip`, plus `!store.masterRenameTooltipSuppressed`
-       * so autohide/close/sticky transitions do not resurrect `#userchrome-download-cards-container`.
-       * Rename-success chrome is only for a real toolbar sticky (jukebox cleared into the pile
-       * has no stickies — do not flash the cards wrapper).
+       * Per-card rename-success chrome (sticky + AI rename), keyed by map key for sticky membership.
+       * @param {{ podElement?: HTMLElement|null, download?: { succeeded?: boolean, aiName?: string|null }, phase?: string, isSticky?: boolean }} [cardData]
+       * @param {string|null|undefined} mapKey
        * @returns {boolean}
        */
-      function shouldShowRenameSuccessChromeFromStore() {
-        const fk = store?.focusedKeyRef?.current;
-        if (!fk || !store?.activeDownloadCards) return false;
-        const cardData = store.activeDownloadCards.get(fk);
-        const download = cardData?.download;
-        if (!cardData?.podElement || !download) return false;
+      function cardQualifiesStickyRenameChrome(cardData, mapKey) {
+        if (!cardData?.podElement || !cardData.download) return false;
+        const download = cardData.download;
         const isProgress =
           cardData.phase === "progress" || cardData.podElement.dataset?.state === "progress";
         if (isProgress) return false;
-        if (store?.masterRenameTooltipSuppressed) return false;
-        const inStickySet = store?.stickyPods instanceof Set && store.stickyPods.has(fk);
+        const inStickySet =
+          !!(mapKey && store?.stickyPods instanceof Set && store.stickyPods.has(mapKey));
         if (cardData.isSticky !== true && !inStickySet) return false;
         return !!(download.succeeded && download.aiName);
+      }
+
+      /**
+       * Like tooltip-layout rename-success eligibility, plus `!store.masterRenameTooltipSuppressed`.
+       * Uses focused key **or** any sticky so an empty jukebox with multiple piled stickies still
+       * shows `#userchrome-download-cards-container` when focus is transiently wrong (`patch 2`).
+       * @returns {boolean}
+       */
+      function shouldShowRenameSuccessChromeFromStore() {
+        if (store?.masterRenameTooltipSuppressed) return false;
+        const cards = store?.activeDownloadCards;
+        if (!cards) return false;
+        const fk = store?.focusedKeyRef?.current;
+        if (fk && cardQualifiesStickyRenameChrome(cards.get(fk), fk)) return true;
+        const sticky = store?.stickyPods;
+        if (!(sticky instanceof Set) || sticky.size === 0) return false;
+        for (const sk of sticky) {
+          if (cardQualifiesStickyRenameChrome(cards.get(sk), sk)) return true;
+        }
+        return false;
       }
 
       function updateDownloadCardsVisibility() {
