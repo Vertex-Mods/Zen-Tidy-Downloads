@@ -84,9 +84,8 @@
          */
         masterTooltipFadeoutActive: false,
         /**
-         * Download keys for which the sticky pod has appeared and AI rename may
-         * still run; zen-stuff must not expand the dismissed pile from library/sticky
-         * hover until AI finishes (see lifecycle + ai-rename release paths).
+         * Download keys with AI rename still in flight after sticky pod creation.
+         * Used for tooltip fade coordination in `makePodStickyCore` (not pile-expand gating).
          * @type {Set<string>}
          */
         pileHoverExpandBlockedUntilAIDoneKeys: new Set()

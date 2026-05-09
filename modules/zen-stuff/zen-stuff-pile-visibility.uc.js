@@ -446,11 +446,6 @@
       }
 
       function handleDownloadButtonHover() {
-        if (window.zenTidyDownloads?.isAIRenameBlockingPileExpand?.() === true) {
-          pileHoverDebug("downloadButtonHover ABORT: AI rename in progress");
-          return;
-        }
-
         debugLog("[DownloadHover] handleDownloadButtonHover called", {
           dismissedPodsSize: state.dismissedPods.size,
           alwaysShowMode: getAlwaysShowPile()
@@ -503,11 +498,6 @@
       }
 
       function handleDynamicSizerHover() {
-        if (window.zenTidyDownloads?.isAIRenameBlockingPileExpand?.() === true) {
-          pileHoverDebug("dynamicSizerHover ABORT: AI rename in progress");
-          return;
-        }
-
         pileHoverDebug("dynamicSizerHover enter", {
           alwaysShowPile: getAlwaysShowPile(),
           dismissedPods: state.dismissedPods.size

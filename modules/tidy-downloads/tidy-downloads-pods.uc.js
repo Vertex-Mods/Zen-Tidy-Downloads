@@ -257,7 +257,6 @@
              open the dismissed pile immediately. zen-stuff handles request-pile-expand;
              opening the pile dismisses the rename-success tooltip if needed. */
           podElement.addEventListener("mouseenter", () => {
-            if (window.zenTidyDownloads?.isAIRenameBlockingPileExpand?.() === true) return;
             document.dispatchEvent(new CustomEvent("request-pile-expand", { bubbles: true }));
           });
 

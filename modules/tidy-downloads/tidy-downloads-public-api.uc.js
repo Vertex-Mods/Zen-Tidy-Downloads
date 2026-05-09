@@ -193,16 +193,6 @@
           store.pileHoverBlockedByRenameTooltip = false;
         },
 
-        /**
-         * True while a sticky pod is waiting for AI rename to finish (success/fail/skip)
-         * — zen-stuff should not expand the dismissed pile from library/sticky hover.
-         * @returns {boolean}
-         */
-        isAIRenameBlockingPileExpand() {
-          const s = store.pileHoverExpandBlockedUntilAIDoneKeys;
-          return s instanceof Set && s.size > 0;
-        },
-
         onActualDownloadRemoved(callback) {
           if (typeof callback === "function") {
             actualDownloadRemovedEventListeners.add(callback);

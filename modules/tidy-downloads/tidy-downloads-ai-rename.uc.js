@@ -50,6 +50,7 @@
 
       const { activeDownloadCards, focusedKeyRef, renamedFiles } = store;
 
+      /** Clears this download key from `pileHoverExpandBlockedUntilAIDoneKeys` (AI lifecycle / tooltip coordination). */
       function releasePileHoverExpandBlockForKey(k) {
         try {
           store.pileHoverExpandBlockedUntilAIDoneKeys?.delete(k);

@@ -251,10 +251,10 @@
         if (renamedFiles.has(cardData.download.target.path)) return;
         const fn = typeof getAddToAIRenameQueue === "function" ? getAddToAIRenameQueue() : null;
         if (typeof fn !== "function") return;
-        // Pre-arm pile-hover-block BEFORE enqueueing so a fast AI completion's
+        // Pre-arm AI-pending key BEFORE enqueueing so a fast AI completion's
         // releasePileHoverExpandBlockForKey runs against an existing entry.
         // Otherwise add() in makePodStickyCore could lose the race and leave
-        // the block set non-empty forever, freezing pile expand.
+        // the set wrong for tooltip fade coordination.
         try {
           store.pileHoverExpandBlockedUntilAIDoneKeys?.add(downloadKey);
           cardData.suppressToolbarPodForAIRename = true;
@@ -763,9 +763,9 @@
           podElement.style.cursor = "pointer";
         }
 
-        // Pile-hover-block is pre-armed in maybeEnqueueAIRename so a fast AI
+        // AI-pending key is pre-armed in maybeEnqueueAIRename so a fast AI
         // completion can't lose its release; do NOT re-add here, otherwise an
-        // already-released "suitable name"/error could leave the set non-empty.
+        // already-released "suitable name"/error could leave the set inconsistent.
 
         const podsRowContainerElement = getPodsRowContainer();
         if (podsRowContainerElement) {
