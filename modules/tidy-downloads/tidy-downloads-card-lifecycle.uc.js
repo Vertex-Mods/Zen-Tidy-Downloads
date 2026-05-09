@@ -770,6 +770,21 @@
 
         updateUIForFocusedDownload(focusedKeyRef.current, false);
 
+        // While AI rename is in-flight, deferred-sticky would otherwise schedule absorb
+        // immediately or on the autohide timer against the pile-block key — the card gets
+        // removed before Mistral finishes, breaking post-rename tooltip/pod handoff (NO_CARD_DATA).
+        const aiBlocksDeferredAbsorb =
+          store.pileHoverExpandBlockedUntilAIDoneKeys instanceof Set &&
+          store.pileHoverExpandBlockedUntilAIDoneKeys.has(downloadKey);
+
+        if (aiBlocksDeferredAbsorb) {
+          debugLog(
+            "[Lifecycle] enterDeferredStickyPhase: AI rename in flight — skipping absorb scheduling until AI completes",
+            downloadKey
+          );
+          return;
+        }
+
         if (remainingMs === 0) {
           Promise.resolve()
             .then(() => absorbIntoPileWithoutSticky(downloadKey))
@@ -785,6 +800,56 @@
           Promise.resolve()
             .then(() => absorbIntoPileWithoutSticky(downloadKey))
             .catch((e) => debugLog("[Lifecycle] commitDeferredAbsorb error", e));
+        }, remainingMs);
+      }
+
+      /**
+       * If enterDeferredStickyPhase skipped absorb while AI held `pileHoverExpandBlockedUntilAIDoneKeys`,
+       * reschedule immediate or delayed absorb once AI has released — idempotent if a timer already exists.
+       * @param {string} downloadKey
+       */
+      function scheduleDeferredStickyAbsorbIfNeeded(downloadKey) {
+        if (!downloadKey) return;
+        const cardData = activeDownloadCards.get(downloadKey);
+        if (
+          !cardData ||
+          cardData.isBeingRemoved ||
+          cardData.phase !== "deferred-sticky" ||
+          cardData.isSticky
+        ) {
+          return;
+        }
+
+        const pileBlock = store.pileHoverExpandBlockedUntilAIDoneKeys;
+        if (pileBlock instanceof Set && pileBlock.has(downloadKey)) {
+          return;
+        }
+        if (cardData.deferredStickyTimeoutId != null) return;
+
+        if (cardData.terminalCompletedAtMs == null) {
+          cardData.terminalCompletedAtMs = getTerminalWallTimeFromDownload(cardData.download);
+        }
+
+        const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
+        const autohideMs = disableAutohide ? null : getPref("extensions.downloads.autohide_delay_ms", 10000);
+        const remainingMs =
+          autohideMs == null ? null : Math.max(0, autohideMs - (Date.now() - cardData.terminalCompletedAtMs));
+
+        if (remainingMs === 0) {
+          Promise.resolve()
+            .then(() => absorbIntoPileWithoutSticky(downloadKey))
+            .catch((e) => debugLog("[Lifecycle] scheduleDeferredStickyAbsorbIfNeeded immediate absorb error", e));
+          return;
+        }
+        if (remainingMs == null) {
+          return;
+        }
+
+        cardData.deferredStickyTimeoutId = setTimeout(() => {
+          cardData.deferredStickyTimeoutId = null;
+          Promise.resolve()
+            .then(() => absorbIntoPileWithoutSticky(downloadKey))
+            .catch((e) => debugLog("[Lifecycle] scheduleDeferredStickyAbsorbIfNeeded deferred absorb error", e));
         }, remainingMs);
       }
 
@@ -898,6 +963,92 @@
         }
 
         await makePodStickyCore(downloadKey, { fadeTooltipIfFocused: true });
+      }
+
+      /**
+       * After AI rename completes on a `deferred-sticky` card: surface toolbar pod + tooltip when
+       * the pile is not expanded or the autohide window has elapsed; if the pile is expanded and
+       * autohide is still pending, defer (same as pre-AI behavior). If expanded and autohide just
+       * elapsed (remainingMs === 0), absorb pile-only.
+       * @param {string} downloadKey
+       * @returns {Promise<boolean>} true if absorb or toolbar promotion ran; false if still deferred
+       */
+      async function finishDeferredStickyAfterAISuccess(downloadKey) {
+        const cardData = activeDownloadCards.get(downloadKey);
+        if (!cardData || cardData.phase !== "deferred-sticky") return false;
+
+        let pileExpanded = false;
+        try {
+          pileExpanded = window.__zenDismissedPileIntegration?.isPileExpanded?.() === true;
+        } catch (_e) {}
+
+        const terminalMs = cardData.terminalCompletedAtMs ?? Date.now();
+        const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
+        const autohideMs = disableAutohide ? null : getPref("extensions.downloads.autohide_delay_ms", 10000);
+        const remainingMs =
+          autohideMs == null ? null : Math.max(0, autohideMs - (Date.now() - terminalMs));
+
+        const shouldDeferToolbarChrome =
+          pileExpanded && remainingMs !== null && remainingMs > 0;
+
+        if (shouldDeferToolbarChrome) {
+          debugLog(
+            "[Lifecycle] finishDeferredStickyAfterAISuccess: pile expanded + autohide pending — defer toolbar chrome until pile collapses",
+            { downloadKey }
+          );
+          return false;
+        }
+
+        clearCardTimers(cardData, { autohide: false, deferredSticky: true });
+
+        if (remainingMs === 0) {
+          await absorbIntoPileWithoutSticky(downloadKey);
+          return true;
+        }
+
+        if (cardData.podElement) {
+          cardData.podElement.style.display = "";
+        }
+
+        await makePodStickyCore(downloadKey, { fadeTooltipIfFocused: false });
+
+        const masterTooltipDOMElement = getMasterTooltip();
+        const downloadCardsContainer = getDownloadCardsContainer();
+        if (downloadCardsContainer) {
+          downloadCardsContainer.style.display = "flex";
+          downloadCardsContainer.style.visibility = "visible";
+          downloadCardsContainer.style.opacity = "1";
+          downloadCardsContainer.style.pointerEvents = "auto";
+        }
+        if (masterTooltipDOMElement) {
+          masterTooltipDOMElement.style.display = "";
+          masterTooltipDOMElement.style.opacity = "1";
+          masterTooltipDOMElement.style.transform = "";
+          masterTooltipDOMElement.style.pointerEvents = "auto";
+          masterTooltipDOMElement.style.visibility = "visible";
+        }
+        store.masterTooltipFadeoutActive = false;
+
+        focusedKeyRef.current = downloadKey;
+        updateUIForFocusedDownload(downloadKey, true);
+
+        if (remainingMs != null && remainingMs > 0) {
+          cardData.autohideTimeoutId = setTimeout(() => {
+            performAutohideSequence(downloadKey);
+          }, remainingMs);
+        }
+
+        if (typeof managePodVisibilityAndAnimations === "function") {
+          try {
+            managePodVisibilityAndAnimations();
+          } catch (_err) {
+            debugLog("[Lifecycle] managePod after finishDeferredStickyAfterAISuccess", _err);
+          }
+        }
+        if (typeof updateDownloadCardsVisibility === "function") {
+          updateDownloadCardsVisibility();
+        }
+        return true;
       }
 
       /**
@@ -1257,6 +1408,8 @@
         getPhase,
         reconcileDismissedForIncoming,
         onPileHidden,
+        finishDeferredStickyAfterAISuccess,
+        scheduleDeferredStickyAbsorbIfNeeded,
         destroy
       };
     }

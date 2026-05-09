@@ -44,6 +44,8 @@
         getDownloadKey,
         managePodVisibilityAndAnimations,
         flushDeferredStickyIfPileCollapsed,
+        finishDeferredStickyAfterAISuccess,
+        scheduleDeferredStickyAbsorbIfNeeded,
         Cc,
         Ci
       } = deps;
@@ -690,13 +692,27 @@ Instructions:
               podElementToStyle.classList.add("renamed-by-ai");
             }
 
-            // If the card is in deferred-sticky (pile was expanded when download
-            // finished), do NOT surface tooltip/pod chrome here. The pile entry was
-            // already refreshed via the pod-dismissed-updated event from the rename,
-            // and onPileHidden() will reveal the renamed pod + tooltip when the pile
-            // collapses (using cardData.terminalCompletedAtMs for autohide budgeting).
+            releasePileHoverExpandBlockForKey(key);
+            releasePileHoverExpandBlockForKey(newPath);
+
             const renamedCardData = activeDownloadCards.get(newPath);
             const isDeferredSticky = renamedCardData?.phase === "deferred-sticky";
+
+            let deferredChromeSurfaced = false;
+            if (isDeferredSticky) {
+              deferredChromeSurfaced =
+                (await finishDeferredStickyAfterAISuccess?.(newPath)) === true;
+              if (!deferredChromeSurfaced) {
+                debugLog(
+                  `[AI Rename] ${newPath} deferred-sticky: pile expanded + autohide still pending — toolbar chrome waits for pile-hidden (same as terminal entry).`
+                );
+              }
+            }
+
+            if (!(isDeferredSticky && !deferredChromeSurfaced)) {
+              revealToolbarPodAfterAIRename(newPath, download);
+            }
+
             if (!isDeferredSticky) {
               const priorFocus = focusedKeyRef.current;
               focusedKeyRef.current = newPath;
@@ -707,10 +723,6 @@ Instructions:
               }
               updateUIForFocusedDownload(newPath, true);
               scheduleCardRemoval(newPath);
-            } else {
-              debugLog(
-                `[AI Rename] Renamed pod ${newPath} is in deferred-sticky phase; skipping tooltip/pod surfacing. Reveal will happen on pile collapse.`
-              );
             }
             debugLog(`Successfully AI-renamed to: ${actualFilename}`);
 
@@ -800,7 +812,15 @@ Instructions:
           }
           if (podElementToStyle) podElementToStyle.classList.remove("renaming-active");
           releasePileHoverExpandBlockForKey(key);
+          const targetPathNow = download?.target?.path;
+          if (targetPathNow && targetPathNow !== key) {
+            releasePileHoverExpandBlockForKey(targetPathNow);
+          }
           revealToolbarPodAfterAIRename(key, download);
+          scheduleDeferredStickyAbsorbIfNeeded?.(key);
+          if (targetPathNow && targetPathNow !== key) {
+            scheduleDeferredStickyAbsorbIfNeeded?.(targetPathNow);
+          }
         }
       }
 
@@ -839,6 +859,7 @@ Instructions:
               debugLog(`[AI Queue] Skipping ${downloadKey} - no download object`);
               releasePileHoverExpandBlockForKey(downloadKey);
               revealToolbarPodAfterAIRename(downloadKey, null);
+              scheduleDeferredStickyAbsorbIfNeeded?.(downloadKey);
               currentlyProcessingKey = null;
               continue;
             }
@@ -848,6 +869,8 @@ Instructions:
               debugLog(`[AI Queue] Skipping ${downloadKey} - already renamed`);
               releasePileHoverExpandBlockForKey(downloadKey);
               revealToolbarPodAfterAIRename(downloadKey, dl);
+              scheduleDeferredStickyAbsorbIfNeeded?.(downloadKey);
+              scheduleDeferredStickyAbsorbIfNeeded?.(currentPath);
               currentlyProcessingKey = null;
               continue;
             }
@@ -856,6 +879,8 @@ Instructions:
               debugLog(`[AI Queue] Skipping ${downloadKey} - no longer in succeeded state`);
               releasePileHoverExpandBlockForKey(downloadKey);
               revealToolbarPodAfterAIRename(downloadKey, dl);
+              scheduleDeferredStickyAbsorbIfNeeded?.(downloadKey);
+              scheduleDeferredStickyAbsorbIfNeeded?.(currentPath);
               currentlyProcessingKey = null;
               continue;
             }
@@ -997,7 +1022,12 @@ Instructions:
         } finally {
           releasePileHoverExpandBlockForKey(downloadKey);
           const cd = activeDownloadCards.get(downloadKey);
+          const dlPath = cd?.download?.target?.path;
           revealToolbarPodAfterAIRename(downloadKey, cd?.download);
+          scheduleDeferredStickyAbsorbIfNeeded?.(downloadKey);
+          if (dlPath && dlPath !== downloadKey) {
+            scheduleDeferredStickyAbsorbIfNeeded?.(dlPath);
+          }
         }
         return result;
       }

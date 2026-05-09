@@ -384,6 +384,25 @@
         } catch (e) {
           debugLog("[AI] flushDeferredStickyIfPileCollapsed error", e);
         }
+      },
+      finishDeferredStickyAfterAISuccess: async (downloadKey) => {
+        const fn = lifecycleApiSlot.api?.finishDeferredStickyAfterAISuccess;
+        if (typeof fn !== "function") return false;
+        try {
+          return (await fn(downloadKey)) === true;
+        } catch (e) {
+          debugLog("[AI] finishDeferredStickyAfterAISuccess error", e);
+          return false;
+        }
+      },
+      scheduleDeferredStickyAbsorbIfNeeded: (downloadKey) => {
+        const fn = lifecycleApiSlot.api?.scheduleDeferredStickyAbsorbIfNeeded;
+        if (typeof fn !== "function") return;
+        try {
+          fn(downloadKey);
+        } catch (e) {
+          debugLog("[AI] scheduleDeferredStickyAbsorbIfNeeded error", e);
+        }
       }
     };
 
