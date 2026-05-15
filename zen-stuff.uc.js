@@ -320,7 +320,8 @@
     state,
     debugLog,
     getShowPile: () => pileVisibilityApi.showPile(),
-    getHidePile: () => pileVisibilityApi.hidePile()
+    getHidePile: () => pileVisibilityApi.hidePile(),
+    schedulePileLayoutRepair: (source, delayMs) => maskRepairApi.schedulePileLayoutRepair(source, delayMs)
   });
 
   sessionApi = window.zenStuffSession.createSessionApi({
@@ -328,9 +329,7 @@
     validateFilePathOrThrow,
     FileSystem,
     state,
-    createPodElement,
-    generateGridPosition,
-    applyGridPosition,
+    addPodToPile: (podData, animate) => pileVisibilityApi.addPodToPile(podData, animate),
     updatePileVisibility,
     updateDownloadsButtonVisibility: () => pilePrefsApi.updateDownloadsButtonVisibility(),
     getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
@@ -359,9 +358,33 @@
     return maskRepairApi.recalculateLayout();
   }
 
-  // Setup event listeners
-  function setupEventListeners() {
-    // Listen for pod dismissals from main script
+  function attachMediaToolbarResizeObserverOnce() {
+    if (state.mediaToolbarResizeObserver) return;
+    const mt = document.getElementById("zen-media-controls-toolbar");
+    if (!mt || typeof ResizeObserver === "undefined") return;
+    state.mediaToolbarResizeObserver = new ResizeObserver(() => {
+      if (
+        state.dismissedPods.size > 0 &&
+        state.dynamicSizer &&
+        state.dynamicSizer.style.height !== "0px"
+      ) {
+        schedulePileLayoutRepair("media-toolbar-resize", 40);
+      }
+    });
+    state.mediaToolbarResizeObserver.observe(mt);
+    debugLog("[PileRepair] ResizeObserver attached to zen-media-controls-toolbar");
+  }
+
+  /**
+   * Window/document listeners and timers — must run only once per browser window so init retries
+   * (after partial failures) do not stack duplicate callbacks on zenTidyDownloads or document.
+   */
+  function setupGlobalPileListeners() {
+    if (state.zenStuffGlobalPileListenersAttached) {
+      return;
+    }
+    state.zenStuffGlobalPileListenersAttached = true;
+
     window.zenTidyDownloads.onPodDismissed((podData) => {
       debugLog("Received pod dismissal:", podData);
       addPodToPile(podData);
@@ -398,43 +421,16 @@
       debugLog("[Pile] Registered onProgressPilePod listener");
     }
 
-    // Download button hover events
-    if (state.downloadButton) {
-      state.downloadButton.addEventListener('mouseenter', handleDownloadButtonHover);
-      state.downloadButton.addEventListener('mouseleave', handleDownloadButtonLeave);
-      pileHoverDebug("download button hover listeners attached", {
-        tag: state.downloadButton.tagName,
-        id: state.downloadButton.id,
-        localName: state.downloadButton.localName
-      });
-    } else {
-      pileHoverDebug("WARNING: no download button — library hover will never fire");
-    }
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keyup", handleKeyUp);
 
-    // Dynamic sizer hover events (keep container open when cursor is inside)
-    if (state.dynamicSizer) {
-      state.dynamicSizer.addEventListener('mouseenter', handleDynamicSizerHover);
-      state.dynamicSizer.addEventListener('mouseleave', handleDynamicSizerLeave);
-      debugLog("Added hover listeners to dynamic sizer");
-    }
-
-    // Pile container hover events
-    state.pileContainer.addEventListener('mouseenter', handlePileHover);
-    state.pileContainer.addEventListener('mouseleave', handlePileLeave);
-
-    // Alt key listeners for always-show mode
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('keyup', handleKeyUp);
-
-    // Preference change listener
     pilePrefsApi.setupPreferenceListener();
 
-    // Window resize handler
-    window.addEventListener('resize', debounce(recalculateLayout, 250));
+    window.addEventListener("resize", debounce(recalculateLayout, 250));
 
-    document.addEventListener('zen-tidy-library-pie-updated', () => {
+    document.addEventListener("zen-tidy-library-pie-updated", () => {
       try {
-        if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
+        if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
           pileVisibilityApi?.syncLibraryPieDockForPile?.();
         }
       } catch (_e) {
@@ -442,8 +438,7 @@
       }
     });
 
-    // Listen for actual download removals from Firefox list (via main script)
-    if (window.zenTidyDownloads && typeof window.zenTidyDownloads.onActualDownloadRemoved === 'function') {
+    if (window.zenTidyDownloads && typeof window.zenTidyDownloads.onActualDownloadRemoved === "function") {
       window.zenTidyDownloads.onActualDownloadRemoved((removedKey) => {
         debugLog(`[PileSync] Received actual download removal notification for key: ${removedKey}`);
         if (state.dismissedPods.has(removedKey)) {
@@ -456,8 +451,7 @@
       debugLog("[PileSync] Could not register listener for actual download removals - API not found on main script.");
     }
 
-    // Sticky pod hover: expand pile when user hovers over a sticky pod
-    document.addEventListener('request-pile-expand', () => {
+    document.addEventListener("request-pile-expand", () => {
       pileHoverDebug("request-pile-expand fired", { dismissedPods: state.dismissedPods.size });
       if (state.dismissedPods.size > 0) {
         pileHoverDebug("request-pile-expand → showPile");
@@ -469,15 +463,12 @@
       }
     });
 
-    // Context menu click-outside handler
-    document.addEventListener('click', (e) => {
-      if (window.zenPileContextMenu &&
-        !window.zenPileContextMenu.contextMenu.contains(e.target)) {
+    document.addEventListener("click", (e) => {
+      if (window.zenPileContextMenu && !window.zenPileContextMenu.contextMenu.contains(e.target)) {
         hideContextMenu();
       }
     });
 
-    // Periodic cheap repair: mask/sizer can desync after sticky transitions or toolbar reflow
     if (state.pileLayoutRepairIntervalId) {
       clearInterval(state.pileLayoutRepairIntervalId);
     }
@@ -487,6 +478,53 @@
       }
     }, 90000);
 
+    attachMediaToolbarResizeObserverOnce();
+
+    debugLog("Global pile listeners attached (once per window)");
+  }
+
+  /**
+   * Hover listeners on the current download button and pile DOM — run after each pile container build.
+   */
+  function setupDomPileHoverListeners() {
+    const prevBtn = state.pileHoverDownloadButtonEl;
+    if (prevBtn && prevBtn !== state.downloadButton) {
+      prevBtn.removeEventListener("mouseenter", handleDownloadButtonHover);
+      prevBtn.removeEventListener("mouseleave", handleDownloadButtonLeave);
+    }
+    if (state.downloadButton) {
+      state.downloadButton.removeEventListener("mouseenter", handleDownloadButtonHover);
+      state.downloadButton.removeEventListener("mouseleave", handleDownloadButtonLeave);
+      state.downloadButton.addEventListener("mouseenter", handleDownloadButtonHover);
+      state.downloadButton.addEventListener("mouseleave", handleDownloadButtonLeave);
+      state.pileHoverDownloadButtonEl = state.downloadButton;
+      pileHoverDebug("download button hover listeners attached", {
+        tag: state.downloadButton.tagName,
+        id: state.downloadButton.id,
+        localName: state.downloadButton.localName
+      });
+    } else {
+      pileHoverDebug("WARNING: no download button — library hover will never fire");
+      state.pileHoverDownloadButtonEl = null;
+    }
+
+    if (state.dynamicSizer) {
+      state.dynamicSizer.addEventListener("mouseenter", handleDynamicSizerHover);
+      state.dynamicSizer.addEventListener("mouseleave", handleDynamicSizerLeave);
+      debugLog("Added hover listeners to dynamic sizer");
+    }
+
+    if (state.pileContainer) {
+      state.pileContainer.addEventListener("mouseenter", handlePileHover);
+      state.pileContainer.addEventListener("mouseleave", handlePileLeave);
+    }
+
+    debugLog("DOM pile hover listeners attached");
+  }
+
+  function setupEventListeners() {
+    setupGlobalPileListeners();
+    setupDomPileHoverListeners();
     debugLog("Event listeners setup complete");
   }
 
@@ -501,8 +539,8 @@
     // Restore dismissed pods from SessionStore
     restoreDismissedPodsFromSession();
 
-    // If always-show mode is enabled and we have pods, show the pile
-    if (pilePrefsApi.getAlwaysShowPile() && existingPods.size > 0) {
+    // If always-show mode is enabled and we have pods (including session-only restores), show the pile
+    if (pilePrefsApi.getAlwaysShowPile() && state.dismissedPods.size > 0) {
       setTimeout(() => {
         if (pilePrefsApi.shouldPileBeVisible()) {
           showPile();
@@ -626,6 +664,15 @@
       if (state.pileLayoutRepairIntervalId) {
         clearInterval(state.pileLayoutRepairIntervalId);
         state.pileLayoutRepairIntervalId = null;
+      }
+
+      if (state.mediaToolbarResizeObserver) {
+        try {
+          state.mediaToolbarResizeObserver.disconnect();
+        } catch (_e) {
+          /* ignore */
+        }
+        state.mediaToolbarResizeObserver = null;
       }
 
       // Remove all event listeners

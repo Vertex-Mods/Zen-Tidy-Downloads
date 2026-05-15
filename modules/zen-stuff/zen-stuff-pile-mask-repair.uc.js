@@ -79,6 +79,24 @@
       }
 
       /**
+       * Expected grid + mask height from current pod count (same formula as updatePileHeight).
+       * @returns {{ gridHeight: number, expectedMask: number }}
+       */
+      function computeExpectedMaskMetrics() {
+        const podCount = state.dismissedPods.size;
+        const podsToShow = Math.min(podCount, 4);
+        const rowHeight = 48;
+        const rowSpacing = 6;
+        const baseBottomOffset = 8;
+        const totalRowHeight = podsToShow * rowHeight + (podsToShow - 1) * rowSpacing;
+        const gridHeight = totalRowHeight + baseBottomOffset;
+        const mediaToolbar = document.getElementById("zen-media-controls-toolbar");
+        const mediaToolbarHeight = mediaToolbar?.getBoundingClientRect().height ?? 0;
+        const expectedMask = Math.max(0, gridHeight - (mediaToolbarHeight > 0 ? mediaToolbarHeight : 0));
+        return { gridHeight, expectedMask };
+      }
+
+      /**
        * Fix desynced mask / sizer / pointer-events. Idempotent; logs when it changes something.
        * @param {string} source
        */
@@ -117,13 +135,40 @@
         }
 
         if (sizerOpen && !compactBlocksPile) {
-          const maskBadNegative = Number.isFinite(maskH) && maskH < 0;
-          const maskZeroButSizerTall = maskH === 0 && sizerH > 16;
-          if (maskBadNegative || maskZeroButSizerTall) {
-            debugLog("[PileRepair] sizer open but mask out of sync → updatePileHeight", {
+          const { gridHeight, expectedMask } = computeExpectedMaskMetrics();
+          const mediaToolbar = document.getElementById("zen-media-controls-toolbar");
+          const toolbarMissingExpanded =
+            !!(mediaToolbar && !mediaToolbar.classList.contains("zen-pile-expanded"));
+
+          const sizerParsed = parseFloat(state.dynamicSizer.style.height);
+          const sizerNum = Number.isFinite(sizerParsed) ? sizerParsed : 0;
+
+          const maskMismatchSizing =
+            !Number.isFinite(maskH) ||
+            maskH < 0 ||
+            (maskH === 0 && sizerH > 16) ||
+            (Number.isFinite(maskH) &&
+              Number.isFinite(expectedMask) &&
+              Math.abs(maskH - expectedMask) > 12);
+
+          const sizerMismatchGrid =
+            Number.isFinite(gridHeight) &&
+            gridHeight > 0 &&
+            Number.isFinite(sizerNum) &&
+            Math.abs(sizerNum - gridHeight) > 12;
+
+          const maskMismatchToolbar =
+            toolbarMissingExpanded && Number.isFinite(expectedMask) && expectedMask >= 0;
+
+          if (maskMismatchSizing || sizerMismatchGrid || maskMismatchToolbar) {
+            debugLog("[PileRepair] mask/toolbar/sizer drift → updatePileHeight", {
               source,
               maskH,
-              sizerH
+              expectedMask,
+              sizerH,
+              gridHeight,
+              sizerNum,
+              toolbarMissingExpanded
             });
             updatePileHeight();
             updatePointerEvents();

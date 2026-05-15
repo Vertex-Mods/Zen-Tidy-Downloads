@@ -14,6 +14,7 @@
   window.zenStuffSession = {
     /**
      * @param {Object} deps
+     * @param {function(Object, boolean=): void} deps.addPodToPile
      * @returns {{ initSessionStore: function, saveDismissedPodToSession: function, removeDismissedPodFromSession: function, restoreDismissedPodsFromSession: function, updatePodKeysInSession: function }}
      */
     createSessionApi(deps) {
@@ -22,9 +23,7 @@
         validateFilePathOrThrow,
         FileSystem,
         state,
-        createPodElement,
-        generateGridPosition,
-        applyGridPosition,
+        addPodToPile,
         updatePileVisibility,
         updateDownloadsButtonVisibility,
         getAlwaysShowPile,
@@ -181,12 +180,9 @@
                 }
               }
 
-              state.dismissedPods.set(podData.key, podData);
-              const podElement = createPodElement(podData);
-              state.podElements.set(podData.key, podElement);
-              state.pileContainer.appendChild(podElement);
-              generateGridPosition(podData.key);
-              applyGridPosition(podData.key, 0);
+              // Use the same path as live dismissals so keys already loaded from
+              // zenTidyDownloads.dismissedPods refresh instead of duplicating DOM nodes.
+              addPodToPile(podData, false);
               restoredCount++;
             } catch (_error) {}
           }

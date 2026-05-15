@@ -25,6 +25,7 @@
      * @param {function(string, *=): void} ctx.debugLog
      * @param {function(): void} ctx.getShowPile
      * @param {function(): void} ctx.getHidePile
+     * @param {function(string, number=): void} [ctx.schedulePileLayoutRepair]
      * @returns {{
      *  getAlwaysShowPile: function(): boolean,
      *  shouldPileBeVisible: function(): boolean,
@@ -36,7 +37,7 @@
      * }}
      */
     createPilePrefsApi(ctx) {
-      const { state, debugLog, getShowPile, getHidePile } = ctx;
+      const { state, debugLog, getShowPile, getHidePile, schedulePileLayoutRepair } = ctx;
 
       function getAlwaysShowPile() {
         try {
@@ -79,6 +80,10 @@
 
       function setupPreferenceListener() {
         try {
+          if (state.prefObserver) {
+            debugLog("[Preferences] Observer already registered — skipping duplicate");
+            return;
+          }
           const prefObserver = {
             observe(subject, topic, data) {
               if (topic === "nsPref:changed") {
@@ -123,6 +128,9 @@
                     state.dynamicSizer.style.display = "none";
                   } else if (shouldPileBeVisible()) {
                     getShowPile();
+                  }
+                  if (typeof schedulePileLayoutRepair === "function") {
+                    schedulePileLayoutRepair("compact-sidebar-toggle", 60);
                   }
                 }
               }

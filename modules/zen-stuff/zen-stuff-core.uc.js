@@ -45,6 +45,12 @@
       this.pileRepairDebounceId = null;
       this.lastPileRepairAt = 0;
       this.pileLayoutRepairIntervalId = null;
+      /** Global pile listeners (document/window): attach once so init retries do not duplicate. */
+      this.zenStuffGlobalPileListenersAttached = false;
+      /** Last download button that received pile hover listeners (detach before reassignment). */
+      this.pileHoverDownloadButtonEl = null;
+      /** Observes media toolbar geometry changes without a window resize event. */
+      this.mediaToolbarResizeObserver = null;
     }
 
     getPodData(key) {
