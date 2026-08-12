@@ -338,7 +338,7 @@
       border: none;
       border-radius: 0;
       background: transparent;
-      color: var(--zen-text-color, #e0e0e0);
+      color: var(--toolbar-color);
       font-size: 12px;
       font-weight: 500;
       font-family: inherit;

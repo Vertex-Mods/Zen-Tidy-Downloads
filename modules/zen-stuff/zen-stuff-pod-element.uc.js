@@ -258,7 +258,7 @@
         filename.style.cssText = `
       font-size: 12px;
       font-weight: 500;
-      color: var(--zen-text-color, #e0e0e0);
+      color: var(--toolbar-color);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -277,7 +277,7 @@
             : formatBytes(sizeBytes);
         fileSize.style.cssText = `
       font-size: 10px;
-      color: var(--zen-text-color-deemphasized, #a0a0a0);
+      color: color-mix(in srgb, var(--toolbar-color) 60%, transparent);
       white-space: nowrap;
     `;
 
