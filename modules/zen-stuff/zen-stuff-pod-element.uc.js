@@ -76,11 +76,11 @@
     `;
 
         row.addEventListener("mouseenter", () => {
-          row.style.backgroundColor = "rgba(255, 255, 255, 0.08)";
+          row.style.backgroundColor = "var(--toolbarbutton-hover-background)";
         });
 
         row.addEventListener("mouseleave", () => {
-          row.style.backgroundColor = "transparent";
+          row.style.backgroundColor = "";
         });
 
         const pod = document.createElement("div");
