@@ -460,54 +460,103 @@
     });
   }
 
-  /**
-   * Locate the Zen / Firefox downloads toolbar control.
-   * Tries zen-library-button first (wait up to timeout ms), then known selectors (with try/catch per selector), then heuristic scan.
-   * @returns {Promise<{ button: Element, kind: 'zen-library'|'selector'|'fallback', detail?: string }|null>}
-   */
-  async function findZenDownloadButton() {
-    try {
-      const libraryButton = await waitForElement("zen-library-button", 2000);
-      if (libraryButton) {
-        return { button: libraryButton, kind: "zen-library" };
-      }
+  function isUsableButton(element) {
+    return !!(element && element.isConnected && element.getBoundingClientRect);
+  }
 
-      const selectors = [
-        "#downloads-button",
-        "#downloads-indicator",
-        '[data-l10n-id="downloads-button"]',
-        '.toolbarbutton-1[command="Tools:Downloads"]'
-      ];
-      for (const selector of selectors) {
-        try {
-          const btn = document.querySelector(selector);
-          if (btn) {
-            return { button: btn, kind: "selector", detail: selector };
-          }
-        } catch (error) {
-          console.warn(`[findZenDownloadButton] Selector error (${selector}):`, error);
-        }
-      }
+  function getCurrentZenDownloadButton() {
+    const libraryButton = document.getElementById("zen-library-button");
+    if (isUsableButton(libraryButton)) {
+      return { button: libraryButton, kind: "zen-library" };
+    }
 
+    const selectors = [
+      "#downloads-button",
+      "#downloads-indicator",
+      '[data-l10n-id="downloads-button"]',
+      '.toolbarbutton-1[command="Tools:Downloads"]'
+    ];
+    for (const selector of selectors) {
       try {
-        const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
-        for (const element of fallbackElements) {
-          if (
-            element.getAttribute("command")?.includes("Downloads") ||
-            element.textContent?.toLowerCase().includes("download")
-          ) {
-            return { button: element, kind: "fallback" };
-          }
+        const btn = document.querySelector(selector);
+        if (isUsableButton(btn)) {
+          return { button: btn, kind: "selector", detail: selector };
         }
       } catch (error) {
-        console.warn("[findZenDownloadButton] Fallback scan error:", error);
+        console.warn(`[findZenDownloadButton] Selector error (${selector}):`, error);
       }
+    }
 
-      return null;
+    try {
+      const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
+      for (const element of fallbackElements) {
+        if (
+          isUsableButton(element) &&
+          (
+            element.getAttribute("command")?.includes("Downloads") ||
+            element.textContent?.toLowerCase().includes("download")
+          )
+        ) {
+          return { button: element, kind: "fallback" };
+        }
+      }
+    } catch (error) {
+      console.warn("[findZenDownloadButton] Fallback scan error:", error);
+    }
+
+    return null;
+  }
+
+  /**
+   * Locate the Zen / Firefox downloads toolbar control.
+   * Prefer either Zen Library button shape, then fall back to Firefox's Downloads button.
+   * @returns {Promise<{ button: Element, kind: 'zen-library'|'selector'|'fallback', detail?: string }|null>}
+   */
+  async function findZenDownloadButton(timeout = 5000) {
+    try {
+      const existing = getCurrentZenDownloadButton();
+      if (existing?.kind === "zen-library") return existing;
+
+      await waitForElement("zen-library-button", timeout);
+      return getCurrentZenDownloadButton() || existing;
     } catch (error) {
       console.error("[findZenDownloadButton]", error);
       return null;
     }
+  }
+
+  function watchZenDownloadButton(callback, { debounceMs = 75 } = {}) {
+    let lastButton = null;
+    let timer = null;
+
+    const notifyIfChanged = () => {
+      timer = null;
+      const found = getCurrentZenDownloadButton();
+      const button = found?.button || null;
+      if (button === lastButton) return;
+      lastButton = button;
+      callback(found);
+    };
+
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(notifyIfChanged, debounceMs);
+    };
+
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["id", "class", "style", "hidden", "collapsed"]
+    });
+
+    schedule();
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      observer.disconnect();
+    };
   }
 
   /**
@@ -643,6 +692,8 @@
     // DOM
     waitForElement,
     findZenDownloadButton,
+    getCurrentZenDownloadButton,
+    watchZenDownloadButton,
     clearCardTimers,
     runMasterTooltipFade
   };

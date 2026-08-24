@@ -21,6 +21,7 @@
     init(ctx) {
       const { debugLog } = ctx;
       let _proxyButtonRef = null;
+      let _buttonWatcherCleanup = null;
 
       function isElementVisible(element) {
         if (!element) return false;
@@ -161,6 +162,13 @@
         existingAnimations.forEach(patchAnimationElement);
         if (document.getElementById("zen-library-button")) {
           createDownloadsButtonProxy();
+        }
+        if (!_buttonWatcherCleanup && window.zenTidyDownloadsUtils?.watchZenDownloadButton) {
+          _buttonWatcherCleanup = window.zenTidyDownloadsUtils.watchZenDownloadButton((found) => {
+            if (found?.kind === "zen-library") {
+              createDownloadsButtonProxy(found.button);
+            }
+          });
         }
       }
 
@@ -321,11 +329,25 @@
         }
       }
 
-      function createDownloadsButtonProxy() {
+      function cleanupDownloadsButtonProxy() {
+        if (!_proxyButtonRef) return;
+        if (typeof _proxyButtonRef._cleanupObservers === "function") {
+          _proxyButtonRef._cleanupObservers();
+        }
+        if (_proxyButtonRef.parentNode) {
+          _proxyButtonRef.parentNode.removeChild(_proxyButtonRef);
+        }
+        _proxyButtonRef = null;
+      }
+
+      function createDownloadsButtonProxy(libraryButton = document.getElementById("zen-library-button")) {
         try {
-          const zenLibraryButton = document.getElementById("zen-library-button");
           const existingDownloadsButton = document.getElementById("downloads-button");
-          if (!zenLibraryButton || existingDownloadsButton) return;
+          if (!libraryButton || !libraryButton.isConnected) return;
+          if (existingDownloadsButton && existingDownloadsButton !== _proxyButtonRef) return;
+          if (_proxyButtonRef?._targetButton === libraryButton && _proxyButtonRef.isConnected) return;
+
+          cleanupDownloadsButtonProxy();
 
           const proxy = document.createElement("toolbarbutton");
           proxy.id = "downloads-button";
@@ -363,31 +385,31 @@
 
           proxy.style.cssText = `
             position: absolute;
-            left: ${zenLibraryButton.offsetLeft}px;
-            top: ${zenLibraryButton.offsetTop}px;
-            width: ${zenLibraryButton.offsetWidth}px;
-            height: ${zenLibraryButton.offsetHeight}px;
+            left: ${libraryButton.offsetLeft}px;
+            top: ${libraryButton.offsetTop}px;
+            width: ${libraryButton.offsetWidth}px;
+            height: ${libraryButton.offsetHeight}px;
             pointer-events: none;
             opacity: 0;
             z-index: -1;
             visibility: hidden;
           `;
 
-          zenLibraryButton.parentNode.insertBefore(proxy, zenLibraryButton);
+          libraryButton.parentNode.insertBefore(proxy, libraryButton);
 
           const updateProxyPosition = () => {
-            if (zenLibraryButton.isConnected && proxy.isConnected) {
-              proxy.style.left = `${zenLibraryButton.offsetLeft}px`;
-              proxy.style.top = `${zenLibraryButton.offsetTop}px`;
-              proxy.style.width = `${zenLibraryButton.offsetWidth}px`;
-              proxy.style.height = `${zenLibraryButton.offsetHeight}px`;
+            if (libraryButton.isConnected && proxy.isConnected) {
+              proxy.style.left = `${libraryButton.offsetLeft}px`;
+              proxy.style.top = `${libraryButton.offsetTop}px`;
+              proxy.style.width = `${libraryButton.offsetWidth}px`;
+              proxy.style.height = `${libraryButton.offsetHeight}px`;
             }
           };
 
-          let resizeObserver, mutationObserver;
+          let resizeObserver, mutationObserver, positionInterval;
           try {
             resizeObserver = new ResizeObserver(updateProxyPosition);
-            resizeObserver.observe(zenLibraryButton);
+            resizeObserver.observe(libraryButton);
             mutationObserver = new MutationObserver((mutations) => {
               mutations.forEach((mutation) => {
                 if (mutation.type === "attributes" &&
@@ -396,13 +418,13 @@
                 }
               });
             });
-            mutationObserver.observe(zenLibraryButton, {
+            mutationObserver.observe(libraryButton, {
               attributes: true,
               attributeFilter: ["style", "class"]
             });
           } catch (observerError) {
             console.warn("[Tidy Downloads] Observer setup failed, using fallback interval:", observerError);
-            const positionInterval = setInterval(() => {
+            positionInterval = setInterval(() => {
               if (!proxy.isConnected) {
                 clearInterval(positionInterval);
                 return;
@@ -414,7 +436,9 @@
           proxy._cleanupObservers = () => {
             if (resizeObserver) resizeObserver.disconnect();
             if (mutationObserver) mutationObserver.disconnect();
+            if (positionInterval) clearInterval(positionInterval);
           };
+          proxy._targetButton = libraryButton;
 
           _proxyButtonRef = proxy;
           setupDownloadsIndicatorFix(proxy);
@@ -453,9 +477,11 @@
       }
 
       function cleanup() {
-        if (_proxyButtonRef && typeof _proxyButtonRef._cleanupObservers === "function") {
-          _proxyButtonRef._cleanupObservers();
+        if (_buttonWatcherCleanup) {
+          _buttonWatcherCleanup();
+          _buttonWatcherCleanup = null;
         }
+        cleanupDownloadsButtonProxy();
       }
 
       return {

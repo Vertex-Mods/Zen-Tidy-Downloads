@@ -235,7 +235,9 @@
     sessionApi.updatePodKeysInSession();
   }
 
-  // Find the Firefox downloads button — shared resolver in zenTidyDownloadsUtils (zen-library-button first, same selector order).
+  // Find the Firefox/Zen Library downloads button. The Library widget can be
+  // created or recreated after this script starts, so a watcher below keeps
+  // hover listeners pointed at the current preferred target.
   async function findDownloadButton() {
     try {
       console.log(`[Zen Stuff] Auto-detecting download button (trying zen-library-button first)...`);
@@ -522,9 +524,34 @@
     debugLog("DOM pile hover listeners attached");
   }
 
+  function handleDownloadButtonTargetChange(found) {
+    const previous = state.downloadButton;
+    state.downloadButton = found?.button || null;
+
+    if (found?.kind === "zen-library") {
+      debugLog("Using zen-library-button for hover detection", found.button);
+    } else if (found?.kind === "selector") {
+      debugLog(`Using downloads button selector for hover detection: ${found.detail}`, found.button);
+    } else if (found?.kind === "fallback") {
+      debugLog("Using fallback download element for hover detection", found.button);
+    } else {
+      debugLog("No download hover target is currently available");
+    }
+
+    if (previous !== state.downloadButton || state.pileHoverDownloadButtonEl !== state.downloadButton) {
+      setupDomPileHoverListeners();
+    }
+  }
+
+  function watchDownloadButtonTarget() {
+    if (state.downloadButtonWatcherCleanup || !Utils.watchZenDownloadButton) return;
+    state.downloadButtonWatcherCleanup = Utils.watchZenDownloadButton(handleDownloadButtonTargetChange);
+  }
+
   function setupEventListeners() {
     setupGlobalPileListeners();
     setupDomPileHoverListeners();
+    watchDownloadButtonTarget();
     debugLog("Event listeners setup complete");
   }
 
@@ -673,6 +700,19 @@
           /* ignore */
         }
         state.mediaToolbarResizeObserver = null;
+      }
+      if (state.downloadButtonWatcherCleanup) {
+        try {
+          state.downloadButtonWatcherCleanup();
+        } catch (_e) {
+          /* ignore */
+        }
+        state.downloadButtonWatcherCleanup = null;
+      }
+      if (state.pileHoverDownloadButtonEl) {
+        state.pileHoverDownloadButtonEl.removeEventListener("mouseenter", handleDownloadButtonHover);
+        state.pileHoverDownloadButtonEl.removeEventListener("mouseleave", handleDownloadButtonLeave);
+        state.pileHoverDownloadButtonEl = null;
       }
 
       // Remove all event listeners
