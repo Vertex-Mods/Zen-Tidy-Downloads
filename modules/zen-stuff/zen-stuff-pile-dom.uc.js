@@ -76,10 +76,10 @@
         state.hoverBridge.id = "zen-dismissed-pile-hover-bridge";
         state.hoverBridge.style.cssText = `
           position: absolute;
-          bottom: 20px;
+          bottom: 28px;
           left: 0;
           right: 0;
-          height: 28px;
+          height: 16px;
           z-index: 3;
           pointer-events: auto;
           display: none;
