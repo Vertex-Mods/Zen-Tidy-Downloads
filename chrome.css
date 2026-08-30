@@ -492,6 +492,9 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   padding: 0;
   box-sizing: border-box;
   border-radius: 50%;
+  /* Beat Zen's *:not(.no-squircles) superellipse so these stay true circles */
+  --zen-squircle-value: 1;
+  corner-shape: round !important;
   flex-shrink: 0;
   pointer-events: none;
   display: none;
@@ -541,6 +544,9 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   flex: 1 1 auto;
   box-sizing: border-box;
   border-radius: 50%;
+  /* Beat Zen's *:not(.no-squircles) superellipse so these stay true circles */
+  --zen-squircle-value: 1;
+  corner-shape: round !important;
   background-color: #fff;
   flex-shrink: 0;
   overflow: hidden;
