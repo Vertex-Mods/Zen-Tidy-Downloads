@@ -72,7 +72,7 @@
       will-change: transform, opacity;
       left: 0;
       right: 0;
-      border-radius: 6px;
+      border-radius: calc(6px * var(--zen-squircle-value));
     `;
 
         row.addEventListener("mouseenter", () => {
