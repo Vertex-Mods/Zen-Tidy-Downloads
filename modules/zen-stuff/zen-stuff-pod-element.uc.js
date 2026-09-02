@@ -76,7 +76,8 @@
     `;
 
         row.addEventListener("mouseenter", () => {
-          row.style.backgroundColor = "var(--toolbarbutton-hover-background)";
+          row.style.backgroundColor =
+            "var(--toolbarbutton-background-color-hover, var(--toolbarbutton-hover-background))";
         });
 
         row.addEventListener("mouseleave", () => {
