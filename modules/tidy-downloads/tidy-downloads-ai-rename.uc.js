@@ -5,7 +5,7 @@
 // ==/UserScript==
 
 // tidy-downloads-ai-rename.uc.js
-// AI-powered download renaming module (Mistral API, queue, process)
+// AI-powered download renaming module (chat completions API, queue, process)
 (function () {
   "use strict";
 
@@ -35,7 +35,11 @@
         sanitizeFilename,
         formatBytes,
         getContentTypeFromFilename,
+        AI_PROVIDER_PREF,
         MISTRAL_API_KEY_PREF,
+        OPENAI_COMPAT_API_KEY_PREF,
+        OPENAI_COMPAT_BASE_URL_PREF,
+        OPENAI_COMPAT_MODEL_PREF,
         IMAGE_EXTENSIONS,
         PATH_SEPARATOR,
         previewApi,
@@ -97,9 +101,9 @@
       let currentlyProcessingKey = null;
 
       /**
-       * Map Zen Mod dropdown values (`medium` / `large`, no punctuation per theme prefs rules)
-       * or pass through legacy full model ids saved in `about:config`.
-       * @returns {string} Value for Mistral Chat Completions `model` field
+       * Map old Zen Mod dropdown values (`medium` / `large`, no punctuation per theme prefs rules)
+       * or pass through full model ids saved in `about:config`.
+       * @returns {string} Value for the Chat Completions `model` field
        */
       function resolveMistralChatModelId() {
         const raw = String(getPref("extensions.downloads.mistral_model", "medium")).trim();
@@ -108,20 +112,76 @@
         return raw || "mistral-medium-latest";
       }
 
+      function resolveOpenAICompatModelId() {
+        return String(getPref(OPENAI_COMPAT_MODEL_PREF, "openai/gpt-4.1-mini")).trim() || "openai/gpt-4.1-mini";
+      }
+
+      function normalizeOpenAICompatBaseUrl(rawUrl) {
+        const fallback = "https://openrouter.ai/api/v1/chat/completions";
+        const raw = String(rawUrl || fallback).trim();
+        if (!raw) return fallback;
+        return raw.replace(/\/+$/, "").replace(/\/chat\/completions$/, "") + "/chat/completions";
+      }
+
+      function getAIProviderConfig() {
+        const provider = String(getPref(AI_PROVIDER_PREF, "mistral")).trim() || "mistral";
+        if (provider === "openai_compat") {
+          return {
+            label: "OpenAI-compatible endpoint",
+            apiKey: getPref(OPENAI_COMPAT_API_KEY_PREF, ""),
+            url: normalizeOpenAICompatBaseUrl(getPref(OPENAI_COMPAT_BASE_URL_PREF, "https://openrouter.ai/api/v1")),
+            model: resolveOpenAICompatModelId()
+          };
+        }
+        return {
+          label: "Mistral AI",
+          apiKey: getPref(MISTRAL_API_KEY_PREF, ""),
+          url: "https://api.mistral.ai/v1/chat/completions",
+          model: resolveMistralChatModelId()
+        };
+      }
+
+      function getProviderErrorMessage(status, bodyText) {
+        let parsed = null;
+        try {
+          parsed = JSON.parse(bodyText);
+        } catch (_e) {}
+
+        const metadata = parsed?.error?.metadata || {};
+        const rawMessage = String(metadata.raw || parsed?.error?.message || "").trim();
+        const providerName = String(metadata.provider_name || "").trim();
+        const remedyHint = String(metadata.remedy_hint || "").trim();
+
+        if (status === 429) {
+          if (providerName) {
+            return `${providerName} is rate limited right now. Try another model or add a provider key in OpenRouter.`;
+          }
+          return "The selected AI route is rate limited right now. Try another model or retry shortly.";
+        }
+
+        if (rawMessage) {
+          return rawMessage.length > 220 ? `${rawMessage.slice(0, 217)}...` : rawMessage;
+        }
+        if (remedyHint) {
+          return remedyHint.length > 220 ? `${remedyHint.slice(0, 217)}...` : remedyHint;
+        }
+        return `AI request failed with HTTP ${status}.`;
+      }
+
       /**
-       * Call Mistral AI API with rate limiting and security measures
+       * Call configured chat completions API with rate limiting and security measures
        * @param {Object} params - API call parameters
        * @param {string} params.systemPrompt - System prompt for the AI
        * @param {string} params.userPrompt - User prompt for the AI
        * @param {AbortSignal} params.abortSignal - Signal to abort the request
        * @returns {Promise<string|null>} AI-generated filename or null
        */
-      async function callMistralAI({ systemPrompt, userPrompt, abortSignal }) {
+      async function callConfiguredAI({ systemPrompt, userPrompt, abortSignal }) {
         if (abortSignal?.aborted) return null;
 
         const rateLimitCheck = RateLimiter.canMakeRequest();
         if (!rateLimitCheck.allowed) {
-          debugLog(`Mistral AI rate limit exceeded: ${rateLimitCheck.reason}`, {
+          debugLog(`AI rate limit exceeded: ${rateLimitCheck.reason}`, {
             waitTime: rateLimitCheck.waitTime,
             stats: RateLimiter.getStats()
           });
@@ -129,29 +189,34 @@
           return null;
         }
 
-        const apiKey = getPref(MISTRAL_API_KEY_PREF, "");
+        const provider = getAIProviderConfig();
+        const apiKey = provider.apiKey;
         if (!apiKey) {
-          console.warn("Mistral API key not found in preferences");
+          console.warn(`${provider.label} API key not found in preferences`);
           return null;
         }
 
         if (apiKey.length < 10) {
-          console.warn("Mistral API key appears to be invalid (too short)");
+          console.warn(`${provider.label} API key appears to be invalid (too short)`);
           return null;
         }
 
         try {
           RateLimiter.recordRequest();
-          debugLog("Sending request to Mistral AI", { rateLimitStats: RateLimiter.getStats() });
+          debugLog(`Sending request to ${provider.label}`, {
+            endpoint: provider.url,
+            model: provider.model,
+            rateLimitStats: RateLimiter.getStats()
+          });
 
-          const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+          const response = await fetch(provider.url, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-              model: resolveMistralChatModelId(),
+              model: provider.model,
               messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt }
@@ -165,7 +230,12 @@
           if (!response.ok) {
             const errorText = await response.text();
             const safeErrorText = redactSensitiveData(errorText);
-            throw new Error(`HTTP error! status: ${response.status} - ${safeErrorText}`);
+            const displayMessage = getProviderErrorMessage(response.status, errorText);
+            if (response.status === 429) {
+              showSimpleToast(displayMessage);
+            }
+            debugLog("AI provider error details:", safeErrorText);
+            throw new Error(`HTTP ${response.status}: ${displayMessage}`);
           }
 
           const data = await response.json();
@@ -178,16 +248,16 @@
             ];
             const lowerName = name.toLowerCase();
             if (chattyPrefixes.some(prefix => lowerName.startsWith(prefix))) {
-              debugLog("Mistral AI returned conversational text or unknown, rejecting:", name);
+              debugLog("AI returned conversational text or unknown, rejecting:", name);
               return null;
             }
           }
 
-          debugLog("Mistral AI response:", name);
+          debugLog("AI response:", name);
           return name || null;
         } catch (error) {
           const safeError = error.message ? redactSensitiveData(error.message) : 'Unknown error';
-          console.error("Mistral AI error:", safeError);
+          console.error("AI rename error:", safeError);
           return null;
         }
       }
@@ -587,7 +657,7 @@ Instructions:
 2. ONLY if the "Original filename" is meaningless gibberish (e.g., "wp13801370.jpg", "OIP.jpg", "image.png"), rename it based on the "Source tab title" or "Page Header".
 3. Return ONLY the new filename.`;
 
-          const suggestedName = await callMistralAI({
+          const suggestedName = await callConfiguredAI({
             systemPrompt,
             userPrompt: userContent,
             abortSignal: abortController.signal

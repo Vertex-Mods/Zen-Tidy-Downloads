@@ -5,7 +5,7 @@
 // ==/UserScript==
 
 // tidy-downloads.uc.js
-// AI-powered download preview and renaming with Mistral vision API support
+// AI-powered download preview and renaming with chat completions API support
 (function () {
   "use strict";
 
@@ -132,7 +132,11 @@
       RateLimiter,
       debugLog,
       redactSensitiveData,
+      AI_PROVIDER_PREF,
       MISTRAL_API_KEY_PREF,
+      OPENAI_COMPAT_API_KEY_PREF,
+      OPENAI_COMPAT_BASE_URL_PREF,
+      OPENAI_COMPAT_MODEL_PREF,
       DISABLE_AUTOHIDE_PREF,
       IMAGE_LOAD_ERROR_ICON,
       TEMP_LOADER_ICON,
@@ -164,7 +168,11 @@
     
     // --- Configuration via Firefox Preferences ---
     // Available preferences (set in about:config):
-    // extensions.downloads.mistral_api_key - Your Mistral API key (required for AI renaming)
+    // extensions.downloads.ai_provider - AI provider: "mistral" | "openai_compat"
+    // extensions.downloads.mistral_api_key - Your Mistral API key (required when provider is Mistral)
+    // extensions.downloads.openai_compat_api_key - API key for OpenAI-compatible endpoints
+    // extensions.downloads.openai_compat_base_url - OpenAI-compatible base URL, e.g. https://openrouter.ai/api/v1
+    // extensions.downloads.openai_compat_model - Model ID for OpenAI-compatible endpoints
     // extensions.downloads.enable_debug - Enable debug logging (default: false)
     // extensions.downloads.debug_ai_only - Only log AI-related messages (default: true)
     // extensions.downloads.enable_ai_renaming - Enable AI-powered file renaming (default: true)
@@ -173,8 +181,7 @@
     // extensions.downloads.interaction_grace_period_ms - Grace period after user interaction (default: 5000)
     // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
     // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
-    // extensions.downloads.mistral_api_url - Mistral API endpoint (default: "https://api.mistral.ai/v1/chat/completions")
-    // extensions.downloads.mistral_model - Mistral tier: "medium" | "large" (dropdown); legacy raw model ids still work
+    // extensions.downloads.mistral_model - Chat completions model id; legacy "medium" | "large" values still work
     // extensions.downloads.stable_focus_mode - Prevent focus switching during multiple downloads (default: true)
     const DownloadsAdapter = window.zenTidyDownloadsDownloadsAdapter;
     const store = window.zenTidyDownloadsStore.createStore({ getPref });
@@ -367,6 +374,10 @@
       formatBytes,
       getContentTypeFromFilename,
       MISTRAL_API_KEY_PREF,
+      AI_PROVIDER_PREF,
+      OPENAI_COMPAT_API_KEY_PREF,
+      OPENAI_COMPAT_BASE_URL_PREF,
+      OPENAI_COMPAT_MODEL_PREF,
       IMAGE_EXTENSIONS,
       previewApi,
       showRenameToast,
@@ -464,7 +475,7 @@
       console.log("=== DOWNLOAD PREVIEW SCRIPT STARTING ===");
       debugLog("Starting initialization");
       if (!DownloadsAdapter.isAvailable()) {
-        console.error("Download Preview Mistral AI: Downloads API not available");
+        console.error("Zen Tidy Downloads: Downloads API not available");
         aiRenamingPossible = false;
         return;
       }
@@ -474,7 +485,7 @@
             if (list) {
               debugLog("Downloads API verified");
               aiRenamingPossible = true; // Local AI is assumed to be available
-              debugLog("AI renaming enabled - using Local AI");
+              debugLog("AI renaming enabled");
               await initDownloadManager();
               initSidebarWidthSyncFn();
               debugLog("Initialization complete");
@@ -485,7 +496,7 @@
             aiRenamingPossible = false;
           });
       } catch (e) {
-        console.error("Download Preview Mistral AI: Init failed", e);
+        console.error("Zen Tidy Downloads: Init failed", e);
         aiRenamingPossible = false;
       }
     }
@@ -634,7 +645,7 @@
         });
         downloadsListenerController.start();
       } catch (e) {
-        console.error("DL Preview Mistral AI: Init error", e);
+        console.error("Zen Tidy Downloads: Init error", e);
       }
     }
 

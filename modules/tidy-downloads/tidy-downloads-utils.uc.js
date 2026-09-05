@@ -16,7 +16,11 @@
   // ============================================================================
   // CONSTANTS
   // ============================================================================
+  const AI_PROVIDER_PREF = "extensions.downloads.ai_provider";
   const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
+  const OPENAI_COMPAT_API_KEY_PREF = "extensions.downloads.openai_compat_api_key";
+  const OPENAI_COMPAT_BASE_URL_PREF = "extensions.downloads.openai_compat_base_url";
+  const OPENAI_COMPAT_MODEL_PREF = "extensions.downloads.openai_compat_model";
   const DISABLE_AUTOHIDE_PREF = "extensions.downloads.disable_autohide";
   const IMAGE_LOAD_ERROR_ICON = "🚫";
   const TEMP_LOADER_ICON = "⏳";
@@ -287,7 +291,7 @@
   // ============================================================================
   // LOGGING
   // ============================================================================
-  const SENSITIVE_KEY_PATTERN = /(api|key|authorization|token|secret|password|credential)/i;
+  const SENSITIVE_KEY_PATTERN = /(api|key|authorization|token|secret|password|credential|user[_-]?id)/i;
 
   const _debugFlags = { enabled: false, aiOnly: true };
   try {
@@ -314,7 +318,8 @@
       return data
         .replace(/Bearer\s+[A-Za-z0-9_-]+/gi, "Bearer [REDACTED]")
         .replace(/Authorization:\s*Bearer\s+[A-Za-z0-9_-]+/gi, "Authorization: Bearer [REDACTED]")
-        .replace(/(api[_-]?key|apikey|secret[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*[A-Za-z0-9_-]+/gi, "$1=[REDACTED]");
+        .replace(/(api[_-]?key|apikey|secret[_-]?key|access[_-]?token|auth[_-]?token|user[_-]?id)\s*[:=]\s*[A-Za-z0-9_-]+/gi, "$1=[REDACTED]")
+        .replace(/"user[_-]?id"\s*:\s*"[^"]+"/gi, '"user_id":"[REDACTED]"');
     }
     if (typeof data !== "object" || data === null) return data;
     if (Array.isArray(data)) return data.map(item => redactSensitiveData(item));
@@ -649,7 +654,11 @@
   // ============================================================================
   window.zenTidyDownloadsUtils = {
     // Constants
+    AI_PROVIDER_PREF,
     MISTRAL_API_KEY_PREF,
+    OPENAI_COMPAT_API_KEY_PREF,
+    OPENAI_COMPAT_BASE_URL_PREF,
+    OPENAI_COMPAT_MODEL_PREF,
     DISABLE_AUTOHIDE_PREF,
     IMAGE_LOAD_ERROR_ICON,
     TEMP_LOADER_ICON,

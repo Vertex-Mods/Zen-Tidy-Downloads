@@ -772,7 +772,7 @@
 
         // While AI rename is in-flight, deferred-sticky would otherwise schedule absorb
         // immediately or on the autohide timer against the pile-block key — the card gets
-        // removed before Mistral finishes, breaking post-rename tooltip/pod handoff (NO_CARD_DATA).
+        // removed before AI finishes, breaking post-rename tooltip/pod handoff (NO_CARD_DATA).
         const aiBlocksDeferredAbsorb =
           store.pileHoverExpandBlockedUntilAIDoneKeys instanceof Set &&
           store.pileHoverExpandBlockedUntilAIDoneKeys.has(downloadKey);

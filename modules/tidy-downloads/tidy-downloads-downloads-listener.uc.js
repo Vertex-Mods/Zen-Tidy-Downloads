@@ -87,7 +87,7 @@
               }
             });
           })
-          .catch((e) => console.error("DL Preview Mistral AI: List error:", e));
+          .catch((e) => console.error("Zen Tidy Downloads: List error:", e));
       }
 
       /**

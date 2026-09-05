@@ -1,28 +1,94 @@
 [
   {
+    "type": "separator",
+    "label": "AI Renaming"
+  },
+  {
+    "property": "extensions.downloads.ai_provider",
+    "label": "AI service",
+    "type": "dropdown",
+    "defaultValue": "mistral",
+    "options": [
+      {
+        "label": "Mistral AI",
+        "value": "mistral"
+      },
+      {
+        "label": "OpenAI-compatible endpoint",
+        "value": "openai_compat"
+      }
+    ]
+  },
+  {
     "property": "extensions.downloads.mistral_api_key",
-    "label": "Mistral API key for AI-powered download renaming",
+    "label": "Mistral API key",
     "type": "string",
-    "placeholder": "Enter your Mistral API key here"
+    "placeholder": "Enter your Mistral API key",
+    "conditions": [
+      {
+        "if": {
+          "property": "extensions.downloads.ai_provider",
+          "value": "mistral"
+        }
+      }
+    ]
   },
   {
     "property": "extensions.downloads.mistral_model",
     "label": "Mistral model",
-    "type": "dropdown",
-    "placeholder": "Select model",
+    "type": "string",
+    "placeholder": "mistral-small-latest",
     "defaultValue": "mistral-small-latest",
-    "options": [
+    "conditions": [
       {
-        "label": "Mistral Small",
-        "value": "mistral-small-latest"
-      },
+        "if": {
+          "property": "extensions.downloads.ai_provider",
+          "value": "mistral"
+        }
+      }
+    ]
+  },
+  {
+    "property": "extensions.downloads.openai_compat_api_key",
+    "label": "Endpoint API key",
+    "type": "string",
+    "placeholder": "Paste your OpenRouter or compatible API key",
+    "conditions": [
       {
-        "label": "Mistral Medium",
-        "value": "mistral-medium-latest"
-      },
+        "if": {
+          "property": "extensions.downloads.ai_provider",
+          "value": "openai_compat"
+        }
+      }
+    ]
+  },
+  {
+    "property": "extensions.downloads.openai_compat_base_url",
+    "label": "Endpoint base URL",
+    "type": "string",
+    "placeholder": "https://openrouter.ai/api/v1",
+    "defaultValue": "https://openrouter.ai/api/v1",
+    "conditions": [
       {
-        "label": "Mistral Large",
-        "value": "mistral-large-latest"
+        "if": {
+          "property": "extensions.downloads.ai_provider",
+          "value": "openai_compat"
+        }
+      }
+    ]
+  },
+  {
+    "property": "extensions.downloads.openai_compat_model",
+    "label": "Endpoint model ID",
+    "type": "string",
+    "placeholder": "openai/gpt-4.1-mini",
+    "defaultValue": "openai/gpt-4.1-mini",
+    "conditions": [
+      {
+        "if": {
+          "property": "extensions.downloads.ai_provider",
+          "value": "openai_compat"
+        }
       }
     ]
   },
