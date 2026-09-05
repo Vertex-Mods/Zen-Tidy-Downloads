@@ -130,11 +130,7 @@
       "loadOrder": 30
     },
     "modules/tidy-downloads/tidy-downloads-ai-models.uc.js": {
-      "include": [
-        "chrome://browser/content/browser.xhtml",
-        "about:preferences*",
-        "chrome://browser/content/preferences/preferences.xhtml"
-      ],
+      "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 31
     }
   },

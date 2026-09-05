@@ -9,10 +9,9 @@
 (function () {
   "use strict";
 
-  const href = location.href || "";
-  const isBrowserChrome = href === "chrome://browser/content/browser.xhtml";
-  const isPrefsPage = href.startsWith("about:preferences") || /preferences\.xhtml/i.test(href);
-  if (!isBrowserChrome && !isPrefsPage) return;
+  // Settings pages ship a `default-src chrome:` CSP that blocks provider requests, so the
+  // fetching has to happen from the browser window and reach into the settings document.
+  if (location.href !== "chrome://browser/content/browser.xhtml") return;
   if (window.__zenTidyDownloadsAiModelsSetup) return;
   window.__zenTidyDownloadsAiModelsSetup = true;
 
@@ -41,6 +40,7 @@
   const OPENAI_COMPAT_MODEL_PREF = Utils?.OPENAI_COMPAT_MODEL_PREF || "extensions.downloads.openai_compat_model";
 
   const CACHE_TTL_MS = 5 * 60 * 1000;
+  const FAILURE_CACHE_TTL_MS = 60 * 1000;
   const FETCH_TIMEOUT_MS = 8000;
   const MAX_PAGES = 10;
   const ANTHROPIC_VERSION = "2023-06-01";
@@ -69,8 +69,18 @@
   const providerModelCache = new Map();
   const watchedPreferencesDocuments = new WeakSet();
 
+  const seenWarnings = new Set();
+
   function logWarn(...args) {
     console.warn("[Tidy Downloads][AI Models]", ...args);
+  }
+
+  // Model lists are refreshed whenever the settings DOM changes, so an unreachable provider
+  // would otherwise repeat the same warning indefinitely.
+  function logWarnOnce(key, ...args) {
+    if (seenWarnings.has(key)) return;
+    seenWarnings.add(key);
+    logWarn(...args);
   }
 
   function getPref(name, defaultValue) {
@@ -276,21 +286,35 @@
     return normalizeModelRows(rows);
   }
 
+  function isProviderConfigured(providerKey) {
+    // Ollama needs no key, so only probe localhost when it is the provider actually in use.
+    if (providerKey === "ollama") {
+      return String(getPref(AI_PROVIDER_PREF, "mistral")).trim() === "ollama";
+    }
+    return !!getProviderAuth(providerKey).apiKey;
+  }
+
   async function getProviderModels(providerKey) {
+    if (!isProviderConfigured(providerKey)) return [];
+
     const cached = providerModelCache.get(providerKey);
-    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    if (cached) {
+      const ttl = cached.models.length ? CACHE_TTL_MS : FAILURE_CACHE_TTL_MS;
+      if (Date.now() - cached.fetchedAt < ttl) return cached.models;
+    }
+
+    let models = [];
+    try {
+      models = await fetchProviderModels(providerKey);
+      if (models.length) seenWarnings.delete(`list:${providerKey}`);
+    } catch (e) {
+      logWarnOnce(`list:${providerKey}`, `Could not list ${providerKey} models:`, e.message);
+    }
+    if (!models.length && cached?.models.length) {
       return cached.models;
     }
-    try {
-      const models = await fetchProviderModels(providerKey);
-      if (models.length) {
-        providerModelCache.set(providerKey, { models, fetchedAt: Date.now() });
-        return models;
-      }
-    } catch (e) {
-      logWarn(`Could not list ${providerKey} models:`, e.message);
-    }
-    return cached?.models || [];
+    providerModelCache.set(providerKey, { models, fetchedAt: Date.now() });
+    return models;
   }
 
   function createXulMenuItem(doc, value, label) {
@@ -375,7 +399,7 @@
 
     const popup = getMenuPopup(menulist);
     if (!popup) {
-      logWarn(`Found ${providerKey} model control but no menupopup to fill`);
+      logWarnOnce(`popup:${providerKey}`, `Found ${providerKey} model control but no menupopup to fill`);
       return false;
     }
 
@@ -530,7 +554,7 @@
       fillTimer = setTimeout(() => {
         fillTimer = null;
         fillModelDropdownsInDocument(doc).catch((e) => {
-          logWarn("Failed to fill model dropdowns:", e.message);
+          logWarnOnce("fill", "Failed to fill model dropdowns:", e.message);
         });
       }, 150);
     };
@@ -568,11 +592,14 @@
 
   async function refreshAndPopulateAllModelDropdowns(invalidateKeys = null) {
     const keys = invalidateKeys || Object.keys(PROVIDER_MODEL_PREFS);
-    for (const key of keys) providerModelCache.delete(key);
+    for (const key of keys) {
+      providerModelCache.delete(key);
+      seenWarnings.delete(`list:${key}`);
+    }
     scanOpenPreferencesDocuments();
     const docs = collectAllPreferencesDocuments();
     if (!docs.length) {
-      logWarn("No settings document found to fill model dropdowns");
+      logWarnOnce("no-settings-doc", "No settings document found to fill model dropdowns");
     }
     await Promise.all(docs.map((doc) => fillModelDropdownsInDocument(doc)));
   }
@@ -701,13 +728,10 @@
       logWarn("Could not observe chrome document creation:", e.message);
     }
 
-    if (isPrefsPage) {
-      watchPreferencesDocument(document);
-    }
     scanOpenPreferencesDocuments();
     Object.keys(PROVIDER_MODEL_PREFS).forEach((key) => {
       getProviderModels(key).catch((e) => {
-        logWarn(`Could not prefetch ${key} models:`, e.message);
+        logWarnOnce(`prefetch:${key}`, `Could not prefetch ${key} models:`, e.message);
       });
     });
   }
