@@ -37,6 +37,17 @@
         getContentTypeFromFilename,
         AI_PROVIDER_PREF,
         MISTRAL_API_KEY_PREF,
+        MISTRAL_MODEL_PREF,
+        OPENAI_API_KEY_PREF,
+        OPENAI_MODEL_PREF,
+        ANTHROPIC_API_KEY_PREF,
+        ANTHROPIC_MODEL_PREF,
+        GOOGLE_API_KEY_PREF,
+        GOOGLE_MODEL_PREF,
+        OLLAMA_BASE_URL_PREF,
+        OLLAMA_MODEL_PREF,
+        OPENROUTER_API_KEY_PREF,
+        OPENROUTER_MODEL_PREF,
         OPENAI_COMPAT_API_KEY_PREF,
         OPENAI_COMPAT_BASE_URL_PREF,
         OPENAI_COMPAT_MODEL_PREF,
@@ -106,14 +117,14 @@
        * @returns {string} Value for the Chat Completions `model` field
        */
       function resolveMistralChatModelId() {
-        const raw = String(getPref("extensions.downloads.mistral_model", "medium")).trim();
+        const raw = String(getPref(MISTRAL_MODEL_PREF, "medium")).trim();
         if (raw === "medium") return "mistral-medium-latest";
         if (raw === "large") return "mistral-large-latest";
-        return raw || "mistral-medium-latest";
+        return raw || "mistral-small-latest";
       }
 
-      function resolveOpenAICompatModelId() {
-        return String(getPref(OPENAI_COMPAT_MODEL_PREF, "openai/gpt-4.1-mini")).trim() || "openai/gpt-4.1-mini";
+      function resolvePrefModel(prefName, fallback) {
+        return String(getPref(prefName, fallback)).trim() || fallback;
       }
 
       function normalizeOpenAICompatBaseUrl(rawUrl) {
@@ -123,17 +134,85 @@
         return raw.replace(/\/+$/, "").replace(/\/chat\/completions$/, "") + "/chat/completions";
       }
 
+      function normalizeOllamaBaseHost(rawUrl) {
+        const fallback = "http://localhost:11434";
+        const raw = String(rawUrl || fallback).trim() || fallback;
+        return raw
+          .replace(/\/+$/, "")
+          .replace(/\/v1\/chat\/completions$/i, "")
+          .replace(/\/api\/chat$/i, "")
+          .replace(/\/v1$/i, "")
+          .replace(/\/api$/i, "");
+      }
+
       function getAIProviderConfig() {
         const provider = String(getPref(AI_PROVIDER_PREF, "mistral")).trim() || "mistral";
+        if (provider === "openai") {
+          return {
+            id: "openai",
+            kind: "openai",
+            label: "OpenAI",
+            apiKey: getPref(OPENAI_API_KEY_PREF, ""),
+            url: "https://api.openai.com/v1/chat/completions",
+            model: resolvePrefModel(OPENAI_MODEL_PREF, "gpt-4.1-mini")
+          };
+        }
+        if (provider === "anthropic") {
+          return {
+            id: "anthropic",
+            kind: "anthropic",
+            label: "Anthropic",
+            apiKey: getPref(ANTHROPIC_API_KEY_PREF, ""),
+            url: "https://api.anthropic.com/v1/messages",
+            model: resolvePrefModel(ANTHROPIC_MODEL_PREF, "claude-sonnet-4-0")
+          };
+        }
+        if (provider === "google") {
+          const apiKey = String(getPref(GOOGLE_API_KEY_PREF, "") || "").trim();
+          const chatUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+          return {
+            id: "google",
+            kind: "openai",
+            label: "Google Gemini",
+            apiKey,
+            url: apiKey ? `${chatUrl}?key=${encodeURIComponent(apiKey)}` : chatUrl,
+            model: resolvePrefModel(GOOGLE_MODEL_PREF, "gemini-2.5-flash")
+          };
+        }
+        if (provider === "ollama") {
+          const host = normalizeOllamaBaseHost(getPref(OLLAMA_BASE_URL_PREF, "http://localhost:11434"));
+          return {
+            id: "ollama",
+            kind: "ollama",
+            label: "Ollama",
+            apiKey: "",
+            url: `${host}/v1/chat/completions`,
+            model: resolvePrefModel(OLLAMA_MODEL_PREF, "llama3.2")
+          };
+        }
+        if (provider === "openrouter") {
+          return {
+            id: "openrouter",
+            kind: "openai",
+            label: "OpenRouter",
+            apiKey: getPref(OPENROUTER_API_KEY_PREF, ""),
+            url: "https://openrouter.ai/api/v1/chat/completions",
+            model: resolvePrefModel(OPENROUTER_MODEL_PREF, "openai/gpt-4.1-mini")
+          };
+        }
         if (provider === "openai_compat") {
           return {
+            id: "openai_compat",
+            kind: "openai",
             label: "OpenAI-compatible endpoint",
             apiKey: getPref(OPENAI_COMPAT_API_KEY_PREF, ""),
             url: normalizeOpenAICompatBaseUrl(getPref(OPENAI_COMPAT_BASE_URL_PREF, "https://openrouter.ai/api/v1")),
-            model: resolveOpenAICompatModelId()
+            model: resolvePrefModel(OPENAI_COMPAT_MODEL_PREF, "openai/gpt-4.1-mini")
           };
         }
         return {
+          id: "mistral",
+          kind: "openai",
           label: "Mistral AI",
           apiKey: getPref(MISTRAL_API_KEY_PREF, ""),
           url: "https://api.mistral.ai/v1/chat/completions",
@@ -190,15 +269,16 @@
         }
 
         const provider = getAIProviderConfig();
-        const apiKey = provider.apiKey;
-        if (!apiKey) {
-          console.warn(`${provider.label} API key not found in preferences`);
-          return null;
-        }
-
-        if (apiKey.length < 10) {
-          console.warn(`${provider.label} API key appears to be invalid (too short)`);
-          return null;
+        const apiKey = String(provider.apiKey || "").trim();
+        if (provider.kind !== "ollama") {
+          if (!apiKey) {
+            console.warn(`${provider.label} API key not found in preferences`);
+            return null;
+          }
+          if (apiKey.length < 10) {
+            console.warn(`${provider.label} API key appears to be invalid (too short)`);
+            return null;
+          }
         }
 
         try {
@@ -209,13 +289,27 @@
             rateLimitStats: RateLimiter.getStats()
           });
 
-          const response = await fetch(provider.url, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
+          const headers = { "Content-Type": "application/json" };
+          let body;
+          if (provider.kind === "anthropic") {
+            headers["x-api-key"] = apiKey;
+            headers["anthropic-version"] = "2023-06-01";
+            body = {
+              model: provider.model,
+              max_tokens: 50,
+              temperature: 0.1,
+              system: systemPrompt,
+              messages: [{ role: "user", content: userPrompt }]
+            };
+          } else {
+            if (apiKey) {
+              headers.Authorization = `Bearer ${apiKey}`;
+            }
+            if (provider.id === "openrouter") {
+              headers["HTTP-Referer"] = "https://github.com/Vertex-Mods/Zen-Tidy-Downloads";
+              headers["X-Title"] = "Tidy Downloads";
+            }
+            body = {
               model: provider.model,
               messages: [
                 { role: "system", content: systemPrompt },
@@ -223,7 +317,13 @@
               ],
               temperature: 0.1,
               max_tokens: 50
-            }),
+            };
+          }
+
+          const response = await fetch(provider.url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
             signal: abortSignal
           });
 
@@ -239,7 +339,10 @@
           }
 
           const data = await response.json();
-          let name = data.choices[0]?.message?.content?.trim();
+          let name =
+            provider.kind === "anthropic"
+              ? data.content?.[0]?.text?.trim()
+              : data.choices?.[0]?.message?.content?.trim();
 
           if (name) {
             name = name.replace(/^["']|["']$/g, '');

@@ -134,6 +134,17 @@
       redactSensitiveData,
       AI_PROVIDER_PREF,
       MISTRAL_API_KEY_PREF,
+      MISTRAL_MODEL_PREF,
+      OPENAI_API_KEY_PREF,
+      OPENAI_MODEL_PREF,
+      ANTHROPIC_API_KEY_PREF,
+      ANTHROPIC_MODEL_PREF,
+      GOOGLE_API_KEY_PREF,
+      GOOGLE_MODEL_PREF,
+      OLLAMA_BASE_URL_PREF,
+      OLLAMA_MODEL_PREF,
+      OPENROUTER_API_KEY_PREF,
+      OPENROUTER_MODEL_PREF,
       OPENAI_COMPAT_API_KEY_PREF,
       OPENAI_COMPAT_BASE_URL_PREF,
       OPENAI_COMPAT_MODEL_PREF,
@@ -168,11 +179,14 @@
     
     // --- Configuration via Firefox Preferences ---
     // Available preferences (set in about:config):
-    // extensions.downloads.ai_provider - AI provider: "mistral" | "openai_compat"
-    // extensions.downloads.mistral_api_key - Your Mistral API key (required when provider is Mistral)
-    // extensions.downloads.openai_compat_api_key - API key for OpenAI-compatible endpoints
-    // extensions.downloads.openai_compat_base_url - OpenAI-compatible base URL, e.g. https://openrouter.ai/api/v1
-    // extensions.downloads.openai_compat_model - Model ID for OpenAI-compatible endpoints
+    // extensions.downloads.ai_provider - mistral | openai | anthropic | google | ollama | openrouter | openai_compat
+    // extensions.downloads.mistral_api_key / mistral_model
+    // extensions.downloads.openai_api_key / openai_model
+    // extensions.downloads.anthropic_api_key / anthropic_model
+    // extensions.downloads.google_api_key / google_model
+    // extensions.downloads.ollama_base_url / ollama_model
+    // extensions.downloads.openrouter_api_key / openrouter_model
+    // extensions.downloads.openai_compat_api_key / openai_compat_base_url / openai_compat_model
     // extensions.downloads.enable_debug - Enable debug logging (default: false)
     // extensions.downloads.debug_ai_only - Only log AI-related messages (default: true)
     // extensions.downloads.enable_ai_renaming - Enable AI-powered file renaming (default: true)
@@ -374,6 +388,17 @@
       formatBytes,
       getContentTypeFromFilename,
       MISTRAL_API_KEY_PREF,
+      MISTRAL_MODEL_PREF,
+      OPENAI_API_KEY_PREF,
+      OPENAI_MODEL_PREF,
+      ANTHROPIC_API_KEY_PREF,
+      ANTHROPIC_MODEL_PREF,
+      GOOGLE_API_KEY_PREF,
+      GOOGLE_MODEL_PREF,
+      OLLAMA_BASE_URL_PREF,
+      OLLAMA_MODEL_PREF,
+      OPENROUTER_API_KEY_PREF,
+      OPENROUTER_MODEL_PREF,
       AI_PROVIDER_PREF,
       OPENAI_COMPAT_API_KEY_PREF,
       OPENAI_COMPAT_BASE_URL_PREF,

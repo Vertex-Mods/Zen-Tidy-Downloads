@@ -128,11 +128,19 @@
     "zen-stuff.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 30
+    },
+    "modules/tidy-downloads/tidy-downloads-ai-models.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml",
+        "about:preferences*",
+        "chrome://browser/content/preferences/preferences.xhtml"
+      ],
+      "loadOrder": 31
     }
   },
   "preferences": "preferences.json",
   "author": "Vertex",
-  "version": "4.0.12",
+  "version": "4.0.13",
   "tags": ["sine", "fx-autoconfig", "Downloads", "Tidy Pack"],
   "createdAt": "2025-05-24",
   "updatedAt": "2026-05-15",

@@ -18,6 +18,17 @@
   // ============================================================================
   const AI_PROVIDER_PREF = "extensions.downloads.ai_provider";
   const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
+  const MISTRAL_MODEL_PREF = "extensions.downloads.mistral_model";
+  const OPENAI_API_KEY_PREF = "extensions.downloads.openai_api_key";
+  const OPENAI_MODEL_PREF = "extensions.downloads.openai_model";
+  const ANTHROPIC_API_KEY_PREF = "extensions.downloads.anthropic_api_key";
+  const ANTHROPIC_MODEL_PREF = "extensions.downloads.anthropic_model";
+  const GOOGLE_API_KEY_PREF = "extensions.downloads.google_api_key";
+  const GOOGLE_MODEL_PREF = "extensions.downloads.google_model";
+  const OLLAMA_BASE_URL_PREF = "extensions.downloads.ollama_base_url";
+  const OLLAMA_MODEL_PREF = "extensions.downloads.ollama_model";
+  const OPENROUTER_API_KEY_PREF = "extensions.downloads.openrouter_api_key";
+  const OPENROUTER_MODEL_PREF = "extensions.downloads.openrouter_model";
   const OPENAI_COMPAT_API_KEY_PREF = "extensions.downloads.openai_compat_api_key";
   const OPENAI_COMPAT_BASE_URL_PREF = "extensions.downloads.openai_compat_base_url";
   const OPENAI_COMPAT_MODEL_PREF = "extensions.downloads.openai_compat_model";
@@ -656,6 +667,17 @@
     // Constants
     AI_PROVIDER_PREF,
     MISTRAL_API_KEY_PREF,
+    MISTRAL_MODEL_PREF,
+    OPENAI_API_KEY_PREF,
+    OPENAI_MODEL_PREF,
+    ANTHROPIC_API_KEY_PREF,
+    ANTHROPIC_MODEL_PREF,
+    GOOGLE_API_KEY_PREF,
+    GOOGLE_MODEL_PREF,
+    OLLAMA_BASE_URL_PREF,
+    OLLAMA_MODEL_PREF,
+    OPENROUTER_API_KEY_PREF,
+    OPENROUTER_MODEL_PREF,
     OPENAI_COMPAT_API_KEY_PREF,
     OPENAI_COMPAT_BASE_URL_PREF,
     OPENAI_COMPAT_MODEL_PREF,
