@@ -178,6 +178,8 @@
                 } catch (_error) {
                   podData.previewData = null;
                 }
+              } else {
+                window.zenTidyDownloadsUtils?.forgetStaleIconPreview?.(podData);
               }
 
               // Use the same path as live dismissals so keys already loaded from

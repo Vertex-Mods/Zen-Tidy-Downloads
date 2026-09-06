@@ -214,7 +214,8 @@
           const previewContainer = podElement.querySelector(".card-preview-container");
           if (previewContainer) {
             const img = previewContainer.querySelector("img");
-            dismissedData.previewData = img?.src ? { type: "image", src: img.src } : { type: "icon" };
+            dismissedData.previewData =
+              window.zenTidyDownloadsUtils?.capturePilePreviewData?.(img) || { type: "icon" };
           }
         }
         debugLog("[Dismiss] Captured pod data for pile:", dismissedData);

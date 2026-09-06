@@ -114,19 +114,48 @@
           return filenameEndsWithExtensionFromSet(filename, SYSTEM_ICON_EXTENSIONS);
         };
 
+        const applySystemIcon = (path, filename) => {
+          const Utils = window.zenTidyDownloadsUtils;
+          const iconUrl = Utils?.fileIconUrl?.(path, 32);
+          const extUrl = Utils?.fileIconUrlByExtension?.(filename || path, 32);
+          const img = document.createElement("img");
+          img.style.cssText = `width: 100%; height: 100%; object-fit: cover;`;
+          let usedExtFallback = false;
+          img.onerror = () => {
+            if (!usedExtFallback && extUrl && img.src !== extUrl) {
+              usedExtFallback = true;
+              img.src = extUrl;
+              return;
+            }
+            renderIcon(getFileIcon(podData.contentType));
+          };
+          img.src = iconUrl || extUrl || "";
+          if (!img.src) {
+            renderIcon(getFileIcon(podData.contentType));
+            return;
+          }
+          preview.innerHTML = "";
+          preview.appendChild(img);
+        };
+
         const renderPreview = async () => {
-          if (podData.previewData && podData.previewData.type === "image" && podData.previewData.src) {
+          const thumbSrc = podData.previewData?.src;
+          const isRealImage =
+            podData.previewData?.type === "image" &&
+            (window.zenTidyDownloadsUtils?.isFileThumbnailSrc?.(thumbSrc) ??
+              (typeof thumbSrc === "string" &&
+                (thumbSrc.startsWith("file:") || thumbSrc.startsWith("data:")) &&
+                !thumbSrc.startsWith("moz-icon:")));
+
+          if (isRealImage) {
             const img = document.createElement("img");
-            img.src = podData.previewData.src;
+            img.src = thumbSrc;
             img.style.cssText = `
               width: 100%;
               height: 100%;
               object-fit: cover;
             `;
-            img.onerror = () => {
-              const icon = getFileIcon(podData.contentType);
-              renderIcon(icon);
-            };
+            img.onerror = () => applySystemIcon(podData.targetPath, podData.filename);
             preview.appendChild(img);
             return;
           }
@@ -157,44 +186,21 @@
                 return;
               }
             }
-            const fileUrl = "file:///" + podData.targetPath.replace(/\\/g, "/");
-            const iconUrl = `moz-icon://${fileUrl}?size=32`;
-            const img = document.createElement("img");
-            img.src = iconUrl;
-            img.style.cssText = `width: 100%; height: 100%; object-fit: cover;`;
-            img.onerror = () => {
-              const icon = getFileIcon(podData.contentType);
-              renderIcon(icon);
-            };
-            preview.innerHTML = "";
-            preview.appendChild(img);
+            applySystemIcon(podData.targetPath, podData.filename);
             return;
           }
 
           if (podData.targetPath && isSystemIconFile(podData.filename, podData.contentType)) {
-            const fileUrl = "file:///" + podData.targetPath.replace(/\\/g, "/");
-            const iconUrl = `moz-icon://${fileUrl}?size=32`;
-
-            const img = document.createElement("img");
-            img.src = iconUrl;
-            img.style.cssText = `
-              width: 100%;
-              height: 100%;
-              object-fit: cover;
-            `;
-
-            img.onerror = () => {
-              const icon = getFileIcon(podData.contentType);
-              renderIcon(icon);
-            };
-
-            preview.innerHTML = "";
-            preview.appendChild(img);
+            applySystemIcon(podData.targetPath, podData.filename);
             return;
           }
 
-          const icon = getFileIcon(podData.contentType);
-          renderIcon(icon);
+          if (podData.targetPath) {
+            applySystemIcon(podData.targetPath, podData.filename);
+            return;
+          }
+
+          renderIcon(getFileIcon(podData.contentType));
         };
 
         const renderIcon = (iconChar) => {

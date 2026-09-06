@@ -321,10 +321,20 @@
           const previewContainer = podElement.querySelector(".card-preview-container");
           if (previewContainer) {
             const img = previewContainer.querySelector("img");
-            data.previewData = img?.src ? { type: "image", src: img.src } : { type: "icon" };
+            data.previewData =
+              window.zenTidyDownloadsUtils?.capturePilePreviewData?.(img) || { type: "icon" };
           }
         }
         return data;
+      }
+
+      function refreshCardSystemIcon(cardData, path) {
+        const img = cardData?.podElement?.querySelector(".card-preview-container img");
+        if (!img || !path) return;
+        const src = img.src || "";
+        if (src && !src.startsWith("moz-icon:")) return;
+        const url = window.zenTidyDownloadsUtils?.fileIconUrl?.(path, 25);
+        if (url) img.src = url;
       }
 
       /**
@@ -341,6 +351,7 @@
           d.targetPath = newPath;
           d.filename = download.aiName || basenameForDisplay || d.filename;
           d.wasRenamed = !!download.aiName;
+          window.zenTidyDownloadsUtils?.forgetStaleIconPreview?.(d);
           dismissedPodsData.set(newPath, d);
         }
         if (dismissedDownloads?.has(oldKey)) {
@@ -428,6 +439,7 @@
           await window.zenTidyDownloadsFileOps.persistDownloadTargetPath(download, newPath, debugLog);
 
           const cardData = activeDownloadCards.get(key);
+          refreshCardSystemIcon(cardData, newPath);
           if (cardData) {
             activeDownloadCards.delete(key);
             activeDownloadCards.set(newPath, cardData);
@@ -588,6 +600,7 @@
             targetOriginalPath,
             debugLog
           );
+          refreshCardSystemIcon(cardData, targetOriginalPath);
           cardData.download.aiName = null;
           cardData.originalFilename = originalSimpleName;
 

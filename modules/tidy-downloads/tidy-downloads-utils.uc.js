@@ -401,6 +401,76 @@
   }
 
   /**
+   * OS file icon as a moz-icon URL. Built from a file: URI so the drive colon,
+   * backslashes, and %, #, ? in a filename cannot swallow ?size=.
+   * @param {string} path
+   * @param {number} [size=32]
+   * @returns {string}
+   */
+  function fileIconUrl(path, size = 32) {
+    if (!path) return "";
+    try {
+      const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+      file.initWithPath(path);
+      return `moz-icon://${Services.io.newFileURI(file).spec}?size=${size}`;
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  /**
+   * Firefox file-type icon from an extension only (no path). Survives rename
+   * because it does not point at a specific filename.
+   * @param {string} filenameOrExt
+   * @param {number} [size=32]
+   * @returns {string}
+   */
+  function fileIconUrlByExtension(filenameOrExt, size = 32) {
+    let ext = filenameOrExt || ".txt";
+    if (!ext.startsWith(".")) {
+      ext = ext.includes(".") ? ext.slice(ext.lastIndexOf(".")) : `.${ext}`;
+    }
+    if (!ext || ext === ".") ext = ".txt";
+    return `moz-icon://${ext}?size=${size}`;
+  }
+
+  /**
+   * True when src is a real file thumbnail, not a moz-icon snapshot.
+   * Dismiss used to store moz-icon://… as type "image"; after a rename that
+   * URL still points at the old path and dies on restart.
+   * @param {string} [src]
+   * @returns {boolean}
+   */
+  function isFileThumbnailSrc(src) {
+    return (
+      typeof src === "string" &&
+      (src.startsWith("file:") || src.startsWith("data:")) &&
+      !src.startsWith("moz-icon:")
+    );
+  }
+
+  /**
+   * @param {HTMLImageElement|null|undefined} img
+   * @returns {{ type: string, src?: string }}
+   */
+  function capturePilePreviewData(img) {
+    const src = img?.src;
+    if (isFileThumbnailSrc(src)) return { type: "image", src };
+    return { type: "icon" };
+  }
+
+  /**
+   * Drop a persisted moz-icon snapshot so the pile rebuilds from targetPath.
+   * @param {Object} [podData]
+   */
+  function forgetStaleIconPreview(podData) {
+    const src = podData?.previewData?.src;
+    if (src && String(src).startsWith("moz-icon:")) {
+      podData.previewData = { type: "icon" };
+    }
+  }
+
+  /**
    * @param {string} [filename]
    * @param {Set<string>} extSet - extensions with leading dot (e.g. ".png")
    * @returns {boolean}
@@ -716,6 +786,11 @@
     // File / extension helpers (shared with preview + zen-stuff pile)
     readTextFilePreview,
     filenameEndsWithExtensionFromSet,
+    fileIconUrl,
+    fileIconUrlByExtension,
+    isFileThumbnailSrc,
+    capturePilePreviewData,
+    forgetStaleIconPreview,
 
     normalizePathKey,
     notifyListeners,

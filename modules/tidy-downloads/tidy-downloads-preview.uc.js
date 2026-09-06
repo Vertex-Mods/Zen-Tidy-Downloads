@@ -177,8 +177,9 @@
       }
 
       function renderSystemIcon(container, filePath) {
-        const fileUrl = "file:///" + filePath.replace(/\\/g, "/");
-        const iconUrl = `moz-icon://${fileUrl}?size=25`;
+        const iconUrl =
+          UtilsRef?.fileIconUrl?.(filePath, 25) ||
+          `moz-icon://${"file:///" + String(filePath || "").replace(/\\/g, "/")}?size=25`;
         const onPathFail = () => {
           const ext = filePath && filePath.includes(".") ? filePath.slice(filePath.lastIndexOf(".")) : "";
           renderSystemIconByExtension(container, ext || "");
@@ -187,8 +188,9 @@
       }
 
       function renderSystemIconByExtension(container, ext) {
-        const extSafe = ext && ext.startsWith(".") ? ext : "." + (ext || "txt");
-        const iconUrl = `moz-icon://${extSafe}?size=25`;
+        const iconUrl =
+          UtilsRef?.fileIconUrlByExtension?.(ext, 25) ||
+          `moz-icon://${ext && ext.startsWith(".") ? ext : "." + (ext || "txt")}?size=25`;
         renderIconImg(container, iconUrl, () => setGenericIcon(container, null));
       }
 

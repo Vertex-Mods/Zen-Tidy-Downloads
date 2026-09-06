@@ -256,6 +256,7 @@
           const newName = newPath.split(/[/\\]/).pop();
           podData.filename = newName;
           podData.targetPath = newPath;
+          window.zenTidyDownloadsUtils?.forgetStaleIconPreview?.(podData);
           state.setPodData(podData.key, podData);
           saveDismissedPodToSession(podData);
           const podElement = state.getPodElement(podData.key);
@@ -267,6 +268,11 @@
               filenameElement.textContent = newName;
               debugLog(`[Rename] Updated displayed filename in DOM: ${newName}`);
             }
+            const previewImg = podElement.querySelector(".dismissed-pod-preview img");
+            if (previewImg && String(previewImg.src || "").startsWith("moz-icon:")) {
+              const iconUrl = window.zenTidyDownloadsUtils?.fileIconUrl?.(newPath, 32);
+              if (iconUrl) previewImg.src = iconUrl;
+            }
           }
           if (window.zenTidyDownloads && window.zenTidyDownloads.dismissedPods) {
             try {
@@ -274,6 +280,7 @@
               if (mainScriptPod) {
                 mainScriptPod.filename = newName;
                 mainScriptPod.targetPath = newPath;
+                window.zenTidyDownloadsUtils?.forgetStaleIconPreview?.(mainScriptPod);
                 window.zenTidyDownloads.dismissedPods.set(podData.key, mainScriptPod);
                 debugLog(`[Rename] Updated main script pod data`);
               }
