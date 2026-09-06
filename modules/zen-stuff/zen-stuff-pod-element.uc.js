@@ -90,7 +90,7 @@
       width: 36px;
       height: 36px;
       min-width: 36px;
-      border-radius: 6px;
+      border-radius: calc(6px * var(--zen-squircle-value, 1));
       overflow: hidden;
       flex-shrink: 0;
     `;
