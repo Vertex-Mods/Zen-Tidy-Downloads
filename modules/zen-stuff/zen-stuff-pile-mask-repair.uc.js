@@ -24,6 +24,8 @@
      * @param {function(string): void} ctx.generateGridPosition
      * @param {function(string, number): void} ctx.applyGridPosition
      * @param {function(): void} ctx.updatePodTextColors
+     * @param {function(): void} [ctx.updatePileBottomOffset]
+     * @param {function(): { rowHeight: number, rowSpacing: number, baseBottomOffset: number, collapsed: boolean }} [ctx.getPileRowMetrics]
      * @returns {{
      *  getPileMaskHeightPx: function(): number,
      *  readSizerContentHeightPx: function(): number,
@@ -50,7 +52,9 @@
         getAlwaysShowPile,
         generateGridPosition,
         applyGridPosition,
-        updatePodTextColors
+        updatePodTextColors,
+        updatePileBottomOffset,
+        getPileRowMetrics
       } = ctx;
 
       function vis() {
@@ -85,9 +89,7 @@
       function computeExpectedMaskMetrics() {
         const podCount = state.dismissedPods.size;
         const podsToShow = Math.min(podCount, 4);
-        const rowHeight = 48;
-        const rowSpacing = 6;
-        const baseBottomOffset = 8;
+        const { rowHeight, rowSpacing, baseBottomOffset } = getPileRowMetrics();
         const totalRowHeight = podsToShow * rowHeight + (podsToShow - 1) * rowSpacing;
         const gridHeight = totalRowHeight + baseBottomOffset;
         const mediaToolbar = document.getElementById("zen-media-controls-toolbar");
@@ -135,6 +137,7 @@
         }
 
         if (sizerOpen && !compactBlocksPile) {
+          if (typeof updatePileBottomOffset === "function") updatePileBottomOffset();
           const { gridHeight, expectedMask } = computeExpectedMaskMetrics();
           const mediaToolbar = document.getElementById("zen-media-controls-toolbar");
           const toolbarMissingExpanded =
@@ -205,6 +208,7 @@
         if (state.dynamicSizer && state.dynamicSizer.style.height !== "0px") {
           state.dynamicSizer.style.left = "0px";
           state.dynamicSizer.style.right = "0px";
+          if (typeof updatePileBottomOffset === "function") updatePileBottomOffset();
           debugLog("Recalculated pile position on resize - full width container");
         }
 

@@ -26,6 +26,7 @@
      * @param {function(): void} ctx.getShowPile
      * @param {function(): void} ctx.getHidePile
      * @param {function(string, number=): void} [ctx.schedulePileLayoutRepair]
+     * @param {function(): void} [ctx.updatePileBottomOffset]
      * @returns {{
      *  getAlwaysShowPile: function(): boolean,
      *  shouldPileBeVisible: function(): boolean,
@@ -37,7 +38,7 @@
      * }}
      */
     createPilePrefsApi(ctx) {
-      const { state, debugLog, getShowPile, getHidePile, schedulePileLayoutRepair } = ctx;
+      const { state, debugLog, getShowPile, getHidePile, schedulePileLayoutRepair, updatePileBottomOffset } = ctx;
 
       function getAlwaysShowPile() {
         try {
@@ -128,6 +129,9 @@
                     state.dynamicSizer.style.display = "none";
                   } else if (shouldPileBeVisible()) {
                     getShowPile();
+                  }
+                  if (typeof updatePileBottomOffset === "function") {
+                    updatePileBottomOffset();
                   }
                   if (typeof schedulePileLayoutRepair === "function") {
                     schedulePileLayoutRepair("compact-sidebar-toggle", 60);

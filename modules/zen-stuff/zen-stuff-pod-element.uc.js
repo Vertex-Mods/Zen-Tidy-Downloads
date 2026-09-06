@@ -59,20 +59,13 @@
 
         row.style.cssText = `
       position: absolute;
-      width: 100%;
-      height: 48px;
       display: flex;
       flex-direction: row;
       align-items: center;
-      gap: 10px;
-      padding: 0 8px;
       box-sizing: border-box;
       cursor: pointer;
       transition: opacity 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
       will-change: transform, opacity;
-      left: 0;
-      right: 0;
-      border-radius: calc(6px * var(--zen-squircle-value, 1));
     `;
 
         row.addEventListener("mouseenter", () => {
@@ -87,10 +80,6 @@
         const pod = document.createElement("div");
         pod.className = "dismissed-pod";
         pod.style.cssText = `
-      width: 36px;
-      height: 36px;
-      min-width: 36px;
-      border-radius: calc(6px * var(--zen-squircle-value, 1));
       overflow: hidden;
       flex-shrink: 0;
     `;

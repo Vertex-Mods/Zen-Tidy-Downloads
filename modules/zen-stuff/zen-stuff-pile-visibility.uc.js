@@ -52,6 +52,8 @@
         setupPileBackgroundHoverEvents,
         updatePointerEvents,
         updatePileContainerWidth,
+        updatePileBottomOffset,
+        getPileRowMetrics,
         getAlwaysShowPile,
         shouldPileBeVisible,
         isContextMenuVisible,
@@ -88,9 +90,7 @@
 
         const totalPods = state.dismissedPods.size;
         const podsToShow = Math.min(totalPods, 4);
-        const rowHeight = 48;
-        const rowSpacing = 6;
-        const baseBottomOffset = 8;
+        const { rowHeight, rowSpacing, baseBottomOffset } = getPileRowMetrics();
         const totalRowHeight = podsToShow * rowHeight + (podsToShow - 1) * rowSpacing;
         const gridHeight = totalRowHeight + baseBottomOffset;
 
@@ -337,9 +337,7 @@
             podElement.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
             const position = state.gridPositions.get(podKey);
             if (position) {
-              const rowHeight = 48;
-              const rowSpacing = 6;
-              const baseBottomOffset = 8;
+              const { rowHeight, rowSpacing, baseBottomOffset } = getPileRowMetrics();
               const bottomOffset = baseBottomOffset + position.row * (rowHeight + rowSpacing);
               podElement.style.transform = `translate3d(0, -${bottomOffset}px, 0) scale(0.8)`;
             } else {
@@ -424,10 +422,8 @@
       function updatePileHeight() {
         if (!state.dynamicSizer || state.dismissedPods.size === 0) return;
 
-        const rowHeight = 48;
-        const rowSpacing = 6;
+        const { rowHeight, rowSpacing, baseBottomOffset } = getPileRowMetrics();
         const podsToShow = Math.min(state.dismissedPods.size, 4);
-        const baseBottomOffset = 8;
         const totalRowHeight = podsToShow * rowHeight + (podsToShow - 1) * rowSpacing;
         const gridHeight = totalRowHeight + baseBottomOffset;
 
@@ -619,6 +615,7 @@
 
         state.dynamicSizer.style.display = "flex";
         if (typeof updatePileContainerWidth === "function") updatePileContainerWidth();
+        if (typeof updatePileBottomOffset === "function") updatePileBottomOffset();
         state.dynamicSizer.style.left = "0px";
         state.dynamicSizer.style.right = "0px";
         updatePointerEvents();
@@ -627,9 +624,7 @@
 
         const totalPods = state.dismissedPods.size;
         const podsToShow = Math.min(totalPods, 4);
-        const rowHeight = 48;
-        const rowSpacing = 6;
-        const baseBottomOffset = 8;
+        const { rowHeight, rowSpacing, baseBottomOffset } = getPileRowMetrics();
         const totalRowHeight = podsToShow * rowHeight + (podsToShow - 1) * rowSpacing;
         const gridHeight = totalRowHeight + baseBottomOffset;
         state.dynamicSizer.style.height = `${gridHeight}px`;

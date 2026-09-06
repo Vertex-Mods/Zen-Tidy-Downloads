@@ -129,7 +129,9 @@
     applyPilePosition,
     applyGridPosition,
     debounce,
-    updatePileContainerWidth
+    updatePileContainerWidth,
+    updatePileBottomOffset,
+    getPileRowMetrics
   } = window.zenStuffPileLayout.createPileLayoutApi({ state, CONFIG, debugLog });
 
   /** @type {{ createPodElement: function }|null} */
@@ -272,6 +274,8 @@
 
   async function createPileContainer() {
     await pileDomApi.createPileContainer();
+    updatePileBottomOffset();
+    attachFootButtonsResizeObserverOnce();
   }
 
   const themeColorsApi = window.zenStuffPileThemeColors.createPileThemeColorsApi({
@@ -300,6 +304,8 @@
     setupPileBackgroundHoverEvents: () => maskRepairApi.setupPileBackgroundHoverEvents(),
     updatePointerEvents: () => pilePrefsApi.updatePointerEvents(),
     updatePileContainerWidth: () => updatePileContainerWidth(),
+    updatePileBottomOffset: () => updatePileBottomOffset(),
+    getPileRowMetrics: () => getPileRowMetrics(),
     getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
     shouldPileBeVisible: () => pilePrefsApi.shouldPileBeVisible(),
     isContextMenuVisible: () => isContextMenuVisible()
@@ -315,7 +321,9 @@
     getAlwaysShowPile: () => pilePrefsApi.getAlwaysShowPile(),
     generateGridPosition,
     applyGridPosition,
-    updatePodTextColors: () => themeColorsApi.updatePodTextColors()
+    updatePodTextColors: () => themeColorsApi.updatePodTextColors(),
+    updatePileBottomOffset: () => updatePileBottomOffset(),
+    getPileRowMetrics: () => getPileRowMetrics()
   });
 
   pilePrefsApi = window.zenStuffPilePrefs.createPilePrefsApi({
@@ -323,7 +331,8 @@
     debugLog,
     getShowPile: () => pileVisibilityApi.showPile(),
     getHidePile: () => pileVisibilityApi.hidePile(),
-    schedulePileLayoutRepair: (source, delayMs) => maskRepairApi.schedulePileLayoutRepair(source, delayMs)
+    schedulePileLayoutRepair: (source, delayMs) => maskRepairApi.schedulePileLayoutRepair(source, delayMs),
+    updatePileBottomOffset: () => updatePileBottomOffset()
   });
 
   sessionApi = window.zenStuffSession.createSessionApi({
@@ -375,6 +384,24 @@
     });
     state.mediaToolbarResizeObserver.observe(mt);
     debugLog("[PileRepair] ResizeObserver attached to zen-media-controls-toolbar");
+  }
+
+  function attachFootButtonsResizeObserverOnce() {
+    if (state.footButtonsResizeObserver) return;
+    const foot = document.getElementById("zen-sidebar-foot-buttons");
+    if (!foot || typeof ResizeObserver === "undefined") return;
+    state.footButtonsResizeObserver = new ResizeObserver(() => {
+      updatePileBottomOffset();
+      if (
+        state.dismissedPods.size > 0 &&
+        state.dynamicSizer &&
+        state.dynamicSizer.style.height !== "0px"
+      ) {
+        schedulePileLayoutRepair("foot-buttons-resize", 40);
+      }
+    });
+    state.footButtonsResizeObserver.observe(foot);
+    debugLog("[PileRepair] ResizeObserver attached to zen-sidebar-foot-buttons");
   }
 
   /**
@@ -481,6 +508,7 @@
     }, 90000);
 
     attachMediaToolbarResizeObserverOnce();
+    attachFootButtonsResizeObserverOnce();
 
     debugLog("Global pile listeners attached (once per window)");
   }
@@ -700,6 +728,14 @@
           /* ignore */
         }
         state.mediaToolbarResizeObserver = null;
+      }
+      if (state.footButtonsResizeObserver) {
+        try {
+          state.footButtonsResizeObserver.disconnect();
+        } catch (_e) {
+          /* ignore */
+        }
+        state.footButtonsResizeObserver = null;
       }
       if (state.downloadButtonWatcherCleanup) {
         try {

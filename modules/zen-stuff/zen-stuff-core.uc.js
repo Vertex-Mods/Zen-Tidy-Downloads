@@ -51,6 +51,8 @@
       this.pileHoverDownloadButtonEl = null;
       /** Observes media toolbar geometry changes without a window resize event. */
       this.mediaToolbarResizeObserver = null;
+      /** Observes sidebar foot-button stack height (collapsed vs expanded, customize). */
+      this.footButtonsResizeObserver = null;
     }
 
     getPodData(key) {

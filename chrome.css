@@ -453,6 +453,54 @@
   }
 }
 
+/* --- Zen Stuff: dismissed pile rows (expanded list vs collapsed tab tiles) --- */
+:root {
+  --tidy-pile-row-height: 48px;
+  --tidy-pile-row-spacing: 6px;
+  --tidy-pile-pod-size: 36px;
+  --tidy-pile-base-offset: 8px;
+}
+
+:root:not([zen-sidebar-expanded="true"]) {
+  --tidy-pile-row-height: var(--tab-min-height);
+  --tidy-pile-row-spacing: calc(var(--tab-margin-block, 2px) * 2);
+  --tidy-pile-pod-size: var(--icon-size, 16px);
+}
+
+.dismissed-pod-row {
+  left: 0;
+  right: 0;
+  width: auto;
+  height: var(--tidy-pile-row-height);
+  gap: 10px;
+  padding: 0 8px;
+  border-radius: calc(6px * var(--zen-squircle-value, 1));
+}
+
+.dismissed-pod {
+  width: var(--tidy-pile-pod-size);
+  height: var(--tidy-pile-pod-size);
+  min-width: var(--tidy-pile-pod-size);
+  border-radius: calc(6px * var(--zen-squircle-value, 1));
+}
+
+:root:not([zen-sidebar-expanded="true"]) .dismissed-pod-row {
+  left: var(--zen-toolbox-padding);
+  right: var(--zen-toolbox-padding);
+  gap: 0;
+  padding: 0;
+  justify-content: center;
+  border-radius: var(--border-radius-medium);
+}
+
+:root:not([zen-sidebar-expanded="true"]) .dismissed-pod {
+  border-radius: var(--border-radius-medium);
+}
+
+:root:not([zen-sidebar-expanded="true"]) .dismissed-pod-text {
+  display: none !important;
+}
+
 /* --- Zen Stuff: pile mask + tabs wrapper (from zen-stuff-pile-dom) --- */
 arrowscrollbox.workspace-arrowscrollbox::after {
   opacity: var(--zen-stuff-scrollbox-after-opacity, 1) !important;
@@ -505,12 +553,12 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   scale: 0.9;
 }
 
-/* Dismissed pile: same host reparented into .dismissed-pod-preview (36×36) */
+/* Dismissed pile: same host reparented into .dismissed-pod-preview */
 #zen-tidy-download-pie-host.zen-tidy-pie-host.zen-tidy-pie-host--pile-docked {
-  width: 36px !important;
-  height: 36px !important;
-  min-width: 36px;
-  min-height: 36px;
+  width: var(--tidy-pile-pod-size) !important;
+  height: var(--tidy-pile-pod-size) !important;
+  min-width: var(--tidy-pile-pod-size);
+  min-height: var(--tidy-pile-pod-size);
   scale: 1;
   border-radius: 50%;
   background-color: transparent !important;
@@ -518,8 +566,8 @@ arrowscrollbox.workspace-arrowscrollbox::after {
 }
 
 #zen-tidy-download-pie-host.zen-tidy-pie-host--pile-docked .zen-tidy-pie-ring-svg {
-  width: 32px;
-  height: 32px;
+  width: calc(var(--tidy-pile-pod-size) - 4px);
+  height: calc(var(--tidy-pile-pod-size) - 4px);
 }
 
 #zen-tidy-download-pie-host.zen-tidy-pie-host .zen-tidy-pie-ring-svg {

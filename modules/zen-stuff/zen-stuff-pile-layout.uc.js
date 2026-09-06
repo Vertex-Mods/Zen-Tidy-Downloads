@@ -17,7 +17,7 @@
      * @param {Object} ctx.state
      * @param {Object} ctx.CONFIG
      * @param {function} ctx.debugLog
-     * @returns {{ generatePilePosition: function, generateGridPosition: function, applyPilePosition: function, applyGridPosition: function, debounce: function, updatePileContainerWidth: function }}
+     * @returns {{ generatePilePosition: function, generateGridPosition: function, applyPilePosition: function, applyGridPosition: function, debounce: function, updatePileContainerWidth: function, updatePileBottomOffset: function, getPileRowMetrics: function }}
      */
     createPileLayoutApi(ctx) {
       const { state, CONFIG, debugLog } = ctx;
@@ -89,6 +89,22 @@
         }
       }
 
+      function readCssPx(el, name, fallback) {
+        const n = parseFloat(getComputedStyle(el).getPropertyValue(name));
+        return Number.isFinite(n) ? n : fallback;
+      }
+
+      function getPileRowMetrics() {
+        const root = document.documentElement;
+        const collapsed = root.getAttribute("zen-sidebar-expanded") !== "true";
+        return {
+          rowHeight: readCssPx(root, "--tidy-pile-row-height", collapsed ? 36 : 48),
+          rowSpacing: readCssPx(root, "--tidy-pile-row-spacing", collapsed ? 4 : 6),
+          baseBottomOffset: readCssPx(root, "--tidy-pile-base-offset", 8),
+          collapsed
+        };
+      }
+
       function applyGridPosition(podKey, delay = 0, shouldAnimate = false, preserveTransition = false) {
         const podElement = state.podElements.get(podKey);
         const position = state.gridPositions.get(podKey);
@@ -103,14 +119,10 @@
           if (shouldAnimate && !preserveTransition) {
             podElement.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
           }
-          const rowHeight = 48;
-          const rowSpacing = 6;
-          const baseBottomOffset = 8;
+          const { rowHeight, rowSpacing, baseBottomOffset } = getPileRowMetrics();
           const bottomOffset = baseBottomOffset + position.row * (rowHeight + rowSpacing);
 
           podElement.style.bottom = "0px";
-          podElement.style.left = "0";
-          podElement.style.right = "0";
           podElement.style.top = "auto";
           podElement.style.transform = `translate3d(0, -${bottomOffset}px, 0)`;
           podElement.style.display = "flex";
@@ -171,13 +183,49 @@
         debugLog("[PileWidthSync] Stored sidebar width:", newWidth);
       }
 
+      // Sit the pile just above #zen-sidebar-foot-buttons. That toolbar is a
+      // row when the sidebar is expanded and a column when collapsed, and it
+      // is customizable, so its height cannot be a layout constant.
+      const PILE_FOOTER_GAP_PX = 8;
+
+      function updatePileBottomOffset() {
+        if (!state.dynamicSizer) {
+          return;
+        }
+
+        const foot = document.getElementById("zen-sidebar-foot-buttons");
+        let clearance = 0;
+
+        if (foot) {
+          const parent = state.dynamicSizer.offsetParent;
+          const footRect = foot.getBoundingClientRect();
+          if (footRect.height > 0) {
+            if (parent) {
+              const parentRect = parent.getBoundingClientRect();
+              clearance = Math.max(0, Math.round(parentRect.bottom - footRect.top));
+            } else {
+              clearance = Math.round(footRect.height);
+            }
+          }
+        }
+
+        const sizerBottom = clearance + PILE_FOOTER_GAP_PX;
+        state.dynamicSizer.style.bottom = `${sizerBottom}px`;
+        if (state.hoverBridge) {
+          state.hoverBridge.style.bottom = `${clearance}px`;
+        }
+        debugLog("[PileBottomSync] Footer clearance:", { clearance, sizerBottom });
+      }
+
       return {
         generatePilePosition,
         generateGridPosition,
         applyPilePosition,
         applyGridPosition,
         debounce,
-        updatePileContainerWidth
+        updatePileContainerWidth,
+        updatePileBottomOffset,
+        getPileRowMetrics
       };
     }
   };
