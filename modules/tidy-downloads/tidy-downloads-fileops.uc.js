@@ -15,6 +15,53 @@
 
   window.zenTidyDownloadsFileOps = {
     /**
+     * Write the new on-disk path back into Firefox's download record so
+     * DownloadHistory (and Zen Library) still find the file after a restart.
+     * Assigning download.target.path only updates the live object.
+     */
+    async persistDownloadTargetPath(download, newPath, debugLog) {
+      if (!download?.target || !newPath) return;
+      download.target.path = newPath;
+
+      try {
+        if (typeof download.refresh === "function") {
+          await download.refresh();
+        }
+      } catch (e) {
+        debugLog?.("[PersistTarget] refresh failed", e);
+      }
+
+      const url = download.source?.url;
+      if (!url || download.source?.isPrivate) return;
+
+      try {
+        const { PlacesUtils } = ChromeUtils.importESModule("resource://gre/modules/PlacesUtils.sys.mjs");
+        const { FileUtils } = ChromeUtils.importESModule("resource://gre/modules/FileUtils.sys.mjs");
+        const { DownloadHistory } = ChromeUtils.importESModule("resource://gre/modules/DownloadHistory.sys.mjs");
+
+        if (!PlacesUtils.history.canAddURI(PlacesUtils.toURI(url))) return;
+
+        const targetFile = new FileUtils.File(newPath);
+        const targetUri = Services.io.newFileURI(targetFile);
+        const pageInfo = await PlacesUtils.history.fetch(url);
+        if (!pageInfo) return;
+
+        await PlacesUtils.history.update({
+          annotations: new Map([["downloads/destinationFileURI", targetUri.spec]]),
+          guid: pageInfo.guid,
+          url: pageInfo.url
+        });
+
+        if (typeof DownloadHistory.updateMetaData === "function") {
+          await DownloadHistory.updateMetaData(download);
+        }
+        debugLog?.("[PersistTarget] Updated download history destination", { url, newPath });
+      } catch (e) {
+        debugLog?.("[PersistTarget] history update failed", e);
+      }
+    },
+
+    /**
      * Initialize file ops module. Called by tidy-downloads.uc.js with context.
      * @param {Object} ctx - Context from main script
      * @param {Object} ctx.SecurityUtils - Path validation utilities
@@ -378,7 +425,7 @@
 
           oldFile.moveTo(null, finalName);
 
-          download.target.path = newPath;
+          await window.zenTidyDownloadsFileOps.persistDownloadTargetPath(download, newPath, debugLog);
 
           const cardData = activeDownloadCards.get(key);
           if (cardData) {
@@ -536,7 +583,11 @@
             `[UndoRename] File moved from ${currentAIRenamedPath} to ${targetOriginalPath} (using simple name ${originalSimpleName})`
           );
 
-          cardData.download.target.path = targetOriginalPath;
+          await window.zenTidyDownloadsFileOps.persistDownloadTargetPath(
+            cardData.download,
+            targetOriginalPath,
+            debugLog
+          );
           cardData.download.aiName = null;
           cardData.originalFilename = originalSimpleName;
 

@@ -291,7 +291,15 @@
                   download.target?.path?.endsWith(oldFilename))
             );
             if (targetDownload && targetDownload.target) {
-              targetDownload.target.path = newPath;
+              if (window.zenTidyDownloadsFileOps?.persistDownloadTargetPath) {
+                await window.zenTidyDownloadsFileOps.persistDownloadTargetPath(
+                  targetDownload,
+                  newPath,
+                  debugLog
+                );
+              } else {
+                targetDownload.target.path = newPath;
+              }
               debugLog(`[Rename] Updated Firefox download record`);
             }
           } catch (error) {
