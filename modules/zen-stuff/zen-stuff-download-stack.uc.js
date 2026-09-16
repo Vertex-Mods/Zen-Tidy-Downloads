@@ -19,6 +19,7 @@
 
   const ENTRIES = 4;
   const CLOSE_DELAY_MS = 200;
+  let initInProgress = false;
 
   // Wait for required APIs
   if (!window.Downloads || !window.Downloads.getList) {
@@ -40,6 +41,11 @@
     const footButtons = document.getElementById("zen-sidebar-foot-buttons");
     if (!footButtons) return null;
 
+    // Check if list already exists (prevent duplicate initialization)
+    if (document.getElementById("zen-library-download-list")) {
+      return document.getElementById("zen-library-download-list");
+    }
+
     const list = document.createElement("box");
     list.id = "zen-library-download-list";
     list.setAttribute("skipintoolbarset", "true");
@@ -53,7 +59,8 @@
       const badge = document.createElement("span");
       badge.className = "zen-library-download-badge no-squircles";
       badge.innerHTML = '<span class="zen-library-download-progress"></span>';
-      badge.id = i === ENTRIES - 1 ? "library-button-badge" : "";
+      // Note: badge.id intentionally not set here to avoid duplicate IDs
+      // The button's badge has id="library-button-badge" set in initStack()
       
       // Title container
       const titleContainer = document.createElement("vbox");
@@ -84,18 +91,28 @@
 
   // Initialize the stack
   function initStack() {
+    // Prevent multiple concurrent initializations
+    if (initInProgress) return;
+    initInProgress = true;
+
     const button = getLibraryButton();
     if (!button) {
+      initInProgress = false;
       setTimeout(initStack, 100);
       return;
     }
+
+    // Ensure button has the command attribute (native behavior)
+    button.setAttribute("command", "cmd_zenToggleLibrary");
 
     const list = createStackContainer();
     if (!list) {
+      initInProgress = false;
       setTimeout(initStack, 100);
       return;
     }
 
+    initInProgress = false;
     const entries = [...list.children];
     let downloads = [];
     let closeTimer = null;
