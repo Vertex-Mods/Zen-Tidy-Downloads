@@ -755,15 +755,18 @@ arrowscrollbox.workspace-arrowscrollbox::after {
 }
 
 /* Tab strip integration */
+#zen-sidebar-foot-buttons[zen-library-stack-open],
 #tabbrowser-tabs[zen-library-stack-open] {
   --zen-library-progress: 1;
   transition: --zen-library-progress 0.3s ease;
 }
 
+#zen-sidebar-foot-buttons[zen-library-stack-closing],
 #tabbrowser-tabs[zen-library-stack-closing] {
   transition: --zen-library-progress 0.3s ease;
 }
 
+#zen-sidebar-foot-buttons:not([zen-library-stack-open]):not([zen-library-stack-closing]),
 #tabbrowser-tabs:not([zen-library-stack-open]):not([zen-library-stack-closing]) {
   --zen-library-progress: 0;
 }

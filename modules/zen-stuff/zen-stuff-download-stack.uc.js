@@ -313,6 +313,7 @@
       // Aim badge (fly from button to newest entry)
       aimBadge();
       
+      footButtons.removeAttribute("zen-library-stack-closing");
       if (tabs) {
         tabs.removeAttribute("zen-library-stack-closing");
       }
@@ -342,6 +343,7 @@
       }
 
       footButtons.removeAttribute("zen-library-stack-open");
+      footButtons.setAttribute("zen-library-stack-closing", "true");
       if (tabs) {
         tabs.removeAttribute("zen-library-stack-open");
         tabs.setAttribute("zen-library-stack-closing", "true");
@@ -350,6 +352,15 @@
           if (event.propertyName === "--zen-library-progress") {
             tabs.removeEventListener("transitionend", onEnd);
             tabs.removeAttribute("zen-library-stack-closing");
+            footButtons.removeAttribute("zen-library-stack-closing");
+          }
+        }, { once: true });
+      } else {
+        // If no tabs, clean up footButtons after transition
+        footButtons.addEventListener("transitionend", function onEnd(event) {
+          if (event.propertyName === "--zen-library-progress") {
+            footButtons.removeEventListener("transitionend", onEnd);
+            footButtons.removeAttribute("zen-library-stack-closing");
           }
         }, { once: true });
       }
