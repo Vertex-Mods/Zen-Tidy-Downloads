@@ -630,19 +630,6 @@ arrowscrollbox.workspace-arrowscrollbox::after {
    Matches ZenLibraryDownloadStack from Zen Browser source
    ============================================================================= */
 
-/* Download list container - appended to #zen-sidebar-foot-buttons */
-#zen-library-download-list {
-  display: block;
-  position: relative;
-  width: 100%;
-  pointer-events: none;
-  z-index: 100;
-}
-
-#zen-library-download-list * {
-  pointer-events: auto;
-}
-
 /* Individual download entries */
 .zen-library-download-list-download {
   display: flex;
@@ -788,6 +775,11 @@ arrowscrollbox.workspace-arrowscrollbox::after {
   left: 0;
   transform: translateY(calc(var(--zen-library-progress, 0) * -1 * (var(--zen-library-stack-height, 0px) + 8px)));
   transition: transform 0.3s ease;
+  pointer-events: none;
+}
+
+#zen-library-download-list * {
+  pointer-events: auto;
 }
 
 /* Right sidebar support */
