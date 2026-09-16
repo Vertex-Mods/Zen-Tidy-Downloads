@@ -85,49 +85,13 @@
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 19
     },
-    "modules/zen-stuff/zen-stuff-core.uc.js": {
+    "modules/zen-stuff/zen-stuff-download-stack.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
       "loadOrder": 20
     },
-    "modules/zen-stuff/zen-stuff-session.uc.js": {
-      "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 21
-    },
-    "modules/zen-stuff/zen-stuff-pile-dom.uc.js": {
-      "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 22
-    },
-    "modules/zen-stuff/zen-stuff-pod-element.uc.js": {
-      "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 23
-    },
-    "modules/zen-stuff/zen-stuff-pile-layout.uc.js": {
-      "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 24
-    },
-    "modules/zen-stuff/zen-stuff-pile-visibility.uc.js": {
-      "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 25
-    },
-    "modules/zen-stuff/zen-stuff-pile-prefs.uc.js": {
-      "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 26
-    },
-    "modules/zen-stuff/zen-stuff-pile-theme-colors.uc.js": {
-      "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 27
-    },
-    "modules/zen-stuff/zen-stuff-pile-mask-repair.uc.js": {
-      "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 28
-    },
-    "modules/zen-stuff/zen-stuff-context-fileops.uc.js": {
-      "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 29
-    },
     "zen-stuff.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],
-      "loadOrder": 30
+      "loadOrder": 21
     },
     "modules/tidy-downloads/tidy-downloads-ai-models.uc.js": {
       "include": ["chrome://browser/content/browser.xhtml"],

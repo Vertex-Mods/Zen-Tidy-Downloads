@@ -624,3 +624,190 @@ arrowscrollbox.workspace-arrowscrollbox::after {
     transform: rotate(360deg);
   }
 }
+
+/* =============================================================================
+   Zen Stuff Download Stack - Native-aligned styles
+   Matches ZenLibraryDownloadStack from Zen Browser source
+   ============================================================================= */
+
+/* Download list container - appended to #zen-sidebar-foot-buttons */
+#zen-library-download-list {
+  display: block;
+  position: relative;
+  width: 100%;
+  pointer-events: none;
+  z-index: 100;
+}
+
+#zen-library-download-list * {
+  pointer-events: auto;
+}
+
+/* Individual download entries */
+.zen-library-download-list-download {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--zen-primary-color) 15%, transparent);
+  border-radius: calc(8px * var(--zen-squircle-value, 1));
+  margin-bottom: 4px;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+}
+
+.zen-library-download-list-download:last-child {
+  margin-bottom: 0;
+}
+
+.zen-library-download-list-download[hidden] {
+  display: none !important;
+}
+
+/* Download badge - progress circle */
+.zen-library-download-badge {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background-color: var(--zen-accent-button-background);
+  background-image: var(--download-image, url("moz-icon://.unknown?size=32"));
+  background-size: 20px 20px;
+  background-repeat: no-repeat;
+  background-position: center;
+  box-shadow: 0 0 0 2px var(--zen-accent-button-background) inset;
+}
+
+.zen-library-download-badge[downloading] {
+  box-shadow: none;
+}
+
+.zen-library-download-badge .zen-library-download-progress {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--zen-accent-button-background) calc(var(--value, 0%) * 1),
+    transparent calc(var(--value, 0%) * 1)
+  );
+  -moz-mask: radial-gradient(transparent 45%, black 45%);
+  mask: radial-gradient(transparent 45%, black 45%);
+}
+
+/* Title container */
+.zen-library-download-list-title-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.zen-library-download-list-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zen-library-download-list-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Action button */
+.zen-library-download-action {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.zen-library-download-action:hover {
+  opacity: 1;
+}
+
+.zen-library-download-action .toolbarbutton-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* Stack state attributes */
+#zen-sidebar-foot-buttons[zen-library-stack-open] #zen-library-download-list {
+  pointer-events: auto;
+}
+
+#zen-sidebar-foot-buttons[zen-library-badge] #zen-library-button .toolbarbutton-badge-stack {
+  opacity: 1;
+}
+
+#zen-sidebar-foot-buttons:not([zen-library-badge]) #zen-library-button .toolbarbutton-badge-stack {
+  opacity: 0;
+}
+
+/* Badge flight animation */
+#library-button-badge {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  left: 0;
+  top: 0;
+  transition: transform 0.3s ease, opacity 0.2s ease;
+  transform: translate(var(--zen-library-badge-to-x, 0), var(--zen-library-badge-to-y, 0));
+}
+
+/* Tab strip integration */
+#tabbrowser-tabs[zen-library-stack-open] {
+  --zen-library-progress: 1;
+  transition: --zen-library-progress 0.3s ease;
+}
+
+#tabbrowser-tabs[zen-library-stack-closing] {
+  transition: --zen-library-progress 0.3s ease;
+}
+
+#tabbrowser-tabs:not([zen-library-stack-open]):not([zen-library-stack-closing]) {
+  --zen-library-progress: 0;
+}
+
+/* Position the list above foot buttons */
+#zen-library-download-list {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  transform: translateY(calc(var(--zen-library-progress, 0) * -1 * (var(--zen-library-stack-height, 0px) + 8px)));
+  transition: transform 0.3s ease;
+}
+
+/* Right sidebar support */
+:root[zen-right-side] #zen-library-download-list {
+  left: auto;
+  right: 0;
+}
+
+/* Context menu styling */
+.zen-library-downloads-menu {
+  min-width: 180px;
+}
+
+.zen-library-downloads-menu menuitem {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.zen-library-downloads-menu menuseparator {
+  margin: 4px 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
