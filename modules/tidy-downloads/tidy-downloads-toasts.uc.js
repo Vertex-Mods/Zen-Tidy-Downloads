@@ -170,10 +170,9 @@
         max-width: 300px !important;
       `;
   
-      if (container) {
-        container.style.height = "auto";
-        container.style.maxHeight = "none";
-      }
+      container.style.height = "auto";
+      container.style.maxHeight = "none";
+      container.removeAttribute("hidden");
       container.appendChild(wrapper);
   
       if (!wrapper.style.transform) wrapper.style.transform = 'scale(0)';

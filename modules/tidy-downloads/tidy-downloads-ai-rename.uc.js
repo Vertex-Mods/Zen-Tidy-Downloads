@@ -899,55 +899,6 @@ Instructions:
             }
             debugLog(`Successfully AI-renamed to: ${actualFilename}`);
 
-            if (document.documentElement.getAttribute('zen-compact-mode') === 'true') {
-              const currentAIPath = newPath;
-              showRenameToast(actualFilename, trueOriginalFilename, async (dismissPreviousToast) => {
-                if (dismissPreviousToast) dismissPreviousToast();
-                debugLog(`[Undo] Reverting rename for ${cleanName}`);
-
-                const success = await renameDownloadFileAndUpdateRecord(download, trueOriginalFilename, currentAIPath);
-
-                if (success) {
-                  const revertedPath = download.target.path;
-                  download.aiName = null;
-
-                  if (focusedKeyRef.current === currentAIPath) {
-                    focusedKeyRef.current = revertedPath;
-                    debugLog(`[Undo] Updated focusedKeyRef to ${revertedPath}`);
-                  }
-
-                  updateUIForFocusedDownload(revertedPath, true);
-
-                  const revertedCardData = activeDownloadCards.get(revertedPath);
-                  if (revertedCardData && revertedCardData.podElement) {
-                    revertedCardData.podElement.classList.remove("renamed-by-ai");
-                  }
-
-                  if (revertedCardData) {
-                    window.zenTidyDownloadsUtils?.clearCardTimers?.(revertedCardData, {
-                      autohide: true,
-                      deferredSticky: false
-                    });
-                    const shortDelay = 2000;
-                    debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
-                    revertedCardData.autohideTimeoutId = setTimeout(() => {
-                      performAutohideSequence(revertedPath);
-                    }, shortDelay);
-                  } else {
-                    scheduleCardRemoval(revertedPath);
-                  }
-
-                  window.dispatchEvent(new CustomEvent('pod-renamed-reverted', {
-                    detail: { podKey: currentAIPath, newPath: revertedPath, originalName: trueOriginalFilename }
-                  }));
-
-                  showSimpleToast("Rename reverted");
-                } else {
-                  showSimpleToast("Undo failed");
-                }
-              });
-            }
-
             activeAIProcesses.delete(key);
             return true;
           } else {

@@ -39,7 +39,11 @@
       let observersArmed = false;
 
       function isCompactMode() {
-        return document.documentElement.getAttribute("zen-compact-mode") === "true";
+        const root = document.documentElement;
+        return (
+          root.getAttribute("zen-compact-mode") === "true" ||
+          root.getAttribute("zen-sidebar-expanded") === "false"
+        );
       }
 
       function isStackOpen() {
@@ -195,8 +199,9 @@
           const undo = window.zenTidyDownloadsFileOps?.undoRename;
           if (typeof undo !== "function") return;
           const ok = await undo(key, { skipAutohideAfterSuccess: false });
-          if (!ok) {
-            window.zenTidyDownloadsToasts?.showSimpleToast?.("Undo failed");
+          const toast = window.zenTidyDownloadsToasts?.showSimpleToast;
+          if (typeof toast === "function") {
+            toast(ok ? "Rename reverted" : "Undo failed");
           }
         });
       }
@@ -294,6 +299,7 @@
 
         if (isCompactMode()) {
           hideNow(tooltip, container);
+          showToastInstead(cardData);
           return;
         }
         if (!libraryButton()) {
@@ -323,6 +329,7 @@
         }
         if (isCompactMode()) {
           hideNow(tooltip, container);
+          showToastInstead(cardData);
           return;
         }
         if (!libraryButton()) {
