@@ -31,6 +31,17 @@
         debugLog?.("[PersistTarget] refresh failed", e);
       }
 
+      // refresh() on a finished download does not notify views when only the
+      // path changed, so the native stack and library section would keep the
+      // old name. Force the change the public list views already listen for.
+      try {
+        if (typeof download._notifyChange === "function") {
+          download._notifyChange();
+        }
+      } catch (e) {
+        debugLog?.("[PersistTarget] change notification failed", e);
+      }
+
       const url = download.source?.url;
       if (!url || download.source?.isPrivate) return;
 

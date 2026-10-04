@@ -1,48 +1,32 @@
-#zen-dismissed-pile-dynamic-sizer {
-  -moz-window-dragging: no-drag;
-}
-
-/* Pods + library pie only (sibling of cards). Tooltip lives in #userchrome-download-cards-container. */
-#userchrome-download-pods-shell {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  bottom: 15px;
-  z-index: 4;
+/* Rename tooltip. Position is set in JS so the tail points at #library-button-badge. */
+#userchrome-download-cards-container {
+  --tidy-tooltip-radius: 10px;
+  position: fixed;
+  z-index: 99999;
   display: none;
-  opacity: 0;
-  visibility: hidden;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   pointer-events: none;
   box-sizing: border-box;
   -moz-window-dragging: no-drag;
-  min-width: 0;
-  height: 0;
+  width: max-content;
+  max-width: 280px;
   overflow: visible;
 }
 
-/* Master tooltip wrapper — in normal flow (no position:absolute). JS sets display:none whenever
-   the tooltip is hidden / auto-hidden; display:flex only while the tooltip is shown. */
-#userchrome-download-cards-container {
-  z-index: 5;
-  display: none;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0px;
-  pointer-events: none;
-  box-sizing: border-box;
-  -moz-window-dragging: no-drag;
-  min-width: 0;
-  width: 100%;
-  overflow: hidden;
-  contain: inline-size;
-}
-
-/* Master tooltip: stays out of the DOM layout until a live pod focuses it.
-   JS flips display to "flex" in updateUIForFocusedDownload when a pod becomes
-   focused, and back to "none" whenever there is no focused pod (incl. during
-   an in-progress download when only the pie is shown). */
+/* Hidden until a rename succeeds. JS then sets display and pins the card to the badge. */
 #userchrome-download-cards-container > .details-tooltip.master-tooltip {
   display: none;
+}
+
+/* Zen multiplies radii by --zen-squircle-value to suit its superellipse curve,
+   while mods such as Zia force round corners on everything. Pin both here so
+   the card keeps the same corner either way. The id beats those mod selectors. */
+#userchrome-download-cards-container > .details-tooltip.master-tooltip,
+#userchrome-download-cards-container > .details-tooltip.master-tooltip > .ai-sparkle-layer {
+  border-radius: var(--tidy-tooltip-radius) !important;
+  corner-shape: round !important;
 }
 
 /* Master tooltip - relative positioning for toolbar integration */
@@ -54,8 +38,7 @@
   background: color-mix(in srgb, var(--zen-primary-color) 40%, black 60%);
   backdrop-filter: blur(40px);
   -webkit-backdrop-filter: blur(10px);
-  border-radius: calc(10px * var(--zen-squircle-value, 1));
-  padding: 8px 5px 6px 7px;
+  padding: 8px 10px;
   color: white;
   z-index: 51;
   display: flex;
@@ -76,6 +59,7 @@
   font-size: 10px;
   color: rgba(255, 255, 255, 0.3) !important;
   line-height: 1.2;
+  padding-right: 28px;
 }
 
 .card-title {
@@ -85,11 +69,11 @@
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
-  padding-right: 5px;
+  padding-right: 28px;
   box-sizing: border-box;
   margin-top: 1px;
   margin-bottom: 1px;
-  mask-image: linear-gradient(to right, black 80%, transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 16px), transparent 100%);
   mask-size: 100% 100%;
   mask-position: left;
   mask-repeat: no-repeat;
@@ -105,9 +89,9 @@
   overflow: hidden;
   display: none;
   margin-bottom: 2px;
-  padding-right: 50px;
+  padding-right: 52px;
   box-sizing: border-box;
-  mask-image: linear-gradient(to right, black 80%, transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 16px), transparent 100%);
   mask-size: 100% 100%;
   mask-position: left;
   mask-repeat: no-repeat;
@@ -123,7 +107,7 @@
 .card-filesize {
   position: absolute;
   bottom: 8px;
-  right: 12px;
+  right: 10px;
   font-size: 9px;
   color: rgba(255, 255, 255, 0.3);
   display: none;
@@ -133,7 +117,7 @@
 .tooltip-buttons-container {
   position: absolute;
   top: 8px;
-  right: 12px;
+  right: 10px;
   display: flex;
   align-items: center;
 }
@@ -177,94 +161,6 @@
   left: 15px;
 }
 
-/* Pods row — inside #userchrome-download-pods-shell (shell already offset bottom: 15px) */
-#userchrome-pods-row-container {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-end;
-  justify-content: flex-start;
-  position: absolute;
-  height: 0px;
-  width: 100%;
-  left: 10px;
-  bottom: 0;
-  /* Row spans full width; only .download-pod (and similar) should capture pointers
-     so the library button / dismissed pile stay hoverable in empty band area. */
-  pointer-events: none;
-}
-
-/* Download pods */
-.download-pod {
-  position: absolute;
-  width: 25px !important;
-  height: 25px !important;
-  border-radius: calc(6px * var(--zen-squircle-value, 1));
-  background-color: transparent;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0px;
-  box-sizing: border-box;
-  flex-shrink: 0;
-  pointer-events: auto;
-  opacity: 0;
-  transform: scale(0.3) translateY(30px);
-  transition: opacity 0.4s ease-out,
-    transform 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55), z-index 0.3s ease-out;
-  backdrop-filter: blur(20px) !important;
-}
-
-.download-pod:not(.is-image-pod) {
-  background-color: transparent !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-}
-
-
-.download-pod.canceled {
-  &:before {
-    content: "";
-    background: rgba(0, 0, 0, 0.3);
-    display: flex;
-    position: absolute !important;
-    width: 100%;
-    height: 100%;
-    border-radius: calc(6px * var(--zen-squircle-value, 1));
-  }
-
-  &:after {
-    content: "×";
-    display: flex !important;
-    position: absolute !important;
-    font-size: 12px;
-    bottom: 5px !important;
-    left: 5px !important;
-  }
-}
-
-.card-preview-container {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border-radius: calc(6px * var(--zen-squircle-value, 1));
-  cursor: pointer;
-}
-
-.card-preview-container img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: opacity 0.3s ease, transform 0.3s ease;
-}
-
-.card-preview-container span {
-  font-size: 24px;
-}
-
 .card-close-button:hover,
 .card-undo-button:hover {
   color: #fff;
@@ -275,11 +171,6 @@
   opacity: 1;
   transform: scaleY(1) translateY(0);
   pointer-events: auto;
-}
-
-.download-pod[data-visible="true"] {
-  opacity: 1;
-  transform: scale(1) translateY(0);
 }
 
 @media (max-width: 400px) {
@@ -294,19 +185,9 @@
   align-items: flex-end;
 }
 
-#main-window[zen-right-side] #userchrome-pods-row-container,
-:root[zen-right-side] #userchrome-pods-row-container {
-  left: -160px;
-}
-
 #main-window[zen-right-side] #userchrome-download-cards-container .details-tooltip,
 :root[zen-right-side] #userchrome-download-cards-container .details-tooltip {
   transform-origin: bottom right;
-}
-
-#main-window[zen-right-side] #userchrome-download-pods-shell #userchrome-pods-row-container,
-:root[zen-right-side] #userchrome-download-pods-shell #userchrome-pods-row-container {
-  justify-content: flex-end;
 }
 
 /* AI Sparkle Effect */
@@ -320,7 +201,6 @@
   z-index: -1;
   /* Behind content but in front of background if possible, or just use mix-blend-mode */
   overflow: hidden;
-  border-radius: calc(10px * var(--zen-squircle-value, 1));
   opacity: 0;
   transition: opacity 0.5s ease;
 }
@@ -400,227 +280,3 @@
   height: 6px;
 }
 
-/* --- Zen Stuff: dismissed-pile fly animations (from zen-stuff.uc.js) --- */
-.zen-flyin-right {
-  animation: zen-flyin-right 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-.zen-flyin-left {
-  animation: zen-flyin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-.zen-flyout-right {
-  animation: zen-flyout-right 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-.zen-flyout-left {
-  animation: zen-flyout-left 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-@keyframes zen-flyin-right {
-  from {
-    transform: translateX(60px);
-  }
-  to {
-    transform: none;
-  }
-}
-
-@keyframes zen-flyin-left {
-  from {
-    transform: translateX(-60px);
-  }
-  to {
-    transform: none;
-  }
-}
-
-@keyframes zen-flyout-right {
-  from {
-    transform: none;
-  }
-  to {
-    transform: translateX(60px);
-  }
-}
-
-@keyframes zen-flyout-left {
-  from {
-    transform: none;
-  }
-  to {
-    transform: translateX(-60px);
-  }
-}
-
-/* --- Zen Stuff: dismissed pile rows (expanded list vs collapsed tab tiles) --- */
-:root {
-  --tidy-pile-row-height: 48px;
-  --tidy-pile-row-spacing: 6px;
-  --tidy-pile-pod-size: 36px;
-  --tidy-pile-base-offset: 8px;
-}
-
-:root:not([zen-sidebar-expanded="true"]) {
-  --tidy-pile-row-height: var(--tab-min-height);
-  --tidy-pile-row-spacing: calc(var(--tab-margin-block, 2px) * 2);
-  --tidy-pile-pod-size: var(--icon-size, 16px);
-}
-
-.dismissed-pod-row {
-  left: 0;
-  right: 0;
-  width: auto;
-  height: var(--tidy-pile-row-height);
-  gap: 10px;
-  padding: 0 8px;
-  border-radius: calc(6px * var(--zen-squircle-value, 1));
-}
-
-.dismissed-pod {
-  width: var(--tidy-pile-pod-size);
-  height: var(--tidy-pile-pod-size);
-  min-width: var(--tidy-pile-pod-size);
-  border-radius: calc(6px * var(--zen-squircle-value, 1));
-}
-
-:root:not([zen-sidebar-expanded="true"]) .dismissed-pod-row {
-  left: var(--zen-toolbox-padding);
-  right: var(--zen-toolbox-padding);
-  gap: 0;
-  padding: 0;
-  justify-content: center;
-  border-radius: var(--border-radius-medium);
-}
-
-:root:not([zen-sidebar-expanded="true"]) .dismissed-pod {
-  border-radius: var(--border-radius-medium);
-}
-
-:root:not([zen-sidebar-expanded="true"]) .dismissed-pod-text {
-  display: none !important;
-}
-
-/* --- Zen Stuff: pile mask + tabs wrapper (from zen-stuff-pile-dom) --- */
-arrowscrollbox.workspace-arrowscrollbox::after {
-  opacity: var(--zen-stuff-scrollbox-after-opacity, 1) !important;
-}
-
-@property --zen-pile-height {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: -50px;
-}
-
-#zen-tabs-wrapper {
-  mask-image: linear-gradient(
-    to top,
-    transparent var(--zen-pile-height),
-    black calc(var(--zen-pile-height) + 50px)
-  ) !important;
-  transition: --zen-pile-height 100ms ease !important;
-}
-
-#zen-media-controls-toolbar.zen-pile-expanded {
-  mask-image: linear-gradient(to top, transparent 50px, black 150px) !important;
-  -webkit-mask-image: linear-gradient(to top, transparent 50px, black 150px) !important;
-  mask-size: 100% 100%;
-  -webkit-mask-size: 100% 100%;
-  transition: mask-image 80ms ease, -webkit-mask-image 80ms ease;
-}
-
-/* --- Tidy Downloads: library pie arc (scoped; from tidy-downloads-library-pie) --- */
-/* The pie is a flex sibling of .download-pod inside #userchrome-pods-row-container.
-   It is the "progress" visual state of the pod, so it mirrors the pod's 25x25
-   footprint and sits at the leading edge of the row. */
-#zen-tidy-download-pie-host.zen-tidy-pie-host {
-  position: relative;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  box-sizing: border-box;
-  border-radius: 50%;
-  /* Beat Zen's *:not(.no-squircles) superellipse so these stay true circles */
-  --zen-squircle-value: 1;
-  corner-shape: round !important;
-  flex-shrink: 0;
-  pointer-events: none;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  background-color: transparent;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
-  scale: 0.9;
-}
-
-/* Dismissed pile: same host reparented into .dismissed-pod-preview */
-#zen-tidy-download-pie-host.zen-tidy-pie-host.zen-tidy-pie-host--pile-docked {
-  width: var(--tidy-pile-pod-size) !important;
-  height: var(--tidy-pile-pod-size) !important;
-  min-width: var(--tidy-pile-pod-size);
-  min-height: var(--tidy-pile-pod-size);
-  scale: 1;
-  border-radius: 50%;
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-
-#zen-tidy-download-pie-host.zen-tidy-pie-host--pile-docked .zen-tidy-pie-ring-svg {
-  width: calc(var(--tidy-pile-pod-size) - 4px);
-  height: calc(var(--tidy-pile-pod-size) - 4px);
-}
-
-#zen-tidy-download-pie-host.zen-tidy-pie-host .zen-tidy-pie-ring-svg {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 2;
-  pointer-events: none;
-  display: block;
-  overflow: visible;
-}
-
-/* White disc + primary-colored arrow (Zen download.svg mask) */
-#zen-tidy-download-pie-host.zen-tidy-pie-host .zen-download-arc-animation-inner-circle {
-  position: relative;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  flex: 1 1 auto;
-  box-sizing: border-box;
-  border-radius: 50%;
-  /* Beat Zen's *:not(.no-squircles) superellipse so these stay true circles */
-  --zen-squircle-value: 1;
-  corner-shape: round !important;
-  background-color: #fff;
-  flex-shrink: 0;
-  overflow: hidden;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
-}
-
-#zen-tidy-download-pie-host.zen-tidy-pie-host .zen-download-arc-animation-icon {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: var(--zen-primary-color, #0a84ff);
-  -webkit-mask: url("chrome://browser/content/zen-images/downloads/download.svg") no-repeat center;
-  -webkit-mask-size: 58%;
-  mask: url("chrome://browser/content/zen-images/downloads/download.svg") no-repeat center;
-  mask-size: 58%;
-  mask-position: center 52%;
-  -webkit-mask-position: center 52%;
-}
-
-@keyframes zen-tidy-pie-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
