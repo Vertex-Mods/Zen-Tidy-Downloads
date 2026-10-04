@@ -11,7 +11,6 @@
   if (location.href !== "chrome://browser/content/browser.xhtml") return;
 
   const TAIL_HALF = 8;
-  const GAP_ABOVE_BADGE = 10;
 
   window.zenTidyDownloadsTooltip = {
     /**
@@ -207,39 +206,27 @@
       }
 
       function place(tooltip, container) {
-        const anchor = anchorRect();
-        if (!anchor || !tooltip || !container) return;
-
-        const foot = document.getElementById("zen-sidebar-foot-buttons");
-        const footRect = foot?.getBoundingClientRect();
-        const inset = 8;
-        const boundsLeft = footRect ? footRect.left : inset;
-        const boundsWidth = footRect ? footRect.width : 260;
-        const maxWidth = Math.max(140, boundsWidth - inset * 2);
-        container.style.width = `${Math.round(maxWidth)}px`;
-        tooltip.style.width = "100%";
-
-        const height = tooltip.offsetHeight || 72;
-        const width = tooltip.offsetWidth || maxWidth;
-        const anchorCenter = anchor.left + anchor.width / 2;
-        let left = boundsLeft + (boundsWidth - width) / 2;
-        const minLeft = inset;
-        const maxLeft = Math.max(minLeft, window.innerWidth - width - inset);
-        left = Math.min(maxLeft, Math.max(minLeft, left));
-        const top = Math.max(8, anchor.top - GAP_ABOVE_BADGE - height);
-
-        container.style.position = "fixed";
-        container.style.left = `${Math.round(left)}px`;
-        container.style.top = `${Math.round(top)}px`;
+        window.zenTidyDownloadsDownloadUi?.mountTooltipContainer?.(container);
+        container.style.position = "relative";
+        container.style.left = "auto";
+        container.style.top = "auto";
         container.style.right = "auto";
         container.style.bottom = "auto";
+        container.style.width = "100%";
+        tooltip.style.width = "100%";
 
+        const anchor = anchorRect();
         const tail = tooltip.querySelector(".tooltip-tail");
-        if (tail) {
-          const tailLeft = Math.min(width - TAIL_HALF * 2 - 4, Math.max(4, anchorCenter - left - TAIL_HALF));
-          tail.style.left = `${Math.round(tailLeft)}px`;
-          tail.style.right = "auto";
-        }
+        if (!anchor || !tail) return;
+        const cardRect = tooltip.getBoundingClientRect();
+        if (cardRect.width <= 0) return;
+        const anchorCenter = anchor.left + anchor.width / 2;
+        const tailLeft = Math.min(
+          cardRect.width - TAIL_HALF * 2 - 4,
+          Math.max(4, anchorCenter - cardRect.left - TAIL_HALF)
+        );
+        tail.style.left = `${Math.round(tailLeft)}px`;
+        tail.style.right = "auto";
       }
 
       /**
@@ -247,10 +234,15 @@
        * would leave the card painted.
        */
       function setChromeHidden(tooltip, container, hidden) {
-        const value = hidden ? "hidden" : "visible";
-        container.style.visibility = value;
-        tooltip.style.visibility = value;
-        tooltip.style.pointerEvents = hidden ? "none" : "auto";
+        if (hidden) {
+          container.style.display = "none";
+          tooltip.style.pointerEvents = "none";
+          return;
+        }
+        container.style.display = "flex";
+        container.style.visibility = "visible";
+        tooltip.style.visibility = "visible";
+        tooltip.style.pointerEvents = "auto";
       }
 
       function show(tooltip, container, cardData, animate) {

@@ -30,7 +30,33 @@
     <div class="tooltip-tail"></div>
   `;
 
+  /**
+   * Keep the card in the sidebar column, directly after the media toolbar,
+   * so showing it pushes that toolbar up instead of painting over it.
+   * @param {HTMLElement} container
+   * @returns {boolean}
+   */
+  function mountTooltipContainer(container) {
+    const media = document.getElementById("zen-media-controls-toolbar");
+    if (media?.parentNode) {
+      if (container.previousElementSibling !== media) {
+        media.parentNode.insertBefore(container, media.nextSibling);
+      }
+      return true;
+    }
+    const toolbar = document.getElementById("TabsToolbar");
+    const foot = document.getElementById("zen-sidebar-foot-buttons");
+    if (!toolbar) return false;
+    if (foot?.parentNode === toolbar) {
+      if (container.nextElementSibling !== foot) toolbar.insertBefore(container, foot);
+    } else if (container.parentNode !== toolbar) {
+      toolbar.appendChild(container);
+    }
+    return true;
+  }
+
   window.zenTidyDownloadsDownloadUi = {
+    mountTooltipContainer,
     /**
      * @param {Object} ctx
      * @param {function} ctx.debugLog
@@ -51,8 +77,8 @@
         tooltip.className = "details-tooltip master-tooltip";
         tooltip.innerHTML = TOOLTIP_MARKUP;
         container.appendChild(tooltip);
-        (document.getElementById("main-window") || document.documentElement).appendChild(container);
       }
+      mountTooltipContainer(container);
 
       const closeBtn = tooltip.querySelector(".card-close-button");
       if (closeBtn && !closeBtn.dataset.tidyBound) {

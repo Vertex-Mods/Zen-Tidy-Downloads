@@ -1,8 +1,9 @@
-/* Rename tooltip. Position is set in JS so the tail points at #library-button-badge. */
+/* Rename tooltip. In the sidebar column, right after the media toolbar, so it
+   takes height and pushes that toolbar up. JS only moves the tail. */
 #userchrome-download-cards-container {
   --tidy-tooltip-radius: 10px;
-  position: fixed;
-  z-index: 99999;
+  position: relative;
+  z-index: 5;
   display: none;
   flex-direction: column;
   align-items: stretch;
@@ -10,8 +11,9 @@
   pointer-events: none;
   box-sizing: border-box;
   -moz-window-dragging: no-drag;
-  width: max-content;
-  max-width: 280px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 10px;
   overflow: visible;
 }
 
@@ -50,7 +52,7 @@
   transform-origin: bottom left;
   transition: opacity 0.3s ease-out 0.15s,
     transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1.1) 0.15s, width 0.2s ease-out;
-  margin-bottom: 14px;
+  margin-bottom: 6px;
   min-width: 0;
 }
 
