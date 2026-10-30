@@ -787,26 +787,8 @@ Instructions:
           }
 
           processState.phase = 'renaming';
-          let cleanName = suggestedName
-            .replace(/[^a-zA-Z0-9\-_\.\s]/g, "")
-            .trim()
-            .replace(/\s+/g, "-")
-            .replace(/-+/g, "-")
-            .toLowerCase();
 
-          if (/^[\-_.]+$/.test(cleanName) || cleanName.replace(/[\-_.]/g, "").length < 2) {
-            debugLog("AI suggested invalid name (separators only):", cleanName);
-            cleanName = "";
-          }
-
-          if (cleanName.length > getPref("extensions.downloads.max_filename_length", 70) - fileExtension.length) {
-            cleanName = cleanName.substring(0, getPref("extensions.downloads.max_filename_length", 70) - fileExtension.length);
-          }
-          if (fileExtension && !cleanName.toLowerCase().endsWith(fileExtension.toLowerCase())) {
-            cleanName = cleanName + fileExtension;
-          }
-
-          if (cleanName.length <= 2 || cleanName.toLowerCase() === currentFilename.toLowerCase()) {
+          if (suggestedName.length <= 2 || suggestedName.toLowerCase() === currentFilename.toLowerCase()) {
             debugLog("Skipping AI rename - name too short or same as original");
             showSimpleToast("Original name is suitable");
             renamedFiles.delete(downloadPath);
@@ -819,15 +801,15 @@ Instructions:
             return false;
           }
 
-          debugLog(`AI suggested renaming to: ${cleanName}`);
-          if (statusElToUpdate) statusElToUpdate.textContent = `Renaming to: ${cleanName}`;
+          debugLog(`AI suggested renaming to: ${suggestedName}`);
+          if (statusElToUpdate) statusElToUpdate.textContent = `Renaming to: ${suggestedName}`;
 
-          const success = await renameDownloadFileAndUpdateRecord(download, cleanName, key);
+          const success = await renameDownloadFileAndUpdateRecord(download, suggestedName, key);
 
           if (success) {
             const newPath = download.target.path;
             const pathSeparator = newPath.includes('\\') ? '\\' : '/';
-            const actualFilename = newPath.split(pathSeparator).pop() || cleanName;
+            const actualFilename = newPath.split(pathSeparator).pop() || suggestedName;
 
             download.aiName = actualFilename;
             renamedFiles.add(downloadPath);
